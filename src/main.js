@@ -366,7 +366,8 @@ function notice(html, kind = '', progress = null) {
   els.notice.hidden = false; els.notice.className = 'notice ' + kind;
   els.notice.innerHTML = html + (progress != null ? `<span class="bar"><i style="width:${Math.round(progress * 100)}%"></i></span><span class="mono small">${Math.round(progress * 100)}%</span>` : '');
 }
-const nextFrame = () => new Promise(r => requestAnimationFrame(() => r()));
+// Yield to the event loop with a timer, never rAF: rAF stops in background tabs and would freeze long analyses.
+const nextFrame = () => new Promise(r => setTimeout(r, 0));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function baseName(name) { return (name || 'video').replace(/\.[^.]+$/, ''); }
 function fmtBytes(b) { if (b < 1e6) return (b / 1e3).toFixed(0) + ' KB'; if (b < 1e9) return (b / 1e6).toFixed(1) + ' MB'; return (b / 1e9).toFixed(2) + ' GB'; }
@@ -726,7 +727,9 @@ function syncBgmPreview(playing) {
   bgmAudio.volume = clamp(b.volume * bgmGain * fade, 0, 1);
 }
 
+let lastTick = 0;
 function tick() {
+  lastTick = performance.now();
   const v = els.video; const segs = state.segments;
   if (state.shuttle.dir === -1 && state.hasMedia && state.videoPlayable) {
     const now = performance.now(); const dt = Math.min(0.1, (now - state.shuttle.last) / 1000); state.shuttle.last = now;
@@ -748,9 +751,10 @@ function tick() {
     }
     state.cur = t; followPlayhead(); updateTimeUI(); drawTimeline(); syncBgmPreview(true);
   }
-  requestAnimationFrame(tick);
 }
-requestAnimationFrame(tick);
+(function rafLoop() { tick(); requestAnimationFrame(rafLoop); })();
+// rAF pauses in background tabs; keep skipping removed segments (and BGM sync) alive on a timer meanwhile
+setInterval(() => { if (performance.now() - lastTick > 120) tick(); }, 60);
 
 // ===================== KEYBOARD (CapCut-compatible) =====================
 document.addEventListener('keyup', e => { const tag = (e.target && e.target.tagName) || ''; if (e.key === ' ' && tag === 'BUTTON') e.preventDefault(); });
