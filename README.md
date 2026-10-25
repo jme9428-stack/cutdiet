@@ -109,9 +109,14 @@ src/engine.js       Pro ↔ 로컬 엔진 클라이언트 (훅 설치, 엔진 �
 engine/server.mjs   로컬 엔진 HTTP 서버 (정적 파일 + /api)
 engine/lib/         ff(바이너리·프로브·인코더 감지) · analyze(엔벨로프) · graph(필터 그래프) · ass(자막) · asr(Whisper) · util(다이얼로그·설정) · fonts
 scripts/make-pro.mjs index.html → pro.html 생성
+scripts/shots.mjs   회원 설명서용 실제 화면 캡처 (헤드리스 크롬)
+scripts/manual-pdf.mjs docs/manual/manual.html → public/manual.pdf (사이트의 /manual.pdf)
+docs/manual/        회원용 사용 설명서 원고(HTML)와 화면 캡처
 start-engine.command / .bat  엔진 원클릭 실행
 tests/              단위·E2E 테스트
 ```
+
+회원용 PDF 설명서는 `https://cutdiet.vercel.app/manual.pdf` 로 배포되고, 가이드 탭에서도 열립니다. 내용을 고치려면 `docs/manual/manual.html`을 수정한 뒤 `node scripts/shots.mjs docs/manual/shots && node scripts/manual-pdf.mjs` 를 실행하고 푸시하세요.
 
 ## 브라우저 지원
 - 모든 기능: 최신 Chrome·Edge(데스크톱). Chrome 113+ 이면 WebGPU 가속(실험) 선택 가능.
