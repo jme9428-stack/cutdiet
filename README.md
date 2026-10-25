@@ -13,6 +13,7 @@
 | 타임라인 | 삭제 구간 건너뛰기 재생, 캡컷 단축키(J/K/L, Ctrl+B, Q/W, Delete, Ctrl+Z) |
 | 챕터 | 편집 후 시간으로 환산된 유튜브 챕터 텍스트 |
 | 배경음악 | 음악 파일 믹싱(음량·덕킹·페이드·반복), 미리듣기 동기화 |
+| 꾸미기 | 자막 굽기(글꼴·색·외곽선·박스·위치), 자동 줌(점프컷 숨기기)·구간 줌, 페이드·디졸브, 효과음 5종(합성)+내 파일, 이미지·텍스트 오버레이. 미리보기 = 렌더 결과 |
 | 숏츠 9:16 | 구간 선택 + 드래그 크롭 → 1080×1920 MP4 |
 | 썸네일 프레임 | 목소리가 힘 있는 순간 12장 추출 → JPG/zip |
 | AI 자막·NG | Whisper를 브라우저에서 실행 → SRT(편집 후/원본 시간), 추임새·반복(NG) 삭제 후보 |
@@ -57,6 +58,8 @@ src/main.js         편집기 본체 (무음 감지·타임라인·렌더링·�
 src/transcribe.js   AI 자막·NG 탭 (오디오 추출 → 워커 호출 → SRT·후보)
 src/asr.worker.js   Whisper 실행 워커 (@huggingface/transformers)
 src/textlogic.js    자막 줄 나누기·SRT·추임새/반복 감지 (순수 함수)
+src/decorate.js     꾸미기 탭 UI + 컴포지터(미리보기·렌더 공용)
+src/fxlogic.js      줌·페이드·디졸브·오버레이·효과음 합성 (순수 함수)
 src/pro.js          Pro 레이어 (큐·기본값·단축키·기록) + pro.css
 src/prologic.js     Pro 순수 로직 (키맵·기록 통계·CSV)
 scripts/make-pro.mjs index.html → pro.html 생성
