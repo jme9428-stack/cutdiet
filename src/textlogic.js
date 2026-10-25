@@ -16,7 +16,7 @@ export function levenshtein(a, b) {
 export function similarity(a, b) { const n = Math.max(a.length, b.length); return n ? 1 - levenshtein(a, b) / n : 1; }
 
 // chunks from transformers.js: [{text, timestamp:[s, e|null]}] -> words [{text, s, e}]
-export function wordsFromChunks(chunks) {
+export function wordsFromChunks(chunks, duration = Infinity) {
   const words = [];
   for (let i = 0; i < chunks.length; i++) {
     const c = chunks[i]; const text = String(c.text || '').trim(); if (!text) continue;
@@ -24,9 +24,21 @@ export function wordsFromChunks(chunks) {
     if (!isFinite(s)) s = words.length ? words[words.length - 1].e : 0;
     if (e == null || !isFinite(Number(e))) { const next = chunks.slice(i + 1).find(x => x.timestamp && isFinite(Number(x.timestamp[0]))); e = next ? Number(next.timestamp[0]) : s + 0.3; }
     e = Number(e); if (e <= s) e = s + 0.05;
+    if (s >= duration) continue; // Whisper sometimes emits text past the end of the audio
+    if (e > duration) e = duration;
     words.push({ text, s, e });
   }
   return words;
+}
+
+// Drop words placed where the loudness analysis found no speech (Whisper hallucinates phrases in silence)
+export function dropSilentWords(words, env, hop, threshold) {
+  if (!env || !env.length) return words;
+  return words.filter(w => {
+    const i0 = Math.max(0, Math.floor((w.s - 0.15) / hop)), i1 = Math.min(env.length, Math.ceil((Math.max(w.e, w.s + 0.1) + 0.15) / hop));
+    for (let i = i0; i < i1; i++) if (env[i] > threshold) return true;
+    return false;
+  });
 }
 
 const SENT_END_RE = /[.?!…]$|[다요죠까네][.?!]?$/;

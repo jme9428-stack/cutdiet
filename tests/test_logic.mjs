@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { normKo, similarity, wordsFromChunks, buildCaptionLines, buildSentences, buildSRT, srtTime, findFillers, findRepeats, mergeSpans, resampleInto } from '../src/textlogic.js';
+import { normKo, similarity, wordsFromChunks, dropSilentWords, buildCaptionLines, buildSentences, buildSRT, srtTime, findFillers, findRepeats, mergeSpans, resampleInto } from '../src/textlogic.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const main = fs.readFileSync(path.join(root, 'src/main.js'), 'utf8');
@@ -54,5 +54,12 @@ const f2 = findFillers(w2); assert.equal(f2.length, 1); assert.equal(f2[0].confi
 // resampler: 1 s of 48k constant 0.5 -> 16k
 const tgt = new Float32Array(16000 * 2); const src = [new Float32Array(48000).fill(0.5)]; const end = resampleInto(tgt, 16000, src, 48000, 0.5);
 assert.ok(Math.abs(tgt[8000 + 100] - 0.5) < 1e-6 && tgt[100] === 0 && end >= 23990, 'resample end ' + end);
+// clamp + hallucination filter
+const wc = wordsFromChunks([{ text: ' 구독과', timestamp: [17.8, 25.4] }, { text: ' 안녕', timestamp: [1.0, 7.9] }, { text: ' 끝', timestamp: [7.5, 9.0] }], 8);
+assert.equal(wc.length, 2); assert.equal(wc[1].e, 8);
+const envS = new Float32Array(400).fill(-80); for (let i = 50; i < 100; i++) envS[i] = -20; // speech only 1.0-2.0 s
+const kept = dropSilentWords([{ text: 'a', s: 1.1, e: 1.5 }, { text: 'b', s: 5.0, e: 5.4 }], envS, 0.02, -45);
+assert.equal(kept.length, 1); assert.equal(kept[0].text, 'a');
+assert.equal(dropSilentWords([{ text: 'x', s: 5, e: 5.2 }], null, 0.02, -45).length, 1);
 console.log('text logic ok');
 console.log('ALL SITE TESTS PASSED');

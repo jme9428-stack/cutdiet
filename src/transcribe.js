@@ -1,5 +1,5 @@
 // AI 자막·NG tab: extracts 16 kHz mono audio, runs Whisper in a Web Worker, builds SRT and removal candidates.
-import { wordsFromChunks, buildCaptionLines, buildSRT, findFillers, findRepeats, mergeSpans, resampleInto } from './textlogic.js';
+import { wordsFromChunks, dropSilentWords, buildCaptionLines, buildSRT, findFillers, findRepeats, mergeSpans, resampleInto } from './textlogic.js';
 
 const TARGET_SR = 16000;
 
@@ -67,13 +67,14 @@ export function initTranscribe(api) {
         w.postMessage({ type: 'run', audio, model, device, language: 'korean', duration: state.duration }, [audio.buffer]);
       });
       if (!ai.running) throw new Error('canceled');
-      ai.words = wordsFromChunks(result.chunks); ai.wordLevel = result.wordLevel !== false; ai.forFile = state.file ? state.file.name + ':' + state.file.size : null;
+      const raw = wordsFromChunks(result.chunks, state.duration); ai.words = dropSilentWords(raw, state.env, api.HOP, state.params.threshold - 6); ai.wordLevel = result.wordLevel !== false; ai.forFile = state.file ? state.file.name + ':' + state.file.size : null;
+      const dropped = raw.length - ai.words.length;
       if (!ai.words.length && result.text) ai.words = [{ text: result.text.trim(), s: 0, e: state.duration }];
       ai.lines = buildCaptionLines(ai.words);
       ai.cands = ai.wordLevel ? [...findFillers(ai.words), ...findRepeats(ai.words)].sort((a, b) => a.s - b.s) : findRepeats(ai.words);
       renderResults();
       const took = (performance.now() - t0) / 1000;
-      setProgress(1, `완료 · ${ai.lines.length}줄 · ${fmtClock(took, false)} 걸림${ai.wordLevel ? '' : ' · 이 모델은 단어 단위 시간을 주지 않아 추임새 감지는 건너뜀'}`);
+      setProgress(1, `완료 · ${ai.lines.length}줄 · ${fmtClock(took, false)} 걸림${dropped ? ` · 무음 구간의 환청 ${dropped}단어 제거` : ''}${ai.wordLevel ? '' : ' · 이 모델은 단어 단위 시간을 주지 않아 추임새 감지는 건너뜀'}`);
       toast(`자막 완료 · 삭제 후보 ${ai.cands.length}개`, 3000);
     } catch (e) {
       if (/canceled/.test(String(e.message))) { el.status.textContent = '중단했습니다'; }
