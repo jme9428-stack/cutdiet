@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>컷다이어트 Pro</title>
+<meta name="description" content="유튜브 영상의 무음·NG 구간을 자동으로 찾아 컷편집 초안을 만들고 MP4·숏츠·EDL·자막·챕터로 내보내는 무료 브라우저 편집 도구. 영상은 업로드되지 않습니다.">
+<meta name="theme-color" content="#2B4ED8">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Crect width=%2764%27 height=%2764%27 rx=%2714%27 fill=%27%232B4ED8%27/%3E%3Cpath d=%27M18 20h28v6H18zm0 18h18v6H18z%27 fill=%27%23fff%27/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one editing workbench — monitor + cut settings on top, a full-width timeline strip with transport,
+   and tabbed detail panels below. Phone: everything stacks. */
+:root{
+  --bg:#EEF1F4; --surface:#FFFFFF; --surface-2:#F5F7FA; --fg:#17202A; --muted:#5B6878; --line:#D3DAE2; --line-strong:#B8C2CE;
+  --accent:#2B4ED8; --accent-fg:#FFFFFF; --accent-soft:#E4EAFF;
+  --keep:#1F8F5F; --keep-soft:#DCF2E7; --remove:#D14A4A; --remove-soft:#FBE2E2;
+  --play:#E89B0C; --warn-soft:#FFF1D6; --monitor:#0B0D10; --overlay:rgba(23,32,42,.55);
+  --font-body:'IBM Plex Sans KR','Apple SD Gothic Neo','Malgun Gothic',system-ui,sans-serif;
+  --font-mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --radius:10px; --shadow:0 1px 2px rgba(23,32,42,.06);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F1216; --surface:#171B21; --surface-2:#1E242C; --fg:#E6EAF0; --muted:#8B96A5; --line:#2A313B; --line-strong:#3A4452;
+    --accent:#8FA6FF; --accent-fg:#0F1216; --accent-soft:#1F2A52;
+    --keep:#3DBA82; --keep-soft:#163A2B; --remove:#F06B6B; --remove-soft:#46201F;
+    --play:#F7B733; --warn-soft:#3B2E12; --monitor:#07090B; --overlay:rgba(0,0,0,.7); --shadow:none; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F1216; --surface:#171B21; --surface-2:#1E242C; --fg:#E6EAF0; --muted:#8B96A5; --line:#2A313B; --line-strong:#3A4452;
+  --accent:#8FA6FF; --accent-fg:#0F1216; --accent-soft:#1F2A52;
+  --keep:#3DBA82; --keep-soft:#163A2B; --remove:#F06B6B; --remove-soft:#46201F;
+  --play:#F7B733; --warn-soft:#3B2E12; --monitor:#07090B; --overlay:rgba(0,0,0,.7); --shadow:none; color-scheme:dark;
+}
+html,body{margin:0}img{max-width:100%}[hidden]{display:none!important}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1240px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:12px 56px}
+h1,h2,h3{margin:0;line-height:1.25;text-wrap:balance}
+h2{font-size:15px;font-weight:600}
+h3{font-size:14px;font-weight:600}
+p{margin:0}
+button{font:inherit;color:inherit}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+.small{font-size:12px}
+.hint{font-size:12px;color:var(--muted)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-block:6px 14px}
+.brand{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.brand .name{font-size:20px;font-weight:700;letter-spacing:-.01em}
+.brand .tag{font-size:12px;color:var(--muted)}
+.top-actions{display:flex;gap:6px;flex-wrap:wrap}
+
+.btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line-strong);background:var(--surface);border-radius:8px;padding:7px 12px;cursor:pointer;font-size:13px;font-weight:500;line-height:1.2;white-space:nowrap}
+.btn:hover{border-color:var(--accent)}
+.btn:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[tabindex]:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.btn.primary:hover{filter:brightness(1.06)}
+.btn.ghost{border-color:transparent;background:transparent}
+.btn.ghost:hover{background:var(--surface-2)}
+.btn.sm{padding:4px 9px;font-size:12px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.icon{padding:7px 9px;font-family:var(--font-mono)}
+.link{background:none;border:0;padding:0;color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px;font-family:inherit}
+.link.mono{font-family:var(--font-mono)}
+.pill{border:0;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:600;cursor:pointer;line-height:1.6}
+.pill.keep{background:var(--keep-soft);color:var(--keep)}
+.pill.remove{background:var(--remove-soft);color:var(--remove)}
+.chip{display:inline-block;border-radius:6px;padding:1px 7px;font-size:11px;font-weight:600;background:var(--surface-2);color:var(--muted);border:1px solid var(--line);white-space:nowrap}
+.chip.ok{background:var(--keep-soft);color:var(--keep);border-color:transparent}
+.chip.warn{background:var(--warn-soft);color:var(--play);border-color:transparent}
+kbd{font-family:var(--font-mono);font-size:11px;border:1px solid var(--line-strong);border-bottom-width:2px;border-radius:4px;padding:0 5px;color:var(--fg);background:var(--surface)}
+
+.drop{display:block;border:1.5px dashed var(--line-strong);border-radius:var(--radius);background:var(--surface);padding:22px 18px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
+.drop:hover,.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.drop .big{font-size:16px;font-weight:600}
+.drop .steps{display:flex;justify-content:center;gap:18px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--muted)}
+.drop .steps span b{color:var(--fg);font-family:var(--font-mono);margin-right:4px}
+.drop input{display:none}
+.filebar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:8px 12px}
+.filebar .fname{font-weight:600;overflow-wrap:anywhere}
+.filebar .fmeta{color:var(--muted);font-size:12px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+.notice{margin-top:10px;border-radius:8px;padding:10px 12px;font-size:13px;background:var(--surface-2);border:1px solid var(--line);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.notice.warn{background:var(--warn-soft);border-color:transparent}
+.notice.err{background:var(--remove-soft);border-color:transparent}
+.notice .bar{flex:1 1 160px;height:6px;border-radius:3px;background:var(--line);overflow:hidden;min-width:0}
+.notice .bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+
+.bench{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(280px,1fr);gap:14px;margin-top:14px}
+@media (max-width:860px){.bench{grid-template-columns:1fr}}
+.monitor{position:relative;background:var(--monitor);border-radius:var(--radius);overflow:hidden;aspect-ratio:16/9;max-width:100%;min-height:180px;display:flex;align-items:center;justify-content:center;touch-action:none}
+.monitor video{width:100%;height:100%;object-fit:contain;display:block;background:var(--monitor)}
+.monitor-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:20px;text-align:center;color:#C8D0DA}
+.monitor-empty .me-title{font-size:15px;font-weight:600;color:#F2F5F8}
+.monitor-empty p{font-size:12px;max-width:34ch}
+.monitor-hud{position:absolute;left:10px;top:10px;display:flex;gap:6px;flex-wrap:wrap;pointer-events:none}
+.monitor-hud span{background:rgba(0,0,0,.55);color:#F2F5F8;font-size:11px;font-family:var(--font-mono);padding:2px 8px;border-radius:5px}
+.crop-overlay{position:absolute;inset:0;pointer-events:none}
+.crop-frame{position:absolute;border:2px solid #FFD166;box-shadow:0 0 0 4000px rgba(0,0,0,.55);border-radius:4px;cursor:grab;pointer-events:auto;display:flex;align-items:flex-end;justify-content:center;touch-action:none}
+.crop-frame:active{cursor:grabbing}
+.crop-frame span{background:#FFD166;color:#1a1300;font-size:11px;font-weight:700;padding:1px 8px;border-radius:4px 4px 0 0;font-family:var(--font-mono)}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);min-width:0}
+.panel-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.presets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.preset{border:1px solid var(--line-strong);background:var(--surface);border-radius:8px;padding:8px 6px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:0}
+.preset b{font-size:13px;font-weight:600}
+.preset span{font-size:11px;color:var(--muted);text-align:center;line-height:1.3}
+.preset[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
+.preset-note{font-size:12px;color:var(--muted);margin-top:8px;min-height:1.4em}
+details.adv{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+details.adv summary{cursor:pointer;font-size:13px;font-weight:500;display:flex;justify-content:space-between;gap:8px;list-style:none}
+details.adv summary::-webkit-details-marker{display:none}
+details.adv summary::after{content:"▸";color:var(--muted)}
+details.adv[open] summary::after{content:"▾"}
+.ctl{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;margin-top:8px}
+.ctl label{font-size:13px;font-weight:500}
+.ctl .val{font-family:var(--font-mono);font-size:12px;color:var(--muted);text-align:right;min-width:5ch}
+.ctl input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--accent);margin:2px 0}
+.ctl .desc{grid-column:1/-1;font-size:11.5px;color:var(--muted);line-height:1.4}
+.ctl-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:14px}
+.stat{background:var(--surface-2);border-radius:8px;padding:8px 10px;min-width:0}
+.stat .k{font-size:11px;color:var(--muted)}
+.stat .v{font-family:var(--font-mono);font-size:18px;font-weight:600;line-height:1.3;white-space:nowrap}
+.stat .v.good{color:var(--keep)}
+.stat .s{font-size:11px;color:var(--muted)}
+
+.timeline{margin-top:14px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px 8px;box-shadow:var(--shadow)}
+.transport{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;margin-bottom:8px}
+.tgroup{display:flex;align-items:center;gap:4px}
+.tc{font-family:var(--font-mono);font-size:13px;display:flex;gap:6px;align-items:baseline;flex-wrap:wrap}
+.tc .cur{color:var(--play);font-weight:600}
+.tc .out{color:var(--muted);font-size:12px}
+.speed{font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--play);min-width:5ch}
+.switch{display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;user-select:none}
+.switch input{accent-color:var(--accent);width:15px;height:15px;margin:0}
+.zoom{margin-left:auto}
+.zoom .btn.icon{min-width:32px;justify-content:center}
+#zoomLabel{min-width:4ch;text-align:center;font-size:12px;color:var(--muted)}
+canvas#tl{display:block;width:100%;height:140px;border-radius:8px;background:var(--surface-2);border:1px solid var(--line);touch-action:pan-y;cursor:crosshair;max-width:100%}
+canvas#tl.resize{cursor:col-resize}
+.scroller{width:100%;margin:6px 0 0;accent-color:var(--accent);height:14px}
+.legend{display:flex;gap:10px 16px;flex-wrap:wrap;margin-top:6px;font-size:11.5px;color:var(--muted)}
+.legend .sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:4px}
+
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-top:18px;overflow-x:auto}
+.tab{border:0;background:none;padding:9px 13px;font-size:13.5px;font-weight:500;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+.tab[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--accent)}
+.tabpanel{padding-top:14px}
+.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+select,input[type=text]{font:inherit;font-size:13px;color:var(--fg);background:var(--surface);border:1px solid var(--line-strong);border-radius:7px;padding:6px 8px}
+.tbl{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{font-size:11.5px;color:var(--muted);font-weight:600;text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:middle;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+tr.current td{background:var(--accent-soft)}
+tr.is-remove td.time{color:var(--muted)}
+td.ttl input{width:100%;min-width:160px;font:inherit;font-size:13px;color:var(--fg);background:transparent;border:1px solid transparent;border-radius:6px;padding:4px 6px}
+td.ttl input:hover{border-color:var(--line)}
+td.ttl input:focus{border-color:var(--accent);background:var(--surface)}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.card h3{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.card pre{margin:0;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:10px;font-family:var(--font-mono);font-size:11.5px;line-height:1.5;overflow-x:auto;white-space:pre;max-height:180px}
+.card textarea{width:100%;min-height:120px;resize:vertical;font-family:var(--font-mono);font-size:12.5px;line-height:1.5;color:var(--fg);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:10px}
+.field{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px}
+.field input[type=range]{flex:1 1 120px;min-width:100px;accent-color:var(--accent)}
+.progress{height:8px;border-radius:4px;background:var(--line);overflow:hidden}
+.progress i{display:block;height:100%;width:0;background:var(--accent);transition:width .25s}
+.steps-note{font-size:12.5px;color:var(--muted);line-height:1.55}
+.steps-note b{color:var(--fg);font-weight:600}
+.steps-note ol,.steps-note ul{margin:4px 0 0;padding-left:18px}
+.thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+.thumb{background:var(--surface);border:1px solid var(--line);border-radius:8px;overflow:hidden;display:flex;flex-direction:column;min-width:0}
+.thumb canvas{width:100%;height:auto;display:block;background:var(--monitor);cursor:pointer}
+.thumb .tmeta{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:6px 8px;font-size:12px}
+.thumb.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+
+.guide{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.guide .card p,.guide .card li{font-size:13px}
+.guide ol,.guide ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
+.guide .card li b{font-weight:600}
+.kbds{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:13px;align-items:center}
+.kbds kbd{justify-self:start;font-size:11.5px;padding:1px 6px;background:var(--surface-2)}
+
+.onb{position:fixed;inset:0;background:var(--overlay);display:flex;align-items:center;justify-content:center;padding:max(16px,env(safe-area-inset-left,0px));z-index:30}
+.onb-card{background:var(--surface);color:var(--fg);border-radius:14px;max-width:520px;width:100%;padding:22px 22px 18px;box-shadow:0 20px 60px rgba(0,0,0,.35);display:flex;flex-direction:column;gap:14px;max-height:calc(100vh - 32px);overflow:auto}
+.onb .eyebrow{font-size:12px;color:var(--accent);font-weight:600;letter-spacing:.04em}
+.onb h2{font-size:20px;font-weight:700}
+.onb-steps{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px;counter-reset:s}
+.onb-steps li{display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:start;font-size:13.5px;line-height:1.5}
+.onb-steps li::before{counter-increment:s;content:counter(s);width:28px;height:28px;border-radius:50%;background:var(--accent);color:var(--accent-fg);font-family:var(--font-mono);font-weight:600;display:flex;align-items:center;justify-content:center;font-size:13px}
+.onb-steps b{display:block;font-weight:600}
+.onb .foot{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+
+#toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(20px);background:var(--fg);color:var(--bg);padding:9px 14px;border-radius:8px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;max-width:calc(100vw - 32px);z-index:40;text-align:center}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+@media (max-width:600px){
+  .stat .v{font-size:16px}
+  .zoom{margin-left:0}
+  canvas#tl{height:120px}
+  .presets{grid-template-columns:1fr 1fr}
+}
+</style>
+</head>
+<body class="pro">
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <span class="name">컷다이어트 <span class="chip ok">Pro</span></span>
+      <span class="tag">유튜브 컷편집 어시스턴트 · 무음·버벅임 구간 자동 컷</span>
+    </div>
+    <div class="top-actions">
+      <button class="btn sm" id="btnLoadProject">프로젝트 불러오기</button>
+      <button class="btn sm" id="btnSaveProject">프로젝트 저장</button>
+      <button class="btn sm ghost" id="btnHelp">사용법</button>
+      <input type="file" id="projectInput" accept=".json,application/json" class="sr" tabindex="-1">
+    </div>
+  </header>
+
+  <div class="drop" id="drop" role="button" tabindex="0" aria-label="영상 파일 선택">
+    <div class="big">영상 파일을 여기에 놓거나 클릭해서 선택</div>
+    <div class="hint" style="margin-top:4px">MP4 · MOV · WebM · MKV · 음성만 있는 파일도 가능 · 영상은 업로드되지 않고 이 브라우저 안에서만 처리됩니다</div>
+    <div class="steps"><span><b>1</b>영상 선택</span><span><b>2</b>자동으로 잡힌 컷 확인·수정</span><span><b>3</b>MP4 또는 편집 프로그램용 파일로 내보내기</span></div>
+    <input type="file" id="fileInput" accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.m4a,.mp3,.wav">
+  </div>
+  <div class="filebar" id="filebar" hidden>
+    <div><span class="fname" id="fileName"></span> <span class="fmeta" id="fileMeta"></span></div>
+    <div class="row"><button class="btn sm" id="btnOtherFile">다른 파일 열기</button></div>
+  </div>
+
+  <div id="notice" hidden class="notice"></div>
+  <section class="probar">
+    <div class="card">
+      <h3><span>큐 · 자동 처리</span><span class="chip" id="queueChip">비어 있음</span></h3>
+      <div class="row">
+        <button class="btn primary sm" id="btnQueueAdd">영상 여러 개 추가</button>
+        <button class="btn sm" id="btnRunQueue" disabled title="Shift+Enter">큐 실행</button>
+        <button class="btn sm" id="btnStopQueue" hidden>중지</button>
+        <button class="btn sm ghost" id="btnClearQueue">비우기</button>
+        <input type="file" id="queueInput" class="sr" tabindex="-1" multiple accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.m4a,.mp3,.wav">
+      </div>
+      <div class="tasks">
+        <span class="muted small">파일마다:</span>
+        <label><input type="checkbox" id="task_render">MP4 렌더</label>
+        <label><input type="checkbox" id="task_shorts">숏츠 9:16</label>
+        <label><input type="checkbox" id="task_thumbs">썸네일 zip</label>
+        <label><input type="checkbox" id="task_project">프로젝트 저장</label>
+      </div>
+      <div class="queue" id="queue"></div>
+    </div>
+    <div class="card">
+      <h3><span>채널 기본값</span><button class="btn sm" id="btnSnapDefaults" title="지금 화면의 프리셋·화질·크롭 위치·음악 음량을 기본값으로">지금 설정을 기본값으로</button></h3>
+      <div class="defaults">
+        <label for="defPreset">프리셋</label><select id="defPreset"><option value="lecture">강의형</option><option value="talk">토크·인터뷰</option><option value="vlog">브이로그</option></select>
+        <label for="defQuality">화질</label><select id="defQuality"><option value="high">고화질 · 원본</option><option value="std">표준 · 원본</option><option value="1080">1080p</option><option value="720">720p</option></select>
+      </div>
+      <p class="hint">새 영상을 열면 이 값이 자동 적용됩니다. 배경음악 파일은 보안상 브라우저에 저장되지 않으니 세션마다 다시 고르세요(음량·덕킹 설정은 기억됩니다).</p>
+      <div class="row"><button class="btn sm" id="btnKeySheet" title="/">단축키 보기 (/)</button><span class="hint">탭 전환 1~9 · 큐 실행 Shift+Enter · 렌더 Ctrl+Enter · 썸네일 Shift+T</span></div>
+    </div>
+  </section>
+
+
+  <section class="bench">
+    <div class="monitor" id="monitor">
+      <video id="video" playsinline preload="metadata"></video>
+      <div class="monitor-empty" id="monitorEmpty">
+        <div class="me-title">영상을 불러오면 여기서 컷 결과를 미리 봅니다</div>
+        <p>삭제 구간을 자동으로 건너뛰며 재생돼서, 내보내기 전에 완성본의 흐름을 들어볼 수 있습니다.</p>
+      </div>
+      <div class="crop-overlay" id="cropOverlay" hidden><div class="crop-frame" id="cropFrame" title="드래그해서 크롭 위치 이동"><span>9:16</span></div></div>
+      <div class="monitor-hud"><span id="hudState">예시 데이터</span><span id="hudRes" hidden></span></div>
+    </div>
+
+    <aside class="panel">
+      <div class="panel-head"><h2>자동 컷 설정</h2><span class="chip" id="engineChip">엔진 확인 중</span></div>
+      <div class="presets" role="group" aria-label="프리셋">
+        <button class="preset" data-preset="lecture" aria-pressed="true"><b>강의형</b><span>토킹헤드 · 화면 녹화</span></button>
+        <button class="preset" data-preset="talk" aria-pressed="false"><b>토크·인터뷰</b><span>대화 간격은 남김</span></button>
+        <button class="preset" data-preset="vlog" aria-pressed="false"><b>브이로그</b><span>현장음 · 보수적</span></button>
+      </div>
+      <p class="preset-note" id="presetNote"></p>
+      <details class="adv" id="adv">
+        <summary><span>세부 설정</span><span class="mono muted small" id="advSummary"></span></summary>
+        <div class="ctl">
+          <label for="rngThreshold">말소리 기준 (dB)</label><span class="val" id="valThreshold">-42 dB</span>
+          <input type="range" id="rngThreshold" min="-70" max="-20" step="1" value="-42">
+          <span class="desc">이 값보다 작은 소리는 무음으로 봅니다. 숨소리·잡음까지 잡힌다면 낮추고(-50), 말이 끊겨 잘린다면 올리세요(-35).</span>
+        </div>
+        <div class="ctl">
+          <label for="rngMinSilence">무음으로 볼 최소 길이</label><span class="val" id="valMinSilence">0.60 s</span>
+          <input type="range" id="rngMinSilence" min="0.2" max="2" step="0.05" value="0.6">
+          <span class="desc">이보다 짧은 쉼은 자연스러운 호흡으로 보고 남깁니다.</span>
+        </div>
+        <div class="ctl">
+          <label for="rngPad">말 앞뒤 여백</label><span class="val" id="valPad">0.15 s</span>
+          <input type="range" id="rngPad" min="0" max="0.5" step="0.01" value="0.15">
+          <span class="desc">컷이 너무 붙어 숨 가쁘면 늘리세요. 첫 음절이 잘릴 때도 여백을 늘리면 해결됩니다.</span>
+        </div>
+        <div class="ctl-actions">
+          <button class="btn sm" id="btnAuto">추천 기준값으로</button>
+          <button class="btn sm primary" id="btnReanalyze" hidden>다시 분석 (수동 수정 초기화)</button>
+        </div>
+        <p class="hint" id="dirtyHint" hidden style="margin-top:8px">수동으로 수정한 구간이 있어 설정이 자동 적용되지 않습니다. 위 버튼으로 다시 적용할 수 있습니다.</p>
+      </details>
+      <div class="stats">
+        <div class="stat"><div class="k">원본 길이</div><div class="v" id="stOrig">–</div></div>
+        <div class="stat"><div class="k">편집 후 길이</div><div class="v good" id="stAfter">–</div></div>
+        <div class="stat"><div class="k">줄어드는 시간</div><div class="v" id="stSaved">–</div><div class="s" id="stSavedPct"></div></div>
+        <div class="stat"><div class="k">삭제 구간</div><div class="v" id="stCuts">–</div><div class="s" id="stCutsNote"></div></div>
+      </div>
+    </aside>
+  </section>
+
+  <section class="timeline">
+    <div class="transport">
+      <div class="tgroup">
+        <button class="btn icon" id="btnPrevCut" title="이전 컷으로 ([)">|◀</button>
+        <button class="btn icon" id="btnRev" title="뒤로 재생 · 다시 누르면 2배속 (J)">◀◀</button>
+        <button class="btn primary" id="btnPlay" title="재생/일시정지 (Space · K)">▶ 재생</button>
+        <button class="btn icon" id="btnFwd" title="앞으로 재생 · 다시 누르면 2배속 (L)">▶▶</button>
+        <button class="btn icon" id="btnNextCut" title="다음 컷으로 (])">▶|</button>
+        <span class="speed" id="speedBadge"></span>
+      </div>
+      <div class="tc"><span class="cur" id="tcCur">00:00.0</span><span class="muted">/</span><span id="tcDur">00:00.0</span><span class="out">편집 후 <span id="tcOut">00:00.0</span></span></div>
+      <label class="switch" title="끄면 삭제 구간도 그대로 재생합니다"><input type="checkbox" id="chkSkip" checked>삭제 구간 건너뛰기</label>
+      <div class="tgroup">
+        <button class="btn sm" id="btnToggle" title="현재 위치 구간을 유지↔삭제 (X)">유지↔삭제</button>
+        <button class="btn sm" id="btnSplit" title="현재 위치에서 구간 나누기 (S · Ctrl+B)">분할</button>
+        <button class="btn sm" id="btnTrimL" title="재생 위치 왼쪽(앞부분) 삭제 (Q)">◁ 앞 삭제</button>
+        <button class="btn sm" id="btnTrimR" title="재생 위치 오른쪽(뒷부분) 삭제 (W)">뒤 삭제 ▷</button>
+        <button class="btn sm" id="btnChapter" title="현재 위치에 챕터 추가 (M)">챕터</button>
+      </div>
+      <div class="tgroup">
+        <button class="btn icon sm" id="btnUndo" title="되돌리기 (Ctrl+Z)" disabled>↶</button>
+        <button class="btn icon sm" id="btnRedo" title="다시 실행 (Ctrl+Shift+Z)" disabled>↷</button>
+      </div>
+      <div class="tgroup zoom">
+        <button class="btn icon sm" id="btnZoomOut" title="축소">−</button>
+        <span id="zoomLabel" class="mono">1×</span>
+        <button class="btn icon sm" id="btnZoomIn" title="확대">+</button>
+        <button class="btn sm" id="btnZoomFit">전체</button>
+      </div>
+    </div>
+    <canvas id="tl" tabindex="0" aria-label="타임라인. 클릭해 이동, 경계를 드래그해 조정, 더블클릭으로 유지와 삭제 전환"></canvas>
+    <input type="range" class="scroller" id="scroller" min="0" max="0" step="0.01" value="0" aria-label="타임라인 스크롤">
+    <div class="legend">
+      <span><i class="sw" style="background:var(--keep)"></i>유지</span>
+      <span><i class="sw" style="background:var(--remove)"></i>삭제</span>
+      <span><i class="sw" style="background:var(--play)"></i>재생 위치</span>
+      <span>클릭 이동 · 경계 드래그 · 더블클릭 유지↔삭제 · <kbd>Ctrl</kbd>+휠 확대</span>
+      <span><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> 뒤로·멈춤·앞으로(2배속) <kbd>Q</kbd>앞 삭제 <kbd>W</kbd>뒤 삭제 <kbd>Ctrl</kbd>+<kbd>B</kbd> 분할 <kbd>X</kbd> 전환 <kbd>M</kbd> 챕터 <kbd>Ctrl</kbd>+<kbd>Z</kbd> 되돌리기</span>
+    </div>
+  </section>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" data-tab="segments" aria-selected="true">구간 목록</button>
+    <button class="tab" role="tab" data-tab="chapters" aria-selected="false">챕터</button>
+    <button class="tab" role="tab" data-tab="bgm" aria-selected="false">배경음악</button>
+    <button class="tab" role="tab" data-tab="shorts" aria-selected="false">숏츠 9:16</button>
+    <button class="tab" role="tab" data-tab="thumbs" aria-selected="false">썸네일 프레임</button>
+    <button class="tab" role="tab" data-tab="ai" aria-selected="false">AI 자막·NG</button>
+    <button class="tab" role="tab" data-tab="export" aria-selected="false">내보내기</button>
+    <button class="tab" role="tab" data-tab="log" aria-selected="false">기록</button>
+    <button class="tab" role="tab" data-tab="keys" aria-selected="false">단축키</button>
+    <button class="tab" role="tab" data-tab="guide" aria-selected="false">가이드</button>
+  </nav>
+
+  <section class="tabpanel" id="tab-segments" role="tabpanel">
+    <div class="toolbar">
+      <select id="segFilter" aria-label="구간 필터">
+        <option value="all">전체 구간</option>
+        <option value="remove">삭제 구간만</option>
+        <option value="keep">유지 구간만</option>
+      </select>
+      <span class="hint" id="segCount"></span>
+      <span style="flex:1"></span>
+      <button class="btn sm" id="btnReviveShort" title="짧은 삭제 구간은 호흡일 때가 많습니다">0.4초 미만 삭제 구간 되살리기</button>
+      <button class="btn sm" id="btnKeepAll">모두 유지</button>
+    </div>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>#</th><th>상태</th><th>시작 – 끝</th><th>길이</th><th>편집 후 위치</th></tr></thead>
+        <tbody id="segBody"></tbody>
+      </table>
+    </div>
+    <p class="hint" style="margin-top:8px">상태 버튼을 누르면 유지↔삭제가 바뀝니다. 시작 시간을 누르면 그 위치로 이동합니다. 경계를 미세 조정하려면 타임라인에서 경계선을 드래그하세요.</p>
+  </section>
+
+  <section class="tabpanel" id="tab-chapters" role="tabpanel" hidden>
+    <div class="toolbar">
+      <button class="btn sm primary" id="btnChapterHere">현재 위치에 챕터 추가 (M)</button>
+      <span class="hint">챕터 시간은 <b>편집 후</b> 기준으로 자동 환산됩니다. 유튜브 설명란에 그대로 붙여 넣으세요.</span>
+    </div>
+    <div class="cards">
+      <div class="card" style="gap:6px">
+        <div class="tbl">
+          <table>
+            <thead><tr><th>제목</th><th>원본 시간</th><th>편집 후</th><th></th></tr></thead>
+            <tbody id="chBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <h3>유튜브 설명란용 타임스탬프</h3>
+        <textarea id="chText" readonly aria-label="챕터 타임스탬프 텍스트"></textarea>
+        <div class="row"><button class="btn sm primary" id="btnCopyChapters">복사</button><span class="hint" id="chValid"></span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="tabpanel" id="tab-bgm" role="tabpanel" hidden>
+    <div class="cards">
+      <div class="card">
+        <h3>배경음악 파일 <span class="chip" id="bgmChip">없음</span></h3>
+        <p class="steps-note">MP3·M4A·WAV 등 음악 파일을 고르면 <b>편집 후 영상 전체</b>에 깔립니다(컷을 건너뛰어도 음악은 끊기지 않고 이어집니다). 미리보기 재생에서도 함께 들립니다. 음악은 MP4 렌더링·숏츠·FFmpeg 스크립트에 반영되고, EDL에는 들어가지 않습니다.</p>
+        <div class="row">
+          <button class="btn primary" id="btnBgmPick">음악 파일 선택</button>
+          <button class="btn" id="btnBgmClear" hidden>음악 제거</button>
+          <input type="file" id="bgmInput" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.flac" class="sr" tabindex="-1">
+        </div>
+        <p class="hint" id="bgmInfo">15분 이하의 음악 파일을 권장합니다. 저작권이 확인된 음원(유튜브 오디오 보관함 등)을 쓰세요.</p>
+        <div class="progress" id="bgmProgress" hidden><i></i></div>
+      </div>
+      <div class="card">
+        <h3>음량과 느낌</h3>
+        <div class="field"><label for="bgmVol">음량</label><input type="range" id="bgmVol" min="0" max="60" step="1" value="18"><span class="mono small" id="bgmVolVal">18%</span></div>
+        <label class="switch"><input type="checkbox" id="bgmDuck" checked>말할 때 자동으로 음악 줄이기 (덕킹)</label>
+        <div class="field"><label for="bgmFade">시작·끝 페이드</label><input type="range" id="bgmFade" min="0" max="5" step="0.5" value="1.5"><span class="mono small" id="bgmFadeVal">1.5 s</span></div>
+        <label class="switch"><input type="checkbox" id="bgmLoop" checked>영상이 음악보다 길면 반복</label>
+        <p class="hint">기준: 내레이션 아래 깔리는 음악은 15~25%가 무난합니다. 덕킹을 켜면 말하는 동안 음악이 30% 수준으로 내려가고, 쉬는 구간에서 다시 올라옵니다.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="tabpanel" id="tab-shorts" role="tabpanel" hidden>
+    <div class="cards">
+      <div class="card">
+        <h3>① 숏츠로 만들 구간</h3>
+        <div class="field"><span class="muted">시작</span><span class="mono" id="shIn">–</span><button class="btn sm" id="btnShInHere">현재 위치로</button></div>
+        <div class="field"><span class="muted">끝</span><span class="mono" id="shOut">–</span><button class="btn sm" id="btnShOutHere">현재 위치로</button><button class="btn sm ghost" id="btnShAll">처음부터 60초</button></div>
+        <p class="hint" id="shInfo"></p>
+        <div class="row"><button class="btn sm" id="btnShPreview">이 구간만 재생</button></div>
+      </div>
+      <div class="card">
+        <h3>② 세로 크롭 위치</h3>
+        <p class="steps-note">미리보기 화면의 노란 9:16 틀을 <b>드래그</b>하거나 아래 슬라이더로 옮기세요. 얼굴이 틀 안에 들어오게 맞추면 됩니다.</p>
+        <div class="field"><label for="cropPos">위치</label><input type="range" id="cropPos" min="0" max="100" step="1" value="50"><span class="mono small" id="cropPosVal">가운데</span></div>
+        <label class="switch"><input type="checkbox" id="chkUpscale" checked>출력을 1080×1920으로 맞추기</label>
+        <p class="hint" id="cropInfo"></p>
+      </div>
+      <div class="card">
+        <h3>③ 숏츠 MP4 만들기 <span class="chip" id="shortsChip">확인 중</span></h3>
+        <p class="hint" id="shEstimate"></p>
+        <div class="row">
+          <button class="btn primary" id="btnShortsRender">숏츠 MP4 만들기</button>
+          <button class="btn" id="btnShortsCancel" hidden>중단</button>
+          <button class="btn" id="btnShortsResave" hidden>다시 저장</button>
+        </div>
+        <div class="progress" id="shortsProgress" hidden><i></i></div>
+        <p class="hint" id="shortsStatus"></p>
+        <p class="hint">삭제 구간은 숏츠에서도 빠지고, 배경음악을 설정했다면 같이 들어갑니다. 자막·스티커는 캡컷에서 올리세요. 유튜브 쇼츠는 세로 영상 기준 최대 3분입니다.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="tabpanel" id="tab-thumbs" role="tabpanel" hidden>
+    <div class="toolbar">
+      <button class="btn primary" id="btnThumbs">후보 프레임 뽑기</button>
+      <button class="btn" id="btnThumbNow">현재 프레임 저장 (JPG)</button>
+      <button class="btn" id="btnThumbsZip" hidden>후보 전체 zip 저장</button>
+      <span class="hint" id="thumbsInfo">목소리가 가장 힘 있게 나오는 순간(표정이 살아 있는 구간)을 골라 12장을 보여줍니다. 썸네일 작업의 출발점으로 쓰세요.</span>
+    </div>
+    <div class="thumbs" id="thumbGrid"></div>
+  </section>
+
+  <section class="tabpanel" id="tab-ai" role="tabpanel" hidden>
+    <div class="cards">
+      <div class="card">
+        <h3>① 자막 만들기 <span class="chip" id="aiChip">내 PC에서 처리 · 무료</span></h3>
+        <p class="steps-note">음성 인식 모델이 <b>내 브라우저 안에서</b> 돌아갑니다. 서버도 API 비용도 없고, 음성이 밖으로 나가지 않습니다. 처음 한 번 모델 파일을 내려받고(이후 저장됨), 10분 영상 기준 보통 3~15분 걸립니다(기기 성능에 따라 다름). 그동안 다른 탭에서 계속 작업할 수 있습니다.</p>
+        <div class="field"><label for="aiModel">정확도</label>
+          <select id="aiModel">
+            <option value="Xenova/whisper-base">빠름 · base (약 60MB, 한국어 정확도 보통)</option>
+            <option value="Xenova/whisper-small" selected>정확 · small (약 190MB, 권장)</option>
+          </select>
+        </div>
+        <label class="switch"><input type="checkbox" id="aiGpu">GPU 가속 시도 (WebGPU · 실험 · 크롬 최신 버전)</label>
+        <div class="row"><button class="btn primary" id="btnAiRun">자막 만들기</button><button class="btn" id="btnAiCancel" hidden>중단</button></div>
+        <div class="progress" id="aiProgress" hidden><i></i></div>
+        <p class="hint" id="aiStatus">영상을 불러온 뒤 실행하세요.</p>
+      </div>
+      <div class="card">
+        <h3>② 자막 내보내기</h3>
+        <p class="steps-note"><b>편집 후 시간</b> SRT는 ①에서 만든 MP4에 그대로 맞습니다. 캡컷·유튜브 스튜디오에 올리세요. <b>원본 시간</b> SRT는 EDL로 편집 프로그램에서 작업할 때 씁니다. 인식 결과는 틀릴 수 있으니 한 번 훑어보세요.</p>
+        <div class="row"><button class="btn primary" id="btnSrtOut" disabled>SRT 저장 (편집 후 시간)</button><button class="btn" id="btnSrtSrc" disabled>SRT 저장 (원본 시간)</button><button class="btn" id="btnTxtCopy" disabled>전체 텍스트 복사</button></div>
+        <textarea id="aiText" readonly aria-label="자막 미리보기" placeholder="자막을 만들면 여기에 표시됩니다"></textarea>
+      </div>
+      <div class="card">
+        <h3>③ 삭제 후보 · 추임새와 반복(NG) <span class="chip" id="aiCandChip">0개</span></h3>
+        <p class="steps-note">"어·음" 같은 추임새와, 같은 말을 다시 한 구간(앞의 것이 NG)을 찾아 보여줍니다. 확실한 것은 미리 체크돼 있고, 애매한 것은 비워 둡니다. <b>체크한 항목 삭제 표시</b>를 누르면 타임라인에 반영되고 Ctrl+Z로 되돌릴 수 있습니다.</p>
+        <div class="row"><button class="btn sm primary" id="btnAiApply" disabled>체크한 항목 삭제 표시</button><button class="btn sm" id="btnAiCheckAll" disabled>모두 체크</button><button class="btn sm" id="btnAiUncheckAll" disabled>모두 해제</button></div>
+        <div class="tbl"><table><thead><tr><th></th><th>종류</th><th>시간</th><th>내용</th><th>길이</th></tr></thead><tbody id="aiCandBody"><tr><td colspan="5" class="muted">자막을 만들면 후보가 여기에 표시됩니다.</td></tr></tbody></table></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="tabpanel" id="tab-export" role="tabpanel" hidden>
+    <div class="cards">
+      <div class="card">
+        <h3>① MP4로 바로 렌더링 <span class="chip" id="renderChip">확인 중</span></h3>
+        <p class="steps-note"><b>캡컷 사용자는 이 길입니다.</b> 캡컷은 EDL·XML을 불러오지 못하므로, 여기서 만든 MP4를 캡컷에 넣고 자막·효과를 올리세요. 서버 업로드 없이 이 브라우저에서 만들며, 보통 영상 길이의 10~30% 시간이 걸립니다. 완료되면 저장 확인 창이 뜹니다.</p>
+        <div class="field">
+          <label for="selQuality">화질</label>
+          <select id="selQuality">
+            <option value="high">고화질 · 원본 해상도 (유튜브 업로드용)</option>
+            <option value="std">표준 · 원본 해상도 (용량 절약)</option>
+            <option value="1080">1080p로 축소</option>
+            <option value="720">720p로 축소 (빠른 확인용)</option>
+          </select>
+        </div>
+        <p class="hint" id="renderEstimate"></p>
+        <div class="row">
+          <button class="btn primary" id="btnRender">MP4 만들기</button>
+          <button class="btn" id="btnCancelRender" hidden>중단</button>
+          <button class="btn" id="btnResave" hidden>다시 저장</button>
+        </div>
+        <div class="progress" id="renderProgress" hidden><i></i></div>
+        <p class="hint" id="renderStatus"></p>
+        <p class="hint">30분이 넘는 영상이나 4K는 시간이 오래 걸리고 메모리를 많이 씁니다. 1시간이 넘으면 렌더링 대신 ②의 FFmpeg 스크립트를 쓰세요.</p>
+      </div>
+
+      <div class="card">
+        <h3>② 편집 프로그램으로 가져가기</h3>
+        <p class="steps-note"><b>프리미어·다빈치</b>는 EDL, <b>파이널컷</b>은 FCPXML로 컷 타임라인을 그대로 불러옵니다. 정확한 컷본 파일이 필요하면 FFmpeg 스크립트가 가장 안정적입니다.</p>
+        <div class="field"><label for="fpsInput">타임코드 프레임레이트</label><input type="text" id="fpsInput" inputmode="decimal" style="width:7ch" value="30"><span class="hint">자동 감지값. 영상 설정과 다르면 고치세요.</span></div>
+        <div class="row">
+          <button class="btn primary" id="btnZip">컷 패키지 저장 (.zip)</button>
+          <button class="btn" id="btnCopyFfmpeg">FFmpeg 명령 복사</button>
+        </div>
+        <p class="steps-note">zip 안에는 <b>EDL</b>, <b>FCPXML</b>, <b>FFmpeg 스크립트(.sh/.bat)</b>, 챕터 텍스트, 프로젝트 파일, 사용법(README)이 들어 있습니다. 배경음악을 설정했다면 음악 파일과 믹싱 필터도 함께 들어갑니다.</p>
+        <details class="steps-note">
+          <summary>프로그램별 불러오는 법</summary>
+          <ul>
+            <li><b>캡컷</b>: ①의 MP4를 미디어로 가져오면 끝. 챕터는 ③을 설명란에 붙여넣기.</li>
+            <li><b>프리미어 프로</b>: 파일 → 가져오기 → .edl → 새 시퀀스가 생깁니다. 오프라인 클립 우클릭 → 미디어 연결 → 원본 영상 지정.</li>
+            <li><b>다빈치 리졸브</b>: 원본 영상을 미디어 풀에 먼저 넣고, 파일 → Import → Timeline → .edl (또는 .fcpxml).</li>
+            <li><b>파이널컷</b>: 파일 → 가져오기 → XML → .fcpxml. 미디어 재연결 창에서 원본 영상 지정.</li>
+            <li><b>FFmpeg</b>: 원본 영상(과 음악 파일)과 같은 폴더에서 Mac: <span class="mono">sh ffmpeg_cut.sh</span>, Windows: <span class="mono">ffmpeg_cut.bat</span> 더블클릭.</li>
+          </ul>
+        </details>
+      </div>
+
+      <div class="card">
+        <h3>③ 유튜브 챕터</h3>
+        <p class="steps-note">편집 후 시간 기준으로 환산된 타임스탬프입니다. 챕터 탭에서 제목을 고칠 수 있습니다.</p>
+        <textarea id="chText2" readonly aria-label="챕터 타임스탬프 텍스트"></textarea>
+        <div class="row"><button class="btn sm primary" id="btnCopyChapters2">복사</button></div>
+      </div>
+
+      <div class="card">
+        <h3>④ 프로젝트 파일</h3>
+        <p class="steps-note">컷·챕터·설정을 JSON으로 저장해 두면 나중에 같은 영상을 다시 열어 이어서 작업할 수 있습니다. 작업 중에는 이 브라우저에 자동 저장됩니다.</p>
+        <div class="row"><button class="btn sm primary" id="btnSaveProject2">프로젝트 저장 (.json)</button><button class="btn sm" id="btnLoadProject2">불러오기</button></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="tabpanel" id="tab-log" role="tabpanel" hidden>
+    <div class="toolbar">
+      <button class="btn sm primary" id="btnLogNow">지금 기록</button>
+      <button class="btn sm" id="btnLogCsv">CSV 저장</button>
+      <button class="btn sm" id="btnLogJson">JSON 백업</button>
+      <button class="btn sm" id="btnLogImport">JSON 합치기</button>
+      <input type="file" id="logImport" class="sr" tabindex="-1" accept=".json,application/json">
+      <span style="flex:1"></span>
+      <button class="btn sm ghost" id="btnLogClear">기록 전체 삭제</button>
+    </div>
+    <div class="logtiles">
+      <div class="logtile"><div class="k">기록된 영상</div><div class="v" id="lt_n">0</div></div>
+      <div class="logtile"><div class="k">원본 합계</div><div class="v" id="lt_dur">–</div></div>
+      <div class="logtile"><div class="k">잘라낸 시간 합계</div><div class="v" id="lt_removed">–</div><div class="s">시청자가 안 보게 된 정적</div></div>
+      <div class="logtile"><div class="k">평균 컷 비율</div><div class="v" id="lt_ratio">–</div><div class="s">낮아지면 촬영이 좋아진 것</div></div>
+      <div class="logtile"><div class="k">편집 시간 / 원본 1분</div><div class="v" id="lt_edit">–</div><div class="s">열고 → 렌더까지</div></div>
+      <div class="logtile"><div class="k">평균 수동 수정</div><div class="v" id="lt_manual">–</div><div class="s">자동 컷을 고친 횟수</div></div>
+    </div>
+    <canvas id="logTrend" aria-label="최근 영상의 컷 비율 추세"></canvas>
+    <div class="tbl" style="margin-top:10px"><table><thead><tr><th>일시</th><th>파일</th><th>프리셋</th><th>원본</th><th>편집 후</th><th>컷%</th><th>삭제구간</th><th>수동</th><th>AI</th><th>편집시간</th><th>렌더</th><th></th></tr></thead><tbody id="logBody"></tbody></table></div>
+    <p class="hint" style="margin-top:8px">기록은 이 브라우저에만 저장됩니다. 다른 기기로 옮기려면 JSON 백업 → 합치기를 쓰세요.</p>
+  </section>
+  <section class="tabpanel" id="tab-keys" role="tabpanel" hidden>
+    <div class="toolbar"><span class="hint">키를 클릭한 뒤 새 조합을 누르면 바뀝니다. 바꾼 키는 이 브라우저에 저장됩니다.</span><span style="flex:1"></span><button class="btn sm" id="btnKeysReset">기본값으로</button></div>
+    <div class="kgrid" id="keyGrid"></div>
+  </section>
+
+  <section class="tabpanel" id="tab-guide" role="tabpanel" hidden>
+    <div class="guide">
+      <div class="card">
+        <h3>이 도구가 하는 일 / 하지 않는 일</h3>
+        <ul>
+          <li><b>하는 일</b>: 말이 없는 구간(쉼, NG 뒤의 정적, 생각하는 시간)을 소리 크기로 찾아 1차 컷을 자동으로 만듭니다. 사람은 결과를 듣고 고치기만 하면 됩니다.</li>
+          <li><b>AI 자막·NG 탭</b>: 음성 인식을 내 PC에서 돌려 자막(SRT)을 만들고, "어·음" 추임새와 같은 말을 다시 한 NG 구간을 삭제 후보로 보여줍니다. 무료이고 음성이 밖으로 나가지 않지만, 시간이 걸리고 인식이 틀릴 수 있어 확인 후 적용합니다.</li>
+          <li><b>잘 맞는 영상</b>: 토킹헤드 강의, 브이로그 내레이션, 인터뷰, 화면 녹화 설명 영상.</li>
+          <li><b>안 맞는 영상</b>: 촬영 때부터 배경음악이 깔린 영상, 여러 사람이 동시에 말하는 영상, 현장음이 큰 영상. (배경음악은 여기서 나중에 까는 것을 권합니다.)</li>
+          <li><b>길이</b>: 10분 안팎이 가장 쾌적하고 30분까지 무리 없습니다. 1시간이 넘는 영상은 분석·컷 목록·EDL/FFmpeg 내보내기만 지원합니다.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>캡컷과 같은 단축키</h3>
+        <div class="kbds">
+          <kbd>J</kbd><span>뒤로 재생 · 다시 누르면 2배속 → 4배속</span>
+          <kbd>K</kbd><span>멈춤 (배속 초기화)</span>
+          <kbd>L</kbd><span>앞으로 재생 · 다시 누르면 2배속 → 4배속</span>
+          <kbd>Ctrl+B</kbd><span>재생 위치에서 구간 분할 (S도 같음)</span>
+          <kbd>Q</kbd><span>재생 위치 <b>왼쪽(앞부분)</b> 삭제</span>
+          <kbd>W</kbd><span>재생 위치 <b>오른쪽(뒷부분)</b> 삭제</span>
+          <kbd>Delete</kbd><span>현재 구간 삭제</span>
+          <kbd>Ctrl+Z</kbd><span>되돌리기 · Ctrl+Shift+Z 다시 실행</span>
+          <kbd>Space</kbd><span>재생 / 일시정지</span>
+          <kbd>← →</kbd><span>1초 이동 (Shift: 5초) · <kbd>,</kbd> <kbd>.</kbd> 1프레임</span>
+          <kbd>X</kbd><span>현재 구간 유지 ↔ 삭제</span>
+          <kbd>M</kbd><span>현재 위치에 챕터 추가</span>
+          <kbd>[ ]</kbd><span>이전 / 다음 컷 경계로</span>
+        </div>
+      </div>
+      <div class="card">
+        <h3>편집 시간을 줄이는 촬영·편집 습관 7가지</h3>
+        <ol>
+          <li><b>원고나 개요를 보고 촬영</b>하세요. NG가 줄면 컷편집이 가장 크게 줍니다. 편집은 더하는 일이 아니라 빼는 일입니다.</li>
+          <li><b>NG가 나면 2~3초 입을 다물고</b> 다시 시작하세요. 긴 정적은 자동 컷이 가장 정확하게 잡는 신호입니다.</li>
+          <li><b>박수 한 번</b>으로 표시를 남기세요. 파형에 뾰족하게 남아 타임라인에서 바로 찾을 수 있습니다.</li>
+          <li><b>1차 컷은 기계에게, 판단은 사람에게</b>. 자동 결과를 받아들이고 "삭제 구간 건너뛰기"로 들으며 어색한 곳만 고치세요.</li>
+          <li><b>자막·효과는 컷이 확정된 뒤에</b> 넣으세요. 컷이 바뀌면 자막 타이밍을 다시 맞춰야 합니다.</li>
+          <li><b>반복되는 결정은 기본값으로</b>. 프리셋·화질·음악 음량은 한 번 정하고 다시 고민하지 마세요.</li>
+          <li><b>챕터는 편집하면서</b> M키로 찍으세요. 업로드할 때 영상을 처음부터 다시 보는 일을 없앱니다.</li>
+        </ol>
+      </div>
+      <div class="card">
+        <h3>자주 묻는 질문</h3>
+        <ul>
+          <li><b>영상이 어디로 올라가나요?</b> 어디에도 올라가지 않습니다. 분석과 렌더링 모두 이 브라우저 안에서 처리되고, 파일은 저장 확인 창을 거쳐 내 컴퓨터에만 남습니다.</li>
+          <li><b>어떤 브라우저가 좋나요?</b> 최신 크롬·엣지(데스크톱)에서 MP4 렌더링까지 모두 됩니다. 사파리·파이어폭스는 분석과 EDL 내보내기는 되지만 MP4 렌더링은 안 될 수 있습니다.</li>
+          <li><b>말이 중간에 잘려요.</b> 세부 설정에서 말소리 기준을 낮추고(-48 정도) 여백을 0.25초로 늘리세요. 녹음 자체가 작으면 기준을 더 낮춰야 합니다.</li>
+          <li><b>숨소리까지 다 남아요.</b> 말소리 기준을 올리고(-36 정도) 최소 무음 길이를 줄이세요.</li>
+          <li><b>프레임이 정확한가요?</b> 브라우저 렌더링과 FFmpeg 스크립트는 프레임 단위로 정확합니다. EDL·FCPXML은 프레임레이트 설정이 영상과 같아야 합니다.</li>
+          <li><b>이전 작업을 이어서 할 수 있나요?</b> 같은 영상을 다시 열면 이 브라우저에 자동 저장된 작업을 복구할지 물어봅니다. 다른 기기에서 이어가려면 프로젝트(.json)를 저장해 두세요.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="onb" id="onb" hidden role="dialog" aria-modal="true" aria-labelledby="onbTitle">
+  <div class="onb-card">
+    <p class="eyebrow">정명은 트레이너의 회원 100배 성장 프로젝트</p>
+    <h2 id="onbTitle">컷편집, 3단계면 끝납니다</h2>
+    <ol class="onb-steps">
+      <li><div><b>영상 올리기</b>촬영한 원본을 그대로 넣으세요. 업로드가 아니라 내 브라우저 안에서만 분석됩니다. 10분 영상이면 20~40초 걸립니다.</div></li>
+      <li><div><b>들어보며 고치기</b>무음·NG 뒤 정적이 자동으로 빨갛게 잡힙니다. 재생 버튼을 누르면 빨간 구간을 건너뛰며 들리니, 어색한 곳에서만 <kbd>Q</kbd>·<kbd>W</kbd>·<kbd>X</kbd>로 고치세요.</div></li>
+      <li><div><b>내보내기</b>캡컷을 쓰면 MP4를 만들어 캡컷에 넣고 자막만 올리면 됩니다. 프리미어는 EDL, 유튜브 설명란에는 챕터를 붙여넣으세요.</div></li>
+    </ol>
+    <div class="foot">
+      <button class="btn primary" id="onbStart">시작하기</button>
+      <button class="btn ghost" id="onbGuide">단축키·가이드 먼저 보기</button>
+    </div>
+  </div>
+</div>
+<div class="keysheet" id="keysheet" hidden role="dialog" aria-modal="true" aria-label="단축키"><div class="onb-card"><h2>단축키</h2><div class="kgrid" id="sheetGrid"></div><div class="foot"><span class="hint">Esc 또는 / 로 닫기 · 단축키 탭에서 바꿀 수 있습니다</span></div></div></div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script type="module" src="/src/main.js"></script>
+<script type="module" src="/src/pro.js"></script>
+</body>
+</html>

@@ -18,6 +18,15 @@
 | AI 자막·NG | Whisper를 브라우저에서 실행 → SRT(편집 후/원본 시간), 추임새·반복(NG) 삭제 후보 |
 | 내보내기 | MP4(캡컷·업로드용), EDL(프리미어·다빈치), FCPXML(파이널컷), FFmpeg 스크립트, 프로젝트(.json) |
 
+## 두 개의 화면
+
+| 주소 | 대상 | 특징 |
+|---|---|---|
+| `/` | 회원 | 3단계 안내, 설명 포함, 프리셋 3종 |
+| `/pro.html` | 운영자(나만 사용) | 밀도 높은 화면, 큐 자동 처리(여러 영상 → 분석→MP4→숏츠→썸네일→프로젝트 저장), 채널 기본값 고정, 숫자키 탭 전환·단축키 변경, 편집 기록·통계(CSV) |
+
+`pro.html`은 빌드 때 `scripts/make-pro.mjs`가 `index.html`에서 자동 생성합니다. 화면을 고칠 때는 `index.html`만 고치세요.
+
 ## 배포 (Vercel, 무료)
 
 1. 이 저장소를 GitHub에 올립니다.
@@ -48,7 +57,10 @@ src/main.js         편집기 본체 (무음 감지·타임라인·렌더링·�
 src/transcribe.js   AI 자막·NG 탭 (오디오 추출 → 워커 호출 → SRT·후보)
 src/asr.worker.js   Whisper 실행 워커 (@huggingface/transformers)
 src/textlogic.js    자막 줄 나누기·SRT·추임새/반복 감지 (순수 함수)
-tests/              단위 테스트
+src/pro.js          Pro 레이어 (큐·기본값·단축키·기록) + pro.css
+src/prologic.js     Pro 순수 로직 (키맵·기록 통계·CSV)
+scripts/make-pro.mjs index.html → pro.html 생성
+tests/              단위 테스트 (npm test)
 ```
 
 ## 브라우저 지원

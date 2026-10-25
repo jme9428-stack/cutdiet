@@ -340,6 +340,7 @@ const state = {
   cur: 0, skip: true, zoom: 1, scroll: 0, hoverT: null, previewStop: null,
   shuttle: { dir: 0, speed: 1, last: 0 },
   analyzing: false, rendering: null, lastRender: null, lastShorts: null, currentRow: -1,
+  activity: { openedAt: 0, manualEdits: 0, aiApplied: 0, renders: 0 },
   bgm: { file: null, url: null, name: '', data: null, sr: 0, duration: 0, volume: 0.18, duck: true, fade: 1.5, loop: true, ready: false, decoding: false },
   shorts: { in: 0, out: 0, pos: 0.5, upscale: true },
   thumbs: [], thumbSel: -1,
@@ -434,6 +435,7 @@ async function openFile(file) {
   if (state.fileURL) URL.revokeObjectURL(state.fileURL);
   setShuttle(0);
   Object.assign(state, { file, fileURL: URL.createObjectURL(file), hasMedia: true, isDemo: false, input: null, vTrack: null, aTrack: null, canDecodeVideo: false, videoPlayable: false, duration: 0, env: null, segments: [], chapters: [], dirty: false, cur: 0, zoom: 1, scroll: 0, lastRender: null, lastShorts: null, width: 0, height: 0, rotation: 0, fps: 30, currentRow: -1, thumbs: [], thumbSel: -1, previewStop: null, autosaveBlocked: true });
+  state.activity = { openedAt: Date.now(), manualEdits: 0, aiApplied: 0, renders: 0 };
   undoReset(); els.btnReanalyze.hidden = true; els.dirtyHint.hidden = true; els.btnResave.hidden = true; els.btnShortsResave.hidden = true; els.thumbGrid.innerHTML = ''; els.btnThumbsZip.hidden = true;
   els.video.pause(); els.video.src = state.fileURL; els.video.load();
   els.monitorEmpty.hidden = true; els.hudState.textContent = '분석 중';
@@ -465,7 +467,8 @@ async function openFile(file) {
     state.autosaveBlocked = false;
     if (state.videoPlayable && els.video.duration) { state.duration = els.video.duration; state.segments = [{ s: 0, e: state.duration, keep: true }]; resetShortsRange(); refreshAll(); }
     els.hudState.textContent = '분석 실패';
-    return;
+    document.dispatchEvent(new CustomEvent('cutdiet:analyzed', { detail: { ok: false } }));
+    return false;
   }
   Object.assign(state, result);
   if (!state.duration && state.videoPlayable && isFinite(els.video.duration)) state.duration = els.video.duration;
@@ -493,6 +496,8 @@ async function openFile(file) {
     const removed = state.duration - keptDuration(state.segments);
     toast(`분석 완료 · 무음 ${fmtClock(removed, false)} 발견 (${Math.round(removed / Math.max(1e-6, state.duration) * 100)}%)`, 3500);
   }
+  document.dispatchEvent(new CustomEvent('cutdiet:analyzed', { detail: { ok: true } }));
+  return true;
 }
 
 async function analyzeWithMediabunny(file, onProgress) {
@@ -570,7 +575,7 @@ els.btnReanalyze.addEventListener('click', () => { if (!state.env) return; pushU
 const undo = { stack: [], redo: [] };
 function snapshot() { return JSON.stringify({ segments: state.segments, chapters: state.chapters, dirty: state.dirty }); }
 function updateUndoButtons() { els.btnUndo.disabled = !undo.stack.length; els.btnRedo.disabled = !undo.redo.length; }
-function pushUndo() { undo.stack.push(snapshot()); if (undo.stack.length > 60) undo.stack.shift(); undo.redo.length = 0; updateUndoButtons(); }
+function pushUndo() { undo.stack.push(snapshot()); if (undo.stack.length > 60) undo.stack.shift(); undo.redo.length = 0; updateUndoButtons(); state.activity.manualEdits++; }
 function popUndoSilently() { undo.stack.pop(); updateUndoButtons(); }
 function undoReset() { undo.stack.length = 0; undo.redo.length = 0; updateUndoButtons(); }
 function restoreSnapshot(s) { const o = JSON.parse(s); state.segments = o.segments; state.chapters = o.chapters; state.dirty = !!o.dirty; els.btnReanalyze.hidden = !(state.dirty && state.env); els.dirtyHint.hidden = !state.dirty; refreshAll(); }
@@ -750,6 +755,7 @@ requestAnimationFrame(tick);
 // ===================== KEYBOARD (CapCut-compatible) =====================
 document.addEventListener('keyup', e => { const tag = (e.target && e.target.tagName) || ''; if (e.key === ' ' && tag === 'BUTTON') e.preventDefault(); });
 document.addEventListener('keydown', e => {
+  if (e.cutdietHandled) return;
   if (!els.onb.hidden) { if (e.key === 'Escape') closeOnboarding(); return; }
   const tag = (e.target && e.target.tagName) || ''; const isRange = tag === 'INPUT' && e.target.type === 'range';
   if ((tag === 'INPUT' && !isRange) || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
@@ -864,11 +870,11 @@ if (window.matchMedia) { try { window.matchMedia('(prefers-color-scheme: dark)')
 new MutationObserver(drawTimeline).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
 // ===================== TABS =====================
-const TABS = ['segments', 'chapters', 'bgm', 'shorts', 'thumbs', 'ai', 'export', 'guide'];
 document.querySelectorAll('.tab').forEach(btn => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
 function showTab(name) {
+  const names = [...document.querySelectorAll('.tab')].map(b => b.dataset.tab);
   document.querySelectorAll('.tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
-  TABS.forEach(n => { $('#tab-' + n).hidden = n !== name; });
+  names.forEach(n => { const sec = $('#tab-' + n); if (sec) sec.hidden = n !== name; });
   els.cropOverlay.hidden = name !== 'shorts' || !cropRect();
   if (name === 'export') updateRenderAvailability();
   if (name === 'shorts') { updateShortsUI(); layoutCrop(); }
@@ -1028,6 +1034,8 @@ async function startRender(kind, rerender) {
     ui.status.textContent = `완료 · ${fmtBytes(blob.size)} · ${fmtClock((performance.now() - t0) / 1000, false)} 걸림. 저장 창에서 확인하세요.`;
     ui.progress.firstElementChild.style.width = '100%';
     const ok = await saveFile(name, blob); ui.resave.hidden = false; if (!ok) ui.status.textContent += ' 저장하지 못했다면 "다시 저장"을 누르세요.';
+    state.activity.renders++; document.dispatchEvent(new CustomEvent('cutdiet:rendered', { detail: { kind, name, size: blob.size, seconds: (performance.now() - t0) / 1000 } }));
+    return true;
   } catch (e) {
     if (e && (e.name === 'AbortError' || /abort/i.test(String(e.message)))) { ui.status.textContent = '렌더링을 중단했습니다'; }
     else if (!rerender) {
@@ -1036,6 +1044,7 @@ async function startRender(kind, rerender) {
       state.rendering = null; ui.cancel.hidden = true; updateRenderAvailability(); updateShortsUI();
       await sleep(300); return startRender(kind, true);
     } else { console.error(e); ui.status.textContent = '렌더링 실패: ' + (e && e.message ? e.message : e) + ' — 더 낮은 화질로 다시 시도하거나 ②의 FFmpeg 스크립트를 이용하세요.'; }
+    return false;
   } finally {
     state.rendering = null; ui.cancel.hidden = true; updateRenderAvailability(); updateShortsUI();
   }
@@ -1151,9 +1160,9 @@ async function grabFrames(times, maxW) {
   return out;
 }
 function thumbName(t) { return `${baseName(state.file ? state.file.name : 'video')}_thumb_${fmtClock(t, false).replace(/:/g, '-')}.jpg`; }
-els.btnThumbs.addEventListener('click', async () => {
-  if (!state.hasMedia) { toast('먼저 영상을 불러오세요'); return; }
-  const times = pickThumbnailTimes(state.env, HOP, state.segments, 12); if (!times.length) { toast('유지 구간이 없습니다'); return; }
+async function pickThumbs() {
+  if (!state.hasMedia) { toast('먼저 영상을 불러오세요'); return 0; }
+  const times = pickThumbnailTimes(state.env, HOP, state.segments, 12); if (!times.length) { toast('유지 구간이 없습니다'); return 0; }
   els.btnThumbs.disabled = true; els.thumbsInfo.textContent = '프레임을 꺼내는 중…'; els.thumbGrid.innerHTML = '';
   try {
     const frames = await grabFrames(times, 480); state.thumbs = frames.filter(f => f.canvas); state.thumbSel = -1;
@@ -1162,7 +1171,9 @@ els.btnThumbs.addEventListener('click', async () => {
     els.btnThumbsZip.hidden = !state.thumbs.length; els.thumbsInfo.textContent = `${state.thumbs.length}장을 골랐습니다. 클릭하면 그 위치로 이동하고, JPG 저장은 원본 해상도로 저장합니다.`;
   } catch (e) { console.warn(e); els.thumbsInfo.textContent = '프레임을 꺼내지 못했습니다: ' + (e.message || e); }
   finally { els.btnThumbs.disabled = false; }
-});
+  return state.thumbs.length;
+}
+els.btnThumbs.addEventListener('click', pickThumbs);
 els.thumbGrid.addEventListener('click', async e => {
   const d = e.target.closest('.thumb'); if (!d) return; const i = Number(d.dataset.i); const f = state.thumbs[i]; if (!f) return;
   const act = e.target.closest('button[data-act]');
@@ -1170,11 +1181,12 @@ els.thumbGrid.addEventListener('click', async e => {
   els.thumbGrid.querySelectorAll('.thumb.sel').forEach(x => x.classList.remove('sel')); d.classList.add('sel'); state.thumbSel = i; seek(f.t);
 });
 els.btnThumbNow.addEventListener('click', async () => { if (!state.hasMedia) { toast('먼저 영상을 불러오세요'); return; } els.btnThumbNow.disabled = true; try { const [full] = await grabFrames([state.cur], 0); if (!full || !full.canvas) throw new Error('frame'); await saveFile(thumbName(state.cur), await canvasToJpeg(full.canvas)); } catch (err) { toast('프레임을 저장하지 못했습니다: ' + (err.message || err)); } finally { els.btnThumbNow.disabled = false; } });
-els.btnThumbsZip.addEventListener('click', async () => {
-  if (!state.thumbs.length) return; els.btnThumbsZip.disabled = true; els.thumbsInfo.textContent = '원본 해상도로 다시 꺼내는 중…';
-  try { const full = await grabFrames(state.thumbs.map(f => f.t), 0); const files = []; for (const f of full) { if (!f.canvas) continue; files.push({ name: thumbName(f.t), data: new Uint8Array(await (await canvasToJpeg(f.canvas)).arrayBuffer()) }); } await saveFile(`${baseName(state.file.name)}_thumbnails.zip`, buildZip(files)); els.thumbsInfo.textContent = `${files.length}장을 zip으로 저장했습니다.`; }
-  catch (e) { toast('zip을 만들지 못했습니다'); els.thumbsInfo.textContent = ''; } finally { els.btnThumbsZip.disabled = false; }
-});
+async function saveThumbsZip() {
+  if (!state.thumbs.length) return false; els.btnThumbsZip.disabled = true; els.thumbsInfo.textContent = '원본 해상도로 다시 꺼내는 중…';
+  try { const full = await grabFrames(state.thumbs.map(f => f.t), 0); const files = []; for (const f of full) { if (!f.canvas) continue; files.push({ name: thumbName(f.t), data: new Uint8Array(await (await canvasToJpeg(f.canvas)).arrayBuffer()) }); } await saveFile(`${baseName(state.file.name)}_thumbnails.zip`, buildZip(files)); els.thumbsInfo.textContent = `${files.length}장을 zip으로 저장했습니다.`; return true; }
+  catch (e) { toast('zip을 만들지 못했습니다'); els.thumbsInfo.textContent = ''; return false; } finally { els.btnThumbsZip.disabled = false; }
+}
+els.btnThumbsZip.addEventListener('click', saveThumbsZip);
 
 // ===================== EXPORT: ZIP / FFMPEG / PROJECT =====================
 function currentFps() { const v = parseFloat(els.fpsInput.value); return v > 0 && v < 1000 ? v : (state.fps || 30); }
@@ -1258,10 +1270,19 @@ function bootDemo() {
   state.chapters = [{ t: 1.2, title: '인트로' }, { t: 33.6, title: '핵심 개념' }, { t: 73.5, title: '정리' }];
   els.hudState.textContent = '예시 데이터 · 내 영상을 불러오면 바뀝니다'; els.fpsInput.value = '30';
   resetShortsRange(); bgmSettingsFromUI(); refreshAll(); undoReset();
-  if (!lsGet('cutdiet:onboarded')) openOnboarding();
+  if (!lsGet('cutdiet:onboarded') && !document.body.classList.contains('pro')) openOnboarding();
 }
 bootDemo();
 
 // ===================== AI (in-browser transcription) =====================
-function markSpans(spans, keep = false) { if (!spans.length) return 0; pushUndo(); let segs = state.segments; for (const sp of spans) segs = applySpan(segs, clamp(sp.s, 0, state.duration), clamp(sp.e, 0, state.duration), keep); state.segments = segs; markDirty(); refreshAll(); return spans.length; }
+function markSpans(spans, keep = false) { if (!spans.length) return 0; pushUndo(); state.activity.aiApplied += spans.length; let segs = state.segments; for (const sp of spans) segs = applySpan(segs, clamp(sp.s, 0, state.duration), clamp(sp.e, 0, state.duration), keep); state.segments = segs; markDirty(); refreshAll(); return spans.length; }
 initTranscribe({ state, HOP, toast, saveFile, copyText, outTime, keptDuration, fmtClock, baseName, seek, sleep, nextFrame, markSpans, heavyReason, escapeHtml, accumulateEnergy });
+
+// Public API used by the Pro layer (src/pro.js)
+window.cutdiet = {
+  state, els, HOP, PRESETS, toast, saveFile, copyText, fmtClock, fmtBytes, baseName, sleep, openFile, applyPreset, startRender, pickThumbs, saveThumbsZip, saveProjectFile, projectData,
+  keptDuration, countRemoveRuns, keepRanges, outTime, chapterLines, buildZip, showTab, seek, refreshAll, renderBlockReason, shortsBlockReason, heavyReason, loadBgm, clearBgm, resetShortsRange,
+  undoDepth: () => undo.stack.length,
+  actions: { play: togglePlay, rev: () => setShuttle(-1), stop: () => setShuttle(0), fwd: () => setShuttle(1), toggle: () => toggleSegmentAt(state.cur), split: () => splitAt(state.cur), trimL: () => trimDelete('left'), trimR: () => trimDelete('right'), del: deleteCurrent, chapter: () => addChapterAt(state.cur), undo: doUndo, redo: doRedo, prevCut: () => jumpCut(-1), nextCut: () => jumpCut(1), home: () => seek(0), end: () => seek(state.duration), back1: () => seek(state.cur - 1), fwd1: () => seek(state.cur + 1), frameBack: () => seek(state.cur - 1 / (state.fps || 30)), frameFwd: () => seek(state.cur + 1 / (state.fps || 30)) },
+};
+document.dispatchEvent(new CustomEvent('cutdiet:ready'));
