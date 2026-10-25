@@ -94,6 +94,7 @@ export function initTranscribe(api) {
   el.cancel.addEventListener('click', () => { ai.running = false; stopWorker(); el.status.textContent = '중단했습니다'; el.progress.hidden = true; el.run.disabled = false; el.cancel.hidden = true; });
 
   function renderResults() {
+    el.text.readOnly = false; el.text.placeholder = '자막을 만들면 여기에 표시됩니다. 줄을 직접 고칠 수 있습니다 (시간은 그대로, 글자만).';
     el.text.value = ai.lines.map(l => `[${fmtClock(l.s)}] ${l.text}`).join('\n');
     const has = ai.lines.length > 0; el.srtOut.disabled = el.srtSrc.disabled = el.txtCopy.disabled = !has;
     renderCands();
@@ -119,8 +120,17 @@ export function initTranscribe(api) {
   el.srtOut.addEventListener('click', async () => { staleWarn(); const srt = buildSRT(ai.lines, t => outTime(state.segments, t)); if (!srt.trim()) { toast('편집 후 남는 자막이 없습니다'); return; } await saveFile(`${baseName(state.file ? state.file.name : 'video')}_cut.srt`, srt); });
   el.srtSrc.addEventListener('click', async () => { staleWarn(); await saveFile(`${baseName(state.file ? state.file.name : 'video')}_original.srt`, buildSRT(ai.lines)); });
   el.txtCopy.addEventListener('click', () => copyText(ai.lines.map(l => l.text).join('\n')));
+  // manual corrections: keep timings, take the words
+  el.text.addEventListener('change', () => {
+    const rows = el.text.value.split('\n').map(s => s.trim()).filter(Boolean);
+    const parsed = rows.map(r => { const m = r.match(/^\[(\d+):(\d+(?:\.\d+)?)\]\s*(.*)$/); return m ? { s: Number(m[1]) * 60 + Number(m[2]), text: m[3].trim() } : { s: null, text: r }; });
+    if (parsed.length === ai.lines.length) ai.lines = ai.lines.map((l, i) => ({ ...l, text: parsed[i].text || l.text }));
+    else { const next = []; for (let i = 0; i < parsed.length; i++) { const p = parsed[i]; const s = p.s != null ? p.s : (next.length ? next[next.length - 1].e : 0); const nextS = parsed[i + 1] && parsed[i + 1].s != null ? parsed[i + 1].s : s + 3; next.push({ s, e: Math.max(s + 0.3, nextS), text: p.text }); } ai.lines = next.filter(l => l.text); }
+    toast('자막을 반영했습니다', 1200);
+  });
 
   // reset when a new file is opened
   let lastKey = null;
   setInterval(() => { const key = state.file ? state.file.name + ':' + state.file.size : null; if (key !== lastKey) { lastKey = key; if (ai.running) { ai.running = false; stopWorker(); el.run.disabled = false; el.cancel.hidden = true; } ai.words = []; ai.lines = []; ai.cands = []; el.text.value = ''; el.progress.hidden = true; el.status.textContent = state.hasMedia ? '준비됨. "자막 만들기"를 누르세요.' : '영상을 불러온 뒤 실행하세요.'; renderResults(); } }, 500);
+  return { getLines: () => ai.lines };
 }

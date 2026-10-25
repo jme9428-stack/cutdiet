@@ -1,4 +1,6 @@
 import { initTranscribe } from './transcribe.js';
+import { initDecorate, makeCompositor, preloadFonts } from './decorate.js';
+import { defaultFx, fxActive, fxToJSON, fxFromJSON, mixSfxInto } from './fxlogic.js';
 const HOP = 0.02; // 20 ms analysis window
 const LS_PREFIX = 'cutdiet:v1:';
 const HEAVY_LIMIT = 3600; // seconds: above this only light features
@@ -341,11 +343,13 @@ const state = {
   shuttle: { dir: 0, speed: 1, last: 0 },
   analyzing: false, rendering: null, lastRender: null, lastShorts: null, currentRow: -1,
   activity: { openedAt: 0, manualEdits: 0, aiApplied: 0, renders: 0 },
+  fx: defaultFx(),
   bgm: { file: null, url: null, name: '', data: null, sr: 0, duration: 0, volume: 0.18, duck: true, fade: 1.5, loop: true, ready: false, decoding: false },
   shorts: { in: 0, out: 0, pos: 0.5, upscale: true },
   thumbs: [], thumbSel: -1,
 };
 const $ = s => document.querySelector(s);
+let decor = null; let captionsOf = () => [];
 const ids = ['drop','fileInput','filebar','fileName','fileMeta','btnOtherFile','notice','video','monitor','monitorEmpty','hudState','hudRes','engineChip','cropOverlay','cropFrame',
   'presetNote','adv','advSummary','rngThreshold','rngMinSilence','rngPad','valThreshold','valMinSilence','valPad','btnAuto','btnReanalyze','dirtyHint',
   'stOrig','stAfter','stSaved','stSavedPct','stCuts','stCutsNote',
@@ -437,6 +441,7 @@ async function openFile(file) {
   setShuttle(0);
   Object.assign(state, { file, fileURL: URL.createObjectURL(file), hasMedia: true, isDemo: false, input: null, vTrack: null, aTrack: null, canDecodeVideo: false, videoPlayable: false, duration: 0, env: null, segments: [], chapters: [], dirty: false, cur: 0, zoom: 1, scroll: 0, lastRender: null, lastShorts: null, width: 0, height: 0, rotation: 0, fps: 30, currentRow: -1, thumbs: [], thumbSel: -1, previewStop: null, autosaveBlocked: true });
   state.activity = { openedAt: Date.now(), manualEdits: 0, aiApplied: 0, renders: 0 };
+  state.fx.zooms = []; state.fx.overlays = []; state.fx.sfx = []; if (decor) decor.renderLists();
   undoReset(); els.btnReanalyze.hidden = true; els.dirtyHint.hidden = true; els.btnResave.hidden = true; els.btnShortsResave.hidden = true; els.thumbGrid.innerHTML = ''; els.btnThumbsZip.hidden = true;
   els.video.pause(); els.video.src = state.fileURL; els.video.load();
   els.monitorEmpty.hidden = true; els.hudState.textContent = '분석 중';
@@ -751,6 +756,7 @@ function tick() {
     }
     state.cur = t; followPlayhead(); updateTimeUI(); drawTimeline(); syncBgmPreview(true);
   }
+  if (decor) decor.previewTick(state.hasMedia && state.videoPlayable && isPlaying());
 }
 (function rafLoop() { tick(); requestAnimationFrame(rafLoop); })();
 // rAF pauses in background tabs; keep skipping removed segments (and BGM sync) alive on a timer meanwhile
@@ -835,6 +841,10 @@ function drawTimeline() {
   const step = niceStep(vis); ctx.font = '10px ' + cssVar('--font-mono'); ctx.fillStyle = C.muted; ctx.textAlign = 'left'; ctx.strokeStyle = C.line;
   ctx.beginPath(); ctx.moveTo(0, top + .5); ctx.lineTo(W, top + .5); ctx.stroke();
   for (let t = Math.ceil(t0 / step) * step; t <= t0 + vis + 1e-9; t += step) { const x = Math.round((t - t0) * pps) + .5; ctx.beginPath(); ctx.moveTo(x, top - 5); ctx.lineTo(x, top); ctx.stroke(); ctx.fillText(fmtClock(t, step < 1), x + 3, 11); }
+  // decoration marks: zoom ranges (accent bar at top), overlays (second bar), sound effects (dots on the marks row)
+  for (const z of state.fx.zooms) { const x0 = (z.s - t0) * pps, x1 = (z.e - t0) * pps; if (x1 < 0 || x0 > W) continue; ctx.fillStyle = C.accent; ctx.globalAlpha = .8; ctx.fillRect(Math.max(0, x0), top + 2, Math.min(W, x1) - Math.max(0, x0), 3); ctx.globalAlpha = 1; }
+  for (const o of state.fx.overlays) { const x0 = (o.s - t0) * pps, x1 = (o.e - t0) * pps; if (x1 < 0 || x0 > W) continue; ctx.fillStyle = C.play; ctx.globalAlpha = .8; ctx.fillRect(Math.max(0, x0), top + 7, Math.min(W, x1) - Math.max(0, x0), 3); ctx.globalAlpha = 1; }
+  for (const s of state.fx.sfx) { const x = (s.t - t0) * pps; if (x < -4 || x > W + 4) continue; ctx.fillStyle = C.remove; ctx.beginPath(); ctx.arc(x, bottom + 7, 3.5, 0, Math.PI * 2); ctx.fill(); }
   ctx.font = '10px ' + cssVar('--font-body');
   for (const c of state.chapters) { const x = (c.t - t0) * pps; if (x < -40 || x > W + 10) continue; ctx.fillStyle = C.accent; ctx.beginPath(); ctx.moveTo(x, bottom + 2); ctx.lineTo(x + 6, bottom + 7); ctx.lineTo(x, bottom + 12); ctx.closePath(); ctx.fill(); ctx.fillStyle = C.fg; ctx.fillText((c.title || '').slice(0, 14), x + 9, bottom + 12); }
   if (state.hoverT != null) { const x = Math.round((state.hoverT - t0) * pps) + .5; ctx.strokeStyle = C.muted; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke(); ctx.setLineDash([]); ctx.font = '10px ' + cssVar('--font-mono'); ctx.fillStyle = C.fg; ctx.textAlign = x > W - 60 ? 'right' : 'left'; ctx.fillText(fmtClock(state.hoverT), x + (x > W - 60 ? -4 : 4), top + 11); ctx.textAlign = 'left'; }
@@ -1059,17 +1069,24 @@ async function renderMp4({ ranges, out, crop, forceTransform, signal, onProgress
   const parts = [];
   const target = new mb.StreamTarget(new WritableStream({ write: chunk => { parts.push({ pos: chunk.position, blob: new Blob([chunk.data]) }); } }), { chunked: true });
   const output = new mb.Output({ format: new mb.Mp4OutputFormat(), target });
-  const useTransform = forceTransform || !!crop || out.w !== state.width || out.h !== state.height;
+  const captions = captionsOf() || []; const useFx = fxActive(state.fx, captions.length > 0);
+  const useTransform = !useFx && (forceTransform || !!crop || out.w !== state.width || out.h !== state.height);
   const vCodec = await mb.getFirstEncodableVideoCodec(['avc', 'hevc', 'av1', 'vp9'], { width: out.w, height: out.h, bitrate: out.bitrate });
   if (!vCodec) throw new Error('이 해상도로 인코딩할 수 있는 코덱이 없습니다');
   const vConfig = { codec: vCodec, bitrate: out.bitrate, keyFrameInterval: 2, sizeChangeBehavior: 'contain' };
   if (useTransform) { vConfig.transform = { width: out.w, height: out.h, fit: 'fill', force: true }; if (crop) vConfig.transform.crop = crop; }
   const vSource = new mb.VideoSampleSource(vConfig);
-  const meta = {}; if (!useTransform) { meta.rotation = state.rotation || 0; try { meta.flip = await vTrack.getFlip(); } catch {} }
+  const meta = {}; if (!useTransform && !useFx) { meta.rotation = state.rotation || 0; try { meta.flip = await vTrack.getFlip(); } catch {} }
   output.addVideoTrack(vSource, meta);
+  let comp = null, fxCanvas = null, fxCtx = null;
+  if (useFx) {
+    await preloadFonts(state.fx);
+    fxCanvas = new OffscreenCanvas(out.w, out.h); fxCtx = fxCanvas.getContext('2d');
+    comp = makeCompositor({ W: out.w, H: out.h, crop: crop || { left: 0, top: 0, width: state.width, height: state.height }, fx: state.fx, captions: state.fx.subs.burn ? captions : null, ranges, total });
+  }
   const bgm = state.bgm.ready ? state.bgm : null;
   let aSource = null, aSr = 48000, aCh = 2;
-  if (aTrack || bgm) {
+  if (aTrack || bgm || state.fx.sfx.length) {
     if (aTrack) { aCh = await aTrack.getNumberOfChannels(); aSr = await aTrack.getSampleRate(); }
     const aCodec = await mb.getFirstEncodableAudioCodec(['aac', 'opus'], { numberOfChannels: aCh, sampleRate: aSr, bitrate: 192000 });
     if (aCodec) { aSource = new mb.AudioBufferSource({ codec: aCodec, bitrate: 192000 }); output.addAudioTrack(aSource); }
@@ -1080,17 +1097,25 @@ async function renderMp4({ ranges, out, crop, forceTransform, signal, onProgress
   const abortErr = () => { const e = new Error('aborted'); e.name = 'AbortError'; return e; };
   const videoPump = async () => {
     const sink = new mb.VideoSampleSink(vTrack); let cursor = 0, lastTs = -1;
-    for (const r of ranges) {
-      let first = true;
+    for (let ri = 0; ri < ranges.length; ri++) {
+      const r = ranges[ri]; let first = true;
       for await (const sample of sink.samples(r.s, r.e)) {
         if (signal.aborted) { sample.close(); throw abortErr(); }
         const srcTs = Math.max(sample.timestamp, r.s); const srcEnd = Math.min(sample.timestamp + (sample.duration || 1 / fps), r.e);
         if (srcEnd <= srcTs + 1e-6) { sample.close(); continue; }
         let ts = cursor + (srcTs - r.s); if (ts <= lastTs) ts = lastTs + 0.0005;
-        sample.setTimestamp(ts); sample.setDuration(Math.max(0.001, srcEnd - srcTs));
-        await vSource.add(sample, first ? { keyFrame: true } : undefined); sample.close();
+        const dur = Math.max(0.001, srcEnd - srcTs);
+        if (comp) {
+          comp.draw(fxCtx, (c, sx, sy, sw, sh, dx, dy, dw, dh) => sample.draw(c, sx, sy, sw, sh, dx, dy, dw, dh), srcTs, ts, ri, cursor); sample.close();
+          const vs = new mb.VideoSample(fxCanvas, { timestamp: ts, duration: dur });
+          await vSource.add(vs, first ? { keyFrame: true } : undefined); vs.close();
+        } else {
+          sample.setTimestamp(ts); sample.setDuration(dur);
+          await vSource.add(sample, first ? { keyFrame: true } : undefined); sample.close();
+        }
         lastTs = ts; first = false; vProgress = ts; onProgress(ts / total);
       }
+      if (comp) comp.endRange(fxCanvas);
       cursor += r.e - r.s;
     }
   };
@@ -1105,19 +1130,24 @@ async function renderMp4({ ranges, out, crop, forceTransform, signal, onProgress
           const sliced = sliceAudio(wb, r.s, r.e); if (!sliced) continue;
           const srcStart = Math.max(wb.timestamp, r.s); const outStart = cursor + (srcStart - r.s);
           while (outStart > vProgress + 4 && !signal.aborted) await sleep(40);
-          if (bgm) { const chans = []; for (let c = 0; c < sliced.buffer.numberOfChannels; c++) chans.push(sliced.buffer.getChannelData(c)); mixBgmInto(chans, sliced.buffer.sampleRate, outStart, srcStart, bgm, state.env, HOP, thr, total, duckState); }
+          if (bgm || state.fx.sfx.length) {
+            const chans = []; for (let c = 0; c < sliced.buffer.numberOfChannels; c++) chans.push(sliced.buffer.getChannelData(c));
+            if (bgm) mixBgmInto(chans, sliced.buffer.sampleRate, outStart, srcStart, bgm, state.env, HOP, thr, total, duckState);
+            if (state.fx.sfx.length && decor) mixSfxInto(chans, sliced.buffer.sampleRate, srcStart, state.fx.sfx, s => decor.getSfxBuf(s, sliced.buffer.sampleRate));
+          }
           await aSource.add(sliced.buffer);
         }
         cursor += r.e - r.s;
       }
     } else {
-      // no voice track: background music only
+      // no voice track: background music (and effects) only
       for (let outT = 0; outT < total; outT += 1) {
         if (signal.aborted) throw abortErr();
         const len = Math.round(Math.min(1, total - outT) * aSr); if (len <= 0) break;
         const buf = new AudioBuffer({ length: len, sampleRate: aSr, numberOfChannels: aCh });
         const chans = []; for (let c = 0; c < aCh; c++) chans.push(buf.getChannelData(c));
-        mixBgmInto(chans, aSr, outT, 0, { ...bgm, duck: false }, null, HOP, thr, total, duckState);
+        if (bgm) mixBgmInto(chans, aSr, outT, 0, { ...bgm, duck: false }, null, HOP, thr, total, duckState);
+        if (state.fx.sfx.length && decor) mixSfxInto(chans, aSr, sourceTimeAtOutput(state.segments, outT), state.fx.sfx, s => decor.getSfxBuf(s, aSr));
         while (outT > vProgress + 4 && !signal.aborted) await sleep(40);
         await aSource.add(buf);
       }
@@ -1232,7 +1262,7 @@ function projectData() {
   const b = state.bgm, sh = state.shorts;
   return { app: 'cutdiet', version: 2, savedAt: new Date().toISOString(), file: state.file ? { name: state.file.name, size: state.file.size } : null, duration: state.duration, fps: state.fps, preset: state.preset, params: { ...state.params }, dirty: state.dirty,
     segments: state.segments.map(g => [Math.round(g.s * 1000) / 1000, Math.round(g.e * 1000) / 1000, g.keep ? 1 : 0]), chapters: state.chapters.map(c => [Math.round(c.t * 1000) / 1000, c.title]),
-    bgm: { name: b.name || '', volume: b.volume, duck: b.duck, fade: b.fade, loop: b.loop }, shorts: { in: sh.in, out: sh.out, pos: sh.pos, upscale: sh.upscale } };
+    bgm: { name: b.name || '', volume: b.volume, duck: b.duck, fade: b.fade, loop: b.loop }, shorts: { in: sh.in, out: sh.out, pos: sh.pos, upscale: sh.upscale }, fx: fxToJSON(state.fx) };
 }
 function applyProject(p) {
   if (!p || p.app !== 'cutdiet' || !Array.isArray(p.segments)) throw new Error('bad project');
@@ -1245,6 +1275,7 @@ function applyProject(p) {
   state.preset = p.preset || 'custom';
   if (p.bgm) { const b = state.bgm; b.volume = Number(p.bgm.volume) || b.volume; b.duck = p.bgm.duck !== false; b.fade = Number(p.bgm.fade ?? b.fade); b.loop = p.bgm.loop !== false; els.bgmVol.value = Math.round(b.volume * 100); els.bgmDuck.checked = b.duck; els.bgmFade.value = b.fade; els.bgmLoop.checked = b.loop; els.bgmVolVal.textContent = `${els.bgmVol.value}%`; els.bgmFadeVal.textContent = `${b.fade.toFixed(1)} s`; if (p.bgm.name && !b.ready) els.bgmInfo.textContent = `이전 작업의 음악 "${p.bgm.name}"은 파일을 다시 선택해야 합니다 (브라우저에는 음악 파일이 저장되지 않습니다).`; }
   if (p.shorts) { Object.assign(state.shorts, { in: Number(p.shorts.in) || 0, out: Number(p.shorts.out) || 0, pos: clamp(Number(p.shorts.pos ?? 0.5), 0, 1), upscale: p.shorts.upscale !== false }); els.cropPos.value = Math.round(state.shorts.pos * 100); els.chkUpscale.checked = state.shorts.upscale; }
+  if (p.fx) { state.fx = fxFromJSON(p.fx); if (decor) decor.rehydrate(); }
   state.dirty = p.dirty !== false; syncSliders(); if (state.dirty) markDirty(); else { els.btnReanalyze.hidden = true; els.dirtyHint.hidden = true; }
   state.cur = 0; state.zoom = 1; state.scroll = 0; refreshAll();
 }
@@ -1280,7 +1311,11 @@ bootDemo();
 
 // ===================== AI (in-browser transcription) =====================
 function markSpans(spans, keep = false) { if (!spans.length) return 0; pushUndo(); state.activity.aiApplied += spans.length; let segs = state.segments; for (const sp of spans) segs = applySpan(segs, clamp(sp.s, 0, state.duration), clamp(sp.e, 0, state.duration), keep); state.segments = segs; markDirty(); refreshAll(); return spans.length; }
-initTranscribe({ state, HOP, toast, saveFile, copyText, outTime, keptDuration, fmtClock, baseName, seek, sleep, nextFrame, markSpans, heavyReason, escapeHtml, accumulateEnergy });
+const tr = initTranscribe({ state, HOP, toast, saveFile, copyText, outTime, keptDuration, fmtClock, baseName, seek, sleep, nextFrame, markSpans, heavyReason, escapeHtml, accumulateEnergy });
+if (tr && tr.getLines) captionsOf = tr.getLines;
+
+decor = initDecorate({ state, els, toast, fmtClock, seek, refreshAll, autosave, keepRanges, keptDuration, outTime, segIndexAt, escapeHtml, captionsOf: () => captionsOf() });
+window.addEventListener('resize', () => decor && decor.previewTick(false));
 
 // Public API used by the Pro layer (src/pro.js)
 window.cutdiet = {
