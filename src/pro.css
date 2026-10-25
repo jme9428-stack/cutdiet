@@ -19,6 +19,13 @@ body.pro td,body.pro th{padding:4px 8px}
 .probar{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(280px,1fr);gap:10px;margin-top:8px}
 @media (max-width:900px){.probar{grid-template-columns:1fr}}
 .probar .card{gap:8px}
+.probar .card.engine{grid-column:1 / -1}
+.probar .card.engine .row{flex-wrap:wrap;gap:6px}
+.probar .card.engine select.sm{padding:4px 6px;font-size:12.5px;max-width:260px}
+.probar .watch{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;font-size:12.5px}
+.probar .watch label{display:inline-flex;align-items:center;gap:5px;cursor:pointer}
+.probar .watch input{accent-color:var(--accent);margin:0}
+.probar .watch .mono{max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .probar h3{display:flex;align-items:center;gap:8px;justify-content:space-between}
 .probar h3 .chip{font-weight:600}
 .queue{display:flex;flex-direction:column;gap:4px;max-height:220px;overflow:auto}

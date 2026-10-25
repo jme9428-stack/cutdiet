@@ -37,8 +37,10 @@ const probar = `
         <label for="defQuality">화질</label><select id="defQuality"><option value="high">고화질 · 원본</option><option value="std">표준 · 원본</option><option value="1080">1080p</option><option value="720">720p</option></select>
       </div>
       <p class="hint">새 영상을 열면 이 값이 자동 적용됩니다. 배경음악 파일은 보안상 브라우저에 저장되지 않으니 세션마다 다시 고르세요(음량·덕킹 설정은 기억됩니다).</p>
+      <div class="row"><button class="btn sm" id="btnOutDir">출력 폴더 지정</button><span class="hint" id="outDirLabel"></span></div>
       <div class="row"><button class="btn sm" id="btnKeySheet" title="/">단축키 보기 (/)</button><span class="hint">탭 전환 1~9 · 큐 실행 Shift+Enter · 렌더 Ctrl+Enter · 썸네일 Shift+T</span></div>
     </div>
+    <div class="card engine" id="engineCard" hidden></div>
   </section>
 `;
 need('<div id="notice" hidden class="notice"></div>'); html = html.replace('<div id="notice" hidden class="notice"></div>', '<div id="notice" hidden class="notice"></div>' + probar);

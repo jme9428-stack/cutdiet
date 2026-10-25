@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
-import vm from 'node:vm';
+import * as A from '../src/cutlogic.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { normKo, similarity, wordsFromChunks, dropSilentWords, buildCaptionLines, buildSentences, buildSRT, srtTime, findFillers, findRepeats, mergeSpans, resampleInto } from '../src/textlogic.js';
@@ -15,12 +15,7 @@ assert.deepEqual(idList.filter(id => !html.includes(`id="${id}"`)), []);
 for (const id of ['aiChip', 'aiModel', 'aiGpu', 'btnAiRun', 'btnAiCancel', 'aiProgress', 'aiStatus', 'btnSrtOut', 'btnSrtSrc', 'btnTxtCopy', 'aiText', 'aiCandChip', 'btnAiApply', 'btnAiCheckAll', 'btnAiUncheckAll', 'aiCandBody', 'tab-ai']) assert.ok(html.includes(`id="${id}"`), 'missing ' + id);
 console.log('ids ok');
 
-// pure block from main.js
-const pure = main.slice(main.indexOf('// ==PURE-START=='), main.indexOf('// ==PURE-END=='));
-const ctx = { HOP: 0.02, TextEncoder, Blob, console, Math, Number, String, Array, Uint8Array, Int32Array, Float32Array, Float64Array, DataView, ArrayBuffer, Date, encodeURIComponent };
-vm.createContext(ctx);
-vm.runInContext(pure + '\n;globalThis.__api = { applySpan, keepRanges, outTime, detectSegments, demoEnvelope, suggestThreshold, buildFFmpeg, buildFCPXML };', ctx);
-const A = ctx.__api;
+// pure logic now lives in src/cutlogic.js (imported above as A)
 // applySpan splits and marks
 let segs = [{ s: 0, e: 10, keep: true }];
 segs = A.applySpan(segs, 2, 3, false);

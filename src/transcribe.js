@@ -44,12 +44,13 @@ export function initTranscribe(api) {
     if (state.duration > 1800 && !confirmLong()) return;
     ai.running = true; el.run.disabled = true; el.cancel.hidden = false; el.text.value = ''; el.candBody.innerHTML = '';
     setProgress(0, '오디오를 추출하는 중…');
-    const t0 = performance.now();
+    const t0 = performance.now(); ai.abort = new AbortController();
     try {
-      const audio = await extractAudio(p => setProgress(p * 0.1, `오디오 추출 ${Math.round(p * 100)}%`));
+      const useEngine = !!(state.engineMedia && state.hooks.transcribe);
+      const audio = useEngine ? null : await extractAudio(p => setProgress(p * 0.1, `오디오 추출 ${Math.round(p * 100)}%`));
       if (!ai.running) throw new Error('canceled');
       const device = (el.gpu.checked && gpuOk) ? 'webgpu' : 'wasm'; const model = el.model.value;
-      const result = await new Promise((resolve, reject) => {
+      const result = useEngine ? await state.hooks.transcribe({ model, signal: ai.abort.signal, onProgress: (frac, text) => setProgress(frac, text) }) : await new Promise((resolve, reject) => {
         stopWorker();
         const w = new Worker(new URL('./asr.worker.js', import.meta.url), { type: 'module' }); ai.worker = w;
         w.onmessage = e => {
@@ -91,7 +92,7 @@ export function initTranscribe(api) {
     return msg.slice(0, 160);
   }
   el.run.addEventListener('click', run);
-  el.cancel.addEventListener('click', () => { ai.running = false; stopWorker(); el.status.textContent = '중단했습니다'; el.progress.hidden = true; el.run.disabled = false; el.cancel.hidden = true; });
+  el.cancel.addEventListener('click', () => { ai.running = false; stopWorker(); if (ai.abort) ai.abort.abort(); el.status.textContent = '중단했습니다'; el.progress.hidden = true; el.run.disabled = false; el.cancel.hidden = true; });
 
   function renderResults() {
     el.text.readOnly = false; el.text.placeholder = '자막을 만들면 여기에 표시됩니다. 줄을 직접 고칠 수 있습니다 (시간은 그대로, 글자만).';

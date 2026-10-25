@@ -1,0 +1,14 @@
+{
+  "name": "cutdiet-engine",
+  "private": true,
+  "version": "1.0.0",
+  "description": "컷다이어트 Pro 로컬 엔진 — FFmpeg 렌더, 워치 폴더, 네이티브 파일 선택, 로컬 Whisper",
+  "type": "module",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "ffmpeg-static": "^5.2.0"
+  }
+}

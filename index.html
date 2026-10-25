@@ -542,7 +542,7 @@ td.ttl input:focus{border-color:var(--accent);background:var(--surface)}
     <div class="cards">
       <div class="card">
         <h3>① MP4로 바로 렌더링 <span class="chip" id="renderChip">확인 중</span></h3>
-        <p class="steps-note"><b>캡컷 사용자는 이 길입니다.</b> 캡컷은 EDL·XML을 불러오지 못하므로, 여기서 만든 MP4를 캡컷에 넣고 자막·효과를 올리세요. 서버 업로드 없이 이 브라우저에서 만들며, 보통 영상 길이의 10~30% 시간이 걸립니다. 완료되면 저장 확인 창이 뜹니다.</p>
+        <p class="steps-note"><b>캡컷 사용자는 이 길입니다.</b> 캡컷은 EDL·XML을 불러오지 못하므로, 여기서 만든 MP4를 캡컷에 넣고 자막·효과를 올리세요. 서버 업로드 없이 이 브라우저에서 만들며, 보통 영상 길이의 10~30% 시간이 걸립니다. 버튼을 누르면 <b>저장 위치를 먼저 고르고</b>(크롬·엣지), 렌더링 결과가 그 파일로 바로 저장됩니다. 저장 창이 없는 브라우저에서는 끝난 뒤 다운로드 폴더에 저장됩니다.</p>
         <div class="field">
           <label for="selQuality">화질</label>
           <select id="selQuality">
@@ -645,7 +645,7 @@ td.ttl input:focus{border-color:var(--accent);background:var(--surface)}
       <div class="card">
         <h3>자주 묻는 질문</h3>
         <ul>
-          <li><b>영상이 어디로 올라가나요?</b> 어디에도 올라가지 않습니다. 분석과 렌더링 모두 이 브라우저 안에서 처리되고, 파일은 저장 확인 창을 거쳐 내 컴퓨터에만 남습니다.</li>
+          <li><b>영상이 어디로 올라가나요?</b> 어디에도 올라가지 않습니다. 분석과 렌더링 모두 이 브라우저 안에서 처리되고, 파일은 내가 고른 위치(또는 다운로드 폴더)에만 남습니다.</li>
           <li><b>어떤 브라우저가 좋나요?</b> 최신 크롬·엣지(데스크톱)에서 MP4 렌더링까지 모두 됩니다. 사파리·파이어폭스는 분석과 EDL 내보내기는 되지만 MP4 렌더링은 안 될 수 있습니다.</li>
           <li><b>말이 중간에 잘려요.</b> 세부 설정에서 말소리 기준을 낮추고(-48 정도) 여백을 0.25초로 늘리세요. 녹음 자체가 작으면 기준을 더 낮춰야 합니다.</li>
           <li><b>숨소리까지 다 남아요.</b> 말소리 기준을 올리고(-36 정도) 최소 무음 길이를 줄이세요.</li>
@@ -664,7 +664,7 @@ td.ttl input:focus{border-color:var(--accent);background:var(--surface)}
     <ol class="onb-steps">
       <li><div><b>영상 올리기</b>촬영한 원본을 그대로 넣으세요. 업로드가 아니라 내 브라우저 안에서만 분석됩니다. 10분 영상이면 20~40초 걸립니다.</div></li>
       <li><div><b>들어보며 고치기</b>무음·NG 뒤 정적이 자동으로 빨갛게 잡힙니다. 재생 버튼을 누르면 빨간 구간을 건너뛰며 들리니, 어색한 곳에서만 <kbd>Q</kbd>·<kbd>W</kbd>·<kbd>X</kbd>로 고치세요.</div></li>
-      <li><div><b>내보내기</b>캡컷을 쓰면 MP4를 만들어 캡컷에 넣고 자막만 올리면 됩니다. 캡컷 없이 끝내려면 AI 자막을 만들고 꾸미기 탭에서 자막·효과·효과음을 얹어 MP4로 내보내세요.</div></li>
+      <li><div><b>내보내기</b>MP4 만들기를 누르고 저장 위치를 고르면 렌더링이 시작됩니다. 캡컷을 쓰면 그 MP4를 캡컷에 넣고 자막만 올리면 됩니다. 캡컷 없이 끝내려면 AI 자막을 만들고 꾸미기 탭에서 자막·효과·효과음을 얹어 MP4로 내보내세요.</div></li>
     </ol>
     <div class="foot">
       <button class="btn primary" id="onbStart">시작하기</button>

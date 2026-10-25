@@ -1,6 +1,7 @@
 // Pro layer: channel defaults + batch queue (automation), remappable keyboard (speed), work log (analytics).
 import './pro.css';
 import { DEFAULT_KEYS, ACTION_LABELS, comboFromEvent, comboLabel, resolveKeymap, invertKeymap, makeRecord, summarize, toCSV, planQueue } from './prologic.js';
+import { initEngine } from './engine.js';
 
 const LS = { defaults: 'cutdiet:pro:defaults', keys: 'cutdiet:pro:keys', log: 'cutdiet:pro:log' };
 const lsGet = (k, fb) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch { return fb; } };
@@ -8,10 +9,27 @@ const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } ca
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
+// IndexedDB keeps the chosen output folder handle between sessions (File System Access API, Chrome/Edge)
+function idb() { return new Promise((res, rej) => { const r = indexedDB.open('cutdiet-pro', 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+async function idbGet(k) { try { const db = await idb(); return await new Promise((res, rej) => { const t = db.transaction('kv').objectStore('kv').get(k); t.onsuccess = () => res(t.result); t.onerror = () => rej(t.error); }); } catch { return undefined; } }
+async function idbSet(k, v) { try { const db = await idb(); await new Promise((res, rej) => { const t = db.transaction('kv', 'readwrite').objectStore('kv').put(v, k); t.onsuccess = res; t.onerror = () => rej(t.error); }); } catch {} }
+
 function boot() {
   const C = window.cutdiet; if (!C) return;
   const { state, els, toast, fmtClock, fmtBytes } = C;
   document.body.classList.add('pro');
+
+  // ---------- output folder (browser Pro without the engine) ----------
+  const outBtn = $('btnOutDir'), outLabel = $('outDirLabel');
+  const showOut = () => { if (!outLabel) return; outLabel.textContent = state.outDirHandle ? `출력 폴더: ${state.outDirHandle.name} (저장 창 없이 바로 저장)` : (C.fsAccess ? '출력 폴더를 지정하면 렌더·썸네일·프로젝트가 저장 창 없이 그 폴더에 쌓입니다.' : '이 브라우저는 폴더 지정을 지원하지 않아 다운로드 폴더에 저장됩니다.'); };
+  if (outBtn) {
+    if (!C.fsAccess) outBtn.disabled = true;
+    outBtn.addEventListener('click', async () => {
+      if (state.outDirHandle && outBtn.dataset.mode === 'reconnect') { try { if ((await state.outDirHandle.requestPermission({ mode: 'readwrite' })) === 'granted') { outBtn.dataset.mode = ''; outBtn.textContent = '출력 폴더 변경'; showOut(); toast('출력 폴더를 다시 연결했습니다'); return; } } catch {} }
+      try { const h = await window.showDirectoryPicker({ mode: 'readwrite', id: 'cutdiet-out' }); state.outDirHandle = h; await idbSet('outDir', h); outBtn.dataset.mode = ''; outBtn.textContent = '출력 폴더 변경'; showOut(); toast(`출력 폴더: ${h.name}`); } catch (e) { if (e && e.name !== 'AbortError') toast('폴더를 지정하지 못했습니다: ' + e.message); }
+    });
+    idbGet('outDir').then(async h => { if (!h) { showOut(); return; } state.outDirHandle = h; let perm = 'prompt'; try { perm = await h.queryPermission({ mode: 'readwrite' }); } catch {} if (perm === 'granted') { showOut(); } else { outBtn.dataset.mode = 'reconnect'; outBtn.textContent = `출력 폴더 다시 연결 (${h.name})`; if (outLabel) outLabel.textContent = '이전에 지정한 출력 폴더가 있습니다. 버튼을 눌러 다시 연결하세요(브라우저 보안상 매 세션 확인).'; } });
+  }
 
   // ---------- channel defaults ----------
   const defaults = Object.assign({ preset: 'lecture', quality: 'high', tasks: { render: true, shorts: false, thumbs: true, project: true }, shortsPos: 0.5, bgmVolume: 18, bgmDuck: true, autoLog: true }, lsGet(LS.defaults, {}));
@@ -39,7 +57,7 @@ function boot() {
     $('btnRunQueue').disabled = queueRunning || !queue.some(q => q.status === 'wait');
     $('btnStopQueue').hidden = !queueRunning; $('btnClearQueue').disabled = queueRunning;
   };
-  const addFiles = files => { const list = [...files].filter(f => /^(video|audio)\//.test(f.type) || /\.(mp4|mov|mkv|webm|m4a|mp3|wav)$/i.test(f.name)); if (!list.length) { toast('영상·음성 파일이 아닙니다'); return; } const tasks = defaults.tasks; const planned = planQueue(list, tasks); const base = queue.length; planned.forEach(p => { p.idx = base + p.idx; }); queue = queue.concat(planned); renderQueue(); toast(`${list.length}개를 큐에 넣었습니다. Shift+Enter로 실행`); };
+  const addFiles = files => { const list = [...files].filter(f => f.engine || /^(video|audio)\//.test(f.type) || /\.(mp4|mov|mkv|webm|m4a|mp3|wav|m4v|avi|mts)$/i.test(f.name)); if (!list.length) { toast('영상·음성 파일이 아닙니다'); return; } const tasks = defaults.tasks; const planned = planQueue(list, tasks); const base = queue.length; planned.forEach(p => { p.idx = base + p.idx; }); queue = queue.concat(planned); renderQueue(); toast(`${list.length}개를 큐에 넣었습니다. Shift+Enter로 실행`); };
   $('queueInput').addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
   $('btnQueueAdd').addEventListener('click', () => $('queueInput').click());
   $('btnClearQueue').addEventListener('click', () => { queue = queue.filter(q => q.status === 'run'); renderQueue(); });
@@ -144,6 +162,9 @@ function boot() {
   renderKeys();
   window.addEventListener('resize', () => drawTrend(summarize(log).trend));
   try { new ResizeObserver(() => { if ($('logTrend').clientWidth) drawTrend(summarize(log).trend); }).observe($('logTrend')); } catch {}
+
+  // ---------- local engine (ffmpeg, watch folder, native dialogs) ----------
+  initEngine(C, { addFiles }).then(eng => { if (eng) window.cutdietEngine = eng; }).catch(e => console.warn('engine init failed', e));
 }
 
 if (window.cutdiet) boot(); else document.addEventListener('cutdiet:ready', boot, { once: true });
