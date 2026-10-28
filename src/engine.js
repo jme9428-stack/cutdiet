@@ -40,7 +40,7 @@ export async function initEngine(C, { addFiles } = {}) {
     const b = state.bgm; let bgm = null;
     if (b.ready && b.file) { onProgress(0, '배경음악 전송'); bgm = { path: await uploadAsset(b.file), volume: b.volume, duck: b.duck, fade: b.fade, loop: b.loop }; }
     const fx = JSON.parse(JSON.stringify({ ...state.fx, overlays: [], sfx: [] }));
-    for (const o of state.fx.overlays) { const c = { id: o.id, type: o.type, s: o.s, e: o.e, pos: o.pos, w: o.w, opacity: o.opacity, fade: o.fade, text: o.text, style: o.style, ratio: o.ratio, name: o.name }; if (o.type === 'image') { if (o.file) c.path = await uploadAsset(o.file); else c.dataUrl = o.dataUrl; } fx.overlays.push(c); }
+    for (const o of state.fx.overlays) { const c = { id: o.id, type: o.type, s: o.s, e: o.e, pos: o.pos, x: o.x, y: o.y, w: o.w, opacity: o.opacity, fade: o.fade, text: o.text, style: o.style, ratio: o.ratio, name: o.name }; if (o.type === 'image') { if (o.file) c.path = await uploadAsset(o.file); else c.dataUrl = o.dataUrl; } fx.overlays.push(c); }
     for (const s of state.fx.sfx) { const c = { id: s.id, t: s.t, kind: s.kind, volume: s.volume, name: s.name }; if (s.kind === 'custom') { if (!s.file) continue; c.path = await uploadAsset(s.file); } fx.sfx.push(c); }
     const captions = state.fx.subs.burn ? (C.captionsOf() || []).map(l => ({ s: l.s, e: l.e, text: l.text })) : [];
     const job = await api('/render', { token: state.engineMedia.token, kind, ranges, out, crop, quality, fps, filename: name, bgm, fx, captions });

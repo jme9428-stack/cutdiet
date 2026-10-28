@@ -18,7 +18,7 @@ const state = {
   env: null, params: { threshold: -42, minSilence: 0.6, pad: 0.15, minKeep: 0.25 }, autoThreshold: -42, preset: 'lecture',
   segments: [], chapters: [], dirty: false,
   cur: 0, skip: true, zoom: 1, scroll: 0, hoverT: null, previewStop: null,
-  shuttle: { dir: 0, speed: 1, last: 0 },
+  shuttle: { dir: 0, speed: 1, last: 0 }, rate: 1, marks: { in: null, out: null },
   analyzing: false, rendering: null, lastRender: null, lastShorts: null, currentRow: -1,
   activity: { openedAt: 0, manualEdits: 0, aiApplied: 0, renders: 0 },
   fx: defaultFx(),
@@ -33,7 +33,7 @@ let decor = null; let captionsOf = () => [];
 const ids = ['drop','fileInput','filebar','fileName','fileMeta','btnOtherFile','notice','video','monitor','monitorEmpty','hudState','hudRes','engineChip','cropOverlay','cropFrame',
   'presetNote','adv','advSummary','rngThreshold','rngMinSilence','rngPad','valThreshold','valMinSilence','valPad','btnAuto','btnReanalyze','dirtyHint',
   'stOrig','stAfter','stSaved','stSavedPct','stCuts','stCutsNote',
-  'btnPlay','btnRev','btnFwd','btnPrevCut','btnNextCut','speedBadge','tcCur','tcDur','tcOut','chkSkip','btnToggle','btnSplit','btnTrimL','btnTrimR','btnChapter','btnUndo','btnRedo','btnZoomIn','btnZoomOut','btnZoomFit','zoomLabel','tl','scroller',
+  'btnPlay','btnRev','btnFwd','btnPrevCut','btnNextCut','speedBadge','selRate','btnMute','rngVolume','btnFull','btnMarkIn','btnMarkOut','btnMarkDel','tcCur','tcDur','tcOut','chkSkip','btnToggle','btnSplit','btnTrimL','btnTrimR','btnChapter','btnUndo','btnRedo','btnZoomIn','btnZoomOut','btnZoomFit','zoomLabel','tl','scroller',
   'segFilter','segCount','segBody','btnReviveShort','btnKeepAll','btnChapterHere','chBody','chText','chText2','chValid','btnCopyChapters','btnCopyChapters2',
   'bgmChip','btnBgmPick','btnBgmClear','bgmInput','bgmInfo','bgmProgress','bgmVol','bgmVolVal','bgmDuck','bgmFade','bgmFadeVal','bgmLoop',
   'shIn','shOut','btnShInHere','btnShOutHere','btnShAll','shInfo','btnShPreview','cropPos','cropPosVal','chkUpscale','cropInfo','shortsChip','shEstimate','btnShortsRender','btnShortsCancel','btnShortsResave','shortsProgress','shortsStatus',
@@ -57,6 +57,9 @@ function baseName(name) { return (name || 'video').replace(/\.[^.]+$/, ''); }
 function fmtBytes(b) { if (b < 1e6) return (b / 1e3).toFixed(0) + ' KB'; if (b < 1e9) return (b / 1e6).toFixed(1) + ' MB'; return (b / 1e9).toFixed(2) + ' GB'; }
 function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
+// input types where keys are typed (Space included); everything else (checkbox, slider, color…) lets Space play/pause
+const NON_TEXT_INPUTS = new Set(['checkbox', 'radio', 'range', 'color', 'button', 'submit', 'reset', 'file', 'image']);
+function isTextEntry(t) { if (!t) return false; const tag = t.tagName || ''; return (tag === 'INPUT' && !NON_TEXT_INPUTS.has((t.type || 'text').toLowerCase())) || tag === 'TEXTAREA' || !!t.isContentEditable; }
 function lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
 async function copyText(text) {
@@ -322,7 +325,17 @@ function trimDelete(side) {
   else { if (t <= g.s + 0.03) g.keep = false; else state.segments.splice(i, 1, { s: g.s, e: t, keep: true }, { s: t, e: g.e, keep: false }); }
   markDirty(); refreshAll(); toast(side === 'left' ? '재생 위치 앞쪽을 삭제했습니다 (Q)' : '재생 위치 뒤쪽을 삭제했습니다 (W)', 1500);
 }
-function deleteCurrent() { if (!state.segments.length) return; const i = segIndexAt(state.segments, state.cur); if (!state.segments[i].keep) { toast('이미 삭제 구간입니다', 1200); return; } pushUndo(); state.segments[i].keep = false; markDirty(); refreshAll(); toast('현재 구간을 삭제했습니다', 1200); }
+// In/Out range (Premiere-style I / O): Delete removes the marked range instead of the current segment
+function markRange() { const m = state.marks; return m.in != null && m.out != null && m.out - m.in > 0.04 ? { s: Math.min(m.in, m.out), e: Math.max(m.in, m.out) } : null; }
+function setMark(which, t) {
+  if (!state.duration) return; state.marks[which] = clamp(t, 0, state.duration);
+  const m = state.marks; if (m.in != null && m.out != null && m.out < m.in) { if (which === 'in') m.out = null; else m.in = null; }
+  const r = markRange(); els.btnMarkDel.disabled = !r; drawTimeline();
+  toast(r ? `범위 ${fmtClock(r.s)}–${fmtClock(r.e)} (${(r.e - r.s).toFixed(1)}s) · Delete로 삭제, Esc로 해제` : `${which === 'in' ? '시작(I)' : '끝(O)'} ${fmtClock(state.marks[which])}`, 2200);
+}
+function clearMarks() { state.marks = { in: null, out: null }; els.btnMarkDel.disabled = true; drawTimeline(); }
+function deleteMarked() { const r = markRange(); if (!r) { toast('I로 시작, O로 끝을 먼저 찍으세요'); return; } pushUndo(); state.segments = applySpan(state.segments, r.s, r.e, false); markDirty(); clearMarks(); refreshAll(); toast(`${(r.e - r.s).toFixed(1)}초 범위를 삭제했습니다 (Ctrl+Z로 되돌리기)`, 2200); }
+function deleteCurrent() { if (markRange()) { deleteMarked(); return; } if (!state.segments.length) return; const i = segIndexAt(state.segments, state.cur); if (!state.segments[i].keep) { toast('이미 삭제 구간입니다', 1200); return; } pushUndo(); state.segments[i].keep = false; markDirty(); refreshAll(); toast('현재 구간을 삭제했습니다', 1200); }
 function setBoundary(i, t) { const a = state.segments[i - 1], b = state.segments[i]; if (!a || !b) return; t = clamp(t, a.s + 0.04, b.e - 0.04); a.e = t; b.s = t; }
 function boundaries() { return state.segments.slice(1).map(g => g.s); }
 function jumpCut(dir) { const bs = boundaries(); if (!bs.length) return; const t = state.cur; let target = null; if (dir > 0) target = bs.find(b => b > t + 0.01); else { for (let i = bs.length - 1; i >= 0; i--) if (bs[i] < t - 0.01) { target = bs[i]; break; } } if (target == null) target = dir > 0 ? state.duration : 0; seek(target); }
@@ -406,16 +419,16 @@ function requirePlayable() { if (!state.hasMedia || !state.videoPlayable) { toas
 function togglePlay() {
   if (!requirePlayable()) return;
   if (state.shuttle.dir === -1) { setShuttle(0); return; }
-  if (els.video.paused) { els.video.playbackRate = 1; state.shuttle = { dir: 1, speed: 1, last: 0 }; if (state.cur >= state.duration - 0.05) seek(0); els.video.play().catch(() => toast('재생을 시작하지 못했습니다')); } else els.video.pause();
+  if (els.video.paused) { els.video.playbackRate = state.rate; state.shuttle = { dir: 1, speed: 1, last: 0 }; if (state.cur >= state.duration - 0.05) seek(0); els.video.play().catch(() => toast('재생을 시작하지 못했습니다')); } else els.video.pause();
 }
 // dir: -1 reverse (J), 0 stop (K), 1 forward (L); repeated presses double the speed up to 8x
 function setShuttle(dir) {
   const v = els.video;
-  if (dir === 0) { state.shuttle = { dir: 0, speed: 1, last: 0 }; v.playbackRate = 1; v.pause(); bgmAudio.pause(); updateTimeUI(); return; }
+  if (dir === 0) { state.shuttle = { dir: 0, speed: 1, last: 0 }; v.playbackRate = state.rate; v.pause(); bgmAudio.pause(); updateTimeUI(); return; }
   if (!requirePlayable()) return;
   if (dir === 1) {
     const sp = (state.shuttle.dir === 1 && isPlaying()) ? Math.min(8, state.shuttle.speed * 2) : 1;
-    state.shuttle = { dir: 1, speed: sp, last: 0 }; v.playbackRate = sp; if (state.cur >= state.duration - 0.05) seek(0); v.play().catch(() => {});
+    state.shuttle = { dir: 1, speed: sp, last: 0 }; v.playbackRate = sp === 1 ? state.rate : sp; if (state.cur >= state.duration - 0.05) seek(0); v.play().catch(() => {});
   } else {
     const sp = state.shuttle.dir === -1 ? Math.min(8, state.shuttle.speed * 2) : 1;
     v.pause(); v.playbackRate = 1; bgmAudio.pause(); state.shuttle = { dir: -1, speed: sp, last: performance.now() };
@@ -426,7 +439,17 @@ els.btnPlay.addEventListener('click', togglePlay);
 els.btnRev.addEventListener('click', () => setShuttle(-1)); els.btnFwd.addEventListener('click', () => setShuttle(1));
 els.btnPrevCut.addEventListener('click', () => jumpCut(-1)); els.btnNextCut.addEventListener('click', () => jumpCut(1));
 els.chkSkip.addEventListener('change', () => { state.skip = els.chkSkip.checked; });
-els.video.addEventListener('play', () => { if (state.shuttle.dir !== 1) state.shuttle = { dir: 1, speed: Math.max(1, els.video.playbackRate), last: 0 }; updateTimeUI(); });
+// playback speed / volume / fullscreen (preview only; exports are unaffected)
+els.selRate.addEventListener('change', () => { state.rate = Number(els.selRate.value) || 1; if (state.shuttle.dir !== -1) { els.video.playbackRate = state.rate; state.shuttle.speed = 1; updateTimeUI(); } els.selRate.blur(); });
+function setVolume(v, muted) { const vid = els.video; vid.volume = clamp(v, 0, 1); vid.muted = !!muted; els.rngVolume.value = Math.round(vid.volume * 100); els.btnMute.textContent = vid.muted || vid.volume === 0 ? '🔇' : vid.volume < 0.5 ? '🔉' : '🔊'; lsSet('cutdiet:volume', JSON.stringify({ v: vid.volume, m: vid.muted })); }
+try { const sv = JSON.parse(lsGet('cutdiet:volume') || 'null'); if (sv) setVolume(Number(sv.v ?? 1), !!sv.m); } catch {}
+els.rngVolume.addEventListener('input', () => setVolume(Number(els.rngVolume.value) / 100, false));
+els.btnMute.addEventListener('click', () => setVolume(els.video.volume || 1, !els.video.muted));
+function toggleFullscreen() { const m = els.monitor; if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); else if (m.requestFullscreen) m.requestFullscreen().catch(() => toast('전체 화면으로 전환하지 못했습니다')); }
+els.btnFull.addEventListener('click', toggleFullscreen);
+document.addEventListener('fullscreenchange', () => { setTimeout(() => { layoutCrop(); if (decor) decor.previewTick(false); }, 60); });
+els.btnMarkIn.addEventListener('click', () => setMark('in', state.cur)); els.btnMarkOut.addEventListener('click', () => setMark('out', state.cur)); els.btnMarkDel.addEventListener('click', deleteMarked);
+els.video.addEventListener('play', () => { if (state.shuttle.dir !== 1) state.shuttle = { dir: 1, speed: els.video.playbackRate === state.rate ? 1 : Math.max(1, els.video.playbackRate), last: 0 }; updateTimeUI(); });
 els.video.addEventListener('pause', () => { if (state.shuttle.dir === 1) state.shuttle = { dir: 0, speed: 1, last: 0 }; bgmAudio.pause(); state.previewStop = null; updateTimeUI(); });
 els.video.addEventListener('ended', () => { bgmAudio.pause(); updateTimeUI(); });
 els.video.addEventListener('seeked', () => { state.cur = els.video.currentTime; updateTimeUI(); drawTimeline(); });
@@ -477,12 +500,15 @@ function tick() {
 setInterval(() => { if (performance.now() - lastTick > 120) tick(); }, 60);
 
 // ===================== KEYBOARD (CapCut-compatible) =====================
-document.addEventListener('keyup', e => { const tag = (e.target && e.target.tagName) || ''; if (e.key === ' ' && tag === 'BUTTON') e.preventDefault(); });
+document.addEventListener('keyup', e => { const tag = (e.target && e.target.tagName) || ''; if (e.key === ' ' && (tag === 'BUTTON' || (tag === 'INPUT' && NON_TEXT_INPUTS.has(e.target.type)))) e.preventDefault(); });
 document.addEventListener('keydown', e => {
   if (e.cutdietHandled) return;
   if (!els.onb.hidden) { if (e.key === 'Escape') closeOnboarding(); return; }
   const tag = (e.target && e.target.tagName) || ''; const isRange = tag === 'INPUT' && e.target.type === 'range';
-  if ((tag === 'INPUT' && !isRange) || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
+  if (isTextEntry(e.target)) return;
+  // Space plays/pauses even right after clicking a checkbox, slider, dropdown or button (instead of toggling that control)
+  if (e.code === 'Space' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); if (tag === 'INPUT' || tag === 'SELECT' || tag === 'BUTTON') e.target.blur(); togglePlay(); return; }
+  if ((tag === 'INPUT' && !isRange) || tag === 'SELECT') return;
   if (isRange && (/^Arrow/.test(e.key) || e.key === 'Home' || e.key === 'End' || e.code === 'Comma' || e.code === 'Period')) return;
   const mod = e.metaKey || e.ctrlKey;
   if (mod && !e.altKey) {
@@ -508,6 +534,10 @@ document.addEventListener('keydown', e => {
     case 'KeyW': trimDelete('right'); break;
     case 'Delete': case 'Backspace': e.preventDefault(); deleteCurrent(); break;
     case 'KeyM': addChapterAt(state.cur); break;
+    case 'KeyI': setMark('in', state.cur); break;
+    case 'KeyO': setMark('out', state.cur); break;
+    case 'KeyF': toggleFullscreen(); break;
+    case 'Escape': if (state.marks.in != null || state.marks.out != null) clearMarks(); else return; break;
     case 'BracketLeft': jumpCut(-1); break;
     case 'BracketRight': jumpCut(1); break;
     case 'Home': e.preventDefault(); seek(0); break;
@@ -535,6 +565,11 @@ function drawTimeline() {
     const x0 = (g.s - t0) * pps, x1 = (g.e - t0) * pps; if (x1 < 0 || x0 > W) continue;
     ctx.fillStyle = g.keep ? C.keepSoft : C.removeSoft; ctx.fillRect(Math.max(0, x0), top, Math.min(W, x1) - Math.max(0, x0), h);
   }
+  // In/Out marked range
+  { const m = state.marks; const xi = m.in != null ? (m.in - t0) * pps : null, xo = m.out != null ? (m.out - t0) * pps : null; ctx.fillStyle = C.accent;
+    if (xi != null && xo != null) { ctx.globalAlpha = .16; ctx.fillRect(xi, top, xo - xi, h); ctx.globalAlpha = 1; }
+    if (xi != null) { ctx.fillRect(xi, top, 2, h); ctx.fillRect(xi, top, 7, 2); ctx.fillRect(xi, bottom - 2, 7, 2); }
+    if (xo != null) { ctx.fillRect(xo - 2, top, 2, h); ctx.fillRect(xo - 7, top, 7, 2); ctx.fillRect(xo - 7, bottom - 2, 7, 2); } }
   // shorts range band
   if (state.shorts.out > state.shorts.in && !$('#tab-shorts').hidden) { const x0 = (state.shorts.in - t0) * pps, x1 = (state.shorts.out - t0) * pps; ctx.fillStyle = '#FFD166'; ctx.globalAlpha = .18; ctx.fillRect(x0, top, x1 - x0, h); ctx.globalAlpha = 1; ctx.fillRect(x0, top, 2, h); ctx.fillRect(x1 - 2, top, 2, h); }
   if (state.env) {
@@ -811,7 +846,7 @@ async function renderMp4({ ranges, out, crop, forceTransform, signal, onProgress
   output.addVideoTrack(vSource, meta);
   let comp = null, fxCanvas = null, fxCtx = null;
   if (useFx) {
-    await preloadFonts(state.fx);
+    await preloadFonts(state.fx, state.fx.subs.burn ? captions.map(l => l.text) : []);
     fxCanvas = new OffscreenCanvas(out.w, out.h); fxCtx = fxCanvas.getContext('2d');
     comp = makeCompositor({ W: out.w, H: out.h, crop: crop || { left: 0, top: 0, width: state.width, height: state.height }, fx: state.fx, captions: state.fx.subs.burn ? captions : null, ranges, total });
   }
@@ -996,7 +1031,8 @@ function projectData() {
   const b = state.bgm, sh = state.shorts;
   return { app: 'cutdiet', version: 2, savedAt: new Date().toISOString(), file: state.file ? { name: state.file.name, size: state.file.size } : null, duration: state.duration, fps: state.fps, preset: state.preset, params: { ...state.params }, dirty: state.dirty,
     segments: state.segments.map(g => [Math.round(g.s * 1000) / 1000, Math.round(g.e * 1000) / 1000, g.keep ? 1 : 0]), chapters: state.chapters.map(c => [Math.round(c.t * 1000) / 1000, c.title]),
-    bgm: { name: b.name || '', volume: b.volume, duck: b.duck, fade: b.fade, loop: b.loop }, shorts: { in: sh.in, out: sh.out, pos: sh.pos, upscale: sh.upscale }, fx: fxToJSON(state.fx) };
+    bgm: { name: b.name || '', volume: b.volume, duck: b.duck, fade: b.fade, loop: b.loop }, shorts: { in: sh.in, out: sh.out, pos: sh.pos, upscale: sh.upscale }, fx: fxToJSON(state.fx),
+    captions: (captionsOf() || []).map(l => [Math.round(l.s * 1000) / 1000, Math.round(l.e * 1000) / 1000, l.text, l.edited ? 1 : 0]) };
 }
 function applyProject(p) {
   if (!p || p.app !== 'cutdiet' || !Array.isArray(p.segments)) throw new Error('bad project');
@@ -1009,6 +1045,7 @@ function applyProject(p) {
   state.preset = p.preset || 'custom';
   if (p.bgm) { const b = state.bgm; b.volume = Number(p.bgm.volume) || b.volume; b.duck = p.bgm.duck !== false; b.fade = Number(p.bgm.fade ?? b.fade); b.loop = p.bgm.loop !== false; els.bgmVol.value = Math.round(b.volume * 100); els.bgmDuck.checked = b.duck; els.bgmFade.value = b.fade; els.bgmLoop.checked = b.loop; els.bgmVolVal.textContent = `${els.bgmVol.value}%`; els.bgmFadeVal.textContent = `${b.fade.toFixed(1)} s`; if (p.bgm.name && !b.ready) els.bgmInfo.textContent = `이전 작업의 음악 "${p.bgm.name}"은 파일을 다시 선택해야 합니다 (브라우저에는 음악 파일이 저장되지 않습니다).`; }
   if (p.shorts) { Object.assign(state.shorts, { in: Number(p.shorts.in) || 0, out: Number(p.shorts.out) || 0, pos: clamp(Number(p.shorts.pos ?? 0.5), 0, 1), upscale: p.shorts.upscale !== false }); els.cropPos.value = Math.round(state.shorts.pos * 100); els.chkUpscale.checked = state.shorts.upscale; }
+  if (Array.isArray(p.captions) && tr && tr.setLines) tr.setLines(p.captions.filter(Array.isArray).map(([s, e, text, ed]) => ({ s, e, text, edited: !!ed })));
   if (p.fx) { state.fx = fxFromJSON(p.fx); if (decor) decor.rehydrate(); }
   state.dirty = p.dirty !== false; syncSliders(); if (state.dirty) markDirty(); else { els.btnReanalyze.hidden = true; els.dirtyHint.hidden = true; }
   state.cur = 0; state.zoom = 1; state.scroll = 0; refreshAll();
@@ -1045,10 +1082,11 @@ bootDemo();
 
 // ===================== AI (in-browser transcription) =====================
 function markSpans(spans, keep = false) { if (!spans.length) return 0; pushUndo(); state.activity.aiApplied += spans.length; let segs = state.segments; for (const sp of spans) segs = applySpan(segs, clamp(sp.s, 0, state.duration), clamp(sp.e, 0, state.duration), keep); state.segments = segs; markDirty(); refreshAll(); return spans.length; }
-const tr = initTranscribe({ state, HOP, toast, saveFile, copyText, outTime, keptDuration, fmtClock, baseName, seek, sleep, nextFrame, markSpans, heavyReason, escapeHtml, accumulateEnergy });
+const tr = initTranscribe({ state, HOP, toast, saveFile, copyText, outTime, keptDuration, fmtClock, baseName, seek, sleep, nextFrame, markSpans, heavyReason, escapeHtml, accumulateEnergy, autosave,
+  play: () => { if (els.video.paused) togglePlay(); }, captionsChanged: () => { if (decor) { decor.renderLists(); decor.previewTick(false); } } });
 if (tr && tr.getLines) captionsOf = tr.getLines;
 
-decor = initDecorate({ state, els, toast, fmtClock, seek, refreshAll, autosave, keepRanges, keptDuration, outTime, segIndexAt, escapeHtml, captionsOf: () => captionsOf() });
+decor = initDecorate({ state, els, toast, fmtClock, seek, refreshAll, autosave, keepRanges, keptDuration, outTime, segIndexAt, escapeHtml, captionsOf: () => captionsOf(), captionsChanged: () => tr && tr.refresh && tr.refresh() });
 window.addEventListener('resize', () => decor && decor.previewTick(false));
 
 // Public API used by the Pro layer (src/pro.js)
@@ -1057,6 +1095,6 @@ window.cutdiet = {
   keptDuration, countRemoveRuns, keepRanges, outTime, chapterLines, buildZip, showTab, seek, refreshAll, renderBlockReason, shortsBlockReason, heavyReason, loadBgm, clearBgm, resetShortsRange,
   notice, escapeHtml, fsAccess, updateRenderAvailability, pickThumbnailTimes: (count = 12) => pickThumbnailTimes(state.env, HOP, state.segments, count), captionsOf: () => captionsOf(),
   undoDepth: () => undo.stack.length,
-  actions: { play: togglePlay, rev: () => setShuttle(-1), stop: () => setShuttle(0), fwd: () => setShuttle(1), toggle: () => toggleSegmentAt(state.cur), split: () => splitAt(state.cur), trimL: () => trimDelete('left'), trimR: () => trimDelete('right'), del: deleteCurrent, chapter: () => addChapterAt(state.cur), undo: doUndo, redo: doRedo, prevCut: () => jumpCut(-1), nextCut: () => jumpCut(1), home: () => seek(0), end: () => seek(state.duration), back1: () => seek(state.cur - 1), fwd1: () => seek(state.cur + 1), frameBack: () => seek(state.cur - 1 / (state.fps || 30)), frameFwd: () => seek(state.cur + 1 / (state.fps || 30)) },
+  actions: { play: togglePlay, rev: () => setShuttle(-1), stop: () => setShuttle(0), fwd: () => setShuttle(1), toggle: () => toggleSegmentAt(state.cur), split: () => splitAt(state.cur), trimL: () => trimDelete('left'), trimR: () => trimDelete('right'), del: deleteCurrent, chapter: () => addChapterAt(state.cur), undo: doUndo, redo: doRedo, prevCut: () => jumpCut(-1), nextCut: () => jumpCut(1), home: () => seek(0), end: () => seek(state.duration), back1: () => seek(state.cur - 1), fwd1: () => seek(state.cur + 1), frameBack: () => seek(state.cur - 1 / (state.fps || 30)), frameFwd: () => seek(state.cur + 1 / (state.fps || 30)), markIn: () => setMark('in', state.cur), markOut: () => setMark('out', state.cur), fullscreen: toggleFullscreen },
 };
 document.dispatchEvent(new CustomEvent('cutdiet:ready'));

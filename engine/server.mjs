@@ -11,7 +11,7 @@ import { analyzeFile, envToArray } from './lib/analyze.mjs';
 import { buildArgs, mapOverlaysAndCaptions, segsFromRanges } from './lib/graph.mjs';
 import { buildASS } from './lib/ass.mjs';
 import { writeWav, nativePick, openFolder, openBrowser, defaultOutDir, uniquePath, baseName, loadJSON, saveJSON, randomToken, MEDIA_RE } from './lib/util.mjs';
-import { ensureFonts } from './lib/fonts.mjs';
+import { ensureFonts, BASE_FAMILIES } from './lib/fonts.mjs';
 import { extractAudio16k, transcribeAudio, ASR_MODELS } from './lib/asr.mjs';
 import { synthSfx } from '../src/fxlogic.js';
 import { HOP, PRESETS, detectSegments, suggestThreshold, keepRanges, keptDuration, countRemoveRuns, clamp } from '../src/cutlogic.js';
@@ -101,13 +101,17 @@ async function startRender(body) {
   const mapped = mapOverlaysAndCaptions(req);
   const assets = { ass: null, bgm: null, images: mapped.images, sfx: [] };
   const burn = fxCopy && fxCopy.subs && fxCopy.subs.burn && mapped.captions.length;
-  if (burn || mapped.textOverlays.length) { const ass = buildASS({ W: out.w, H: out.h, style: fxCopy && fxCopy.subs ? fxCopy.subs.style : null, captions: burn ? mapped.captions : [], textOverlays: mapped.textOverlays }); assets.ass = path.join(dir, 'subs.ass'); fs.writeFileSync(assets.ass, ass); if (!ff.libass) j.warnings.push('이 ffmpeg는 libass가 없어 자막·텍스트 굽기를 건너뜁니다'); }
+  if (burn || mapped.textOverlays.length) {
+    // fetch any newly chosen font before burning (first use only), and map catalog names to the names libass sees in the files
+    const used = [burn ? fxCopy.subs.style.font : null, ...mapped.textOverlays.map(o => o.style && o.style.font)].filter(Boolean);
+    try { j.step = '글꼴 준비'; const fr = await ensureFonts(FONTS, log, [...BASE_FAMILIES, ...used]); ff.fonts = fr; } catch {}
+    const ass = buildASS({ W: out.w, H: out.h, style: fxCopy && fxCopy.subs ? fxCopy.subs.style : null, captions: burn ? mapped.captions : [], textOverlays: mapped.textOverlays, fontMap: ff.fonts.map }); assets.ass = path.join(dir, 'subs.ass'); fs.writeFileSync(assets.ass, ass); if (!ff.libass) j.warnings.push('이 ffmpeg는 libass가 없어 자막·텍스트 굽기를 건너뜁니다'); }
   for (const s of mapped.sfx) { const p = s.kind === 'custom' ? (s.path && fs.existsSync(s.path) ? s.path : null) : sfxWav(s.kind, dir); if (p) assets.sfx.push({ path: p, outT: s.outT, volume: s.volume ?? 0.8 }); }
   if (body.bgm && body.bgm.path && fs.existsSync(body.bgm.path)) assets.bgm = { path: body.bgm.path, volume: +body.bgm.volume || 0.18, duck: body.bgm.duck !== false, fade: +body.bgm.fade || 0, loop: body.bgm.loop !== false };
   fs.mkdirSync(settings.outDir, { recursive: true });
   const base = body.filename ? baseName(body.filename) : baseName(m.name) + (kind === 'shorts' ? '_shorts' : '_cut');
   req.outPath = uniquePath(settings.outDir, base, '.mp4');
-  const plan = buildArgs(req, assets, { fontsDir: ff.fonts.have.length ? FONTS : null, hasLibass: ff.libass });
+  const plan = buildArgs(req, assets, { fontsDir: ff.fonts.have.length ? FONTS : null, hasLibass: ff.libass, ffVersion: ff.version });
   const graphFile = path.join(dir, 'graph.txt'); fs.writeFileSync(graphFile, plan.graph);
   const args = plan.args.map(a => a === '__GRAPH__' ? graphFile : a);
   j.warnings.push(...plan.warnings); j.meta.encoder = plan.encoder; j.meta.out = req.outPath; j.meta.total = plan.total; j.step = '렌더링';

@@ -3,11 +3,13 @@
 export const DEFAULT_KEYS = {
   play: 'Space', rev: 'KeyJ', stop: 'KeyK', fwd: 'KeyL', toggle: 'KeyX', split: 'KeyS', trimL: 'KeyQ', trimR: 'KeyW', del: 'Delete', chapter: 'KeyM',
   undo: 'Ctrl+KeyZ', redo: 'Ctrl+Shift+KeyZ', prevCut: 'BracketLeft', nextCut: 'BracketRight', home: 'Home', end: 'End', back1: 'ArrowLeft', fwd1: 'ArrowRight', frameBack: 'Comma', frameFwd: 'Period',
+  markIn: 'KeyI', markOut: 'KeyO', fullscreen: 'KeyF',
   render: 'Ctrl+Enter', runQueue: 'Shift+Enter', thumbs: 'Shift+KeyT', saveProject: 'Ctrl+KeyS', help: 'Slash',
 };
 export const ACTION_LABELS = {
   play: '재생/일시정지', rev: '뒤로 재생 (반복: 배속)', stop: '멈춤', fwd: '앞으로 재생 (반복: 배속)', toggle: '유지↔삭제', split: '분할', trimL: '앞부분 삭제', trimR: '뒷부분 삭제', del: '현재 구간 삭제', chapter: '챕터 추가',
   undo: '되돌리기', redo: '다시 실행', prevCut: '이전 컷', nextCut: '다음 컷', home: '처음으로', end: '끝으로', back1: '1초 뒤로', fwd1: '1초 앞으로', frameBack: '1프레임 뒤로', frameFwd: '1프레임 앞으로',
+  markIn: '범위 시작(In)', markOut: '범위 끝(Out)', fullscreen: '미리보기 전체 화면',
   render: 'MP4 렌더', runQueue: '큐 실행', thumbs: '썸네일 뽑기', saveProject: '프로젝트 저장', help: '단축키 보기',
 };
 

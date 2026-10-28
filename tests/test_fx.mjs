@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SUB_PRESETS, defaultFx, fxActive, zoomAt, zoomSourceRect, fadeAlpha, dissolveAlpha, activeOverlays, overlayAlpha, overlayBox, wrapCaption, captionAt, synthSfx, mixSfxInto, hexA, fxToJSON, fxFromJSON } from '../src/fxlogic.js';
+import { SUB_PRESETS, FONT_CATALOG, SUB_FONTS, fontInfo, adjustActive, adjustFilter, adjustEq, captionAnim, customXY, defaultFx, fxActive, zoomAt, zoomSourceRect, fadeAlpha, dissolveAlpha, activeOverlays, overlayAlpha, overlayBox, wrapCaption, captionAt, synthSfx, mixSfxInto, hexA, fxToJSON, fxFromJSON } from '../src/fxlogic.js';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const dec = fs.readFileSync(path.join(root, 'src/decorate.js'), 'utf8');
@@ -48,4 +48,25 @@ fx.sfx = [{ id: 's1', t: 1.5, kind: 'ding', volume: 0.7, name: '띵' }, { id: 's
 const j = JSON.parse(JSON.stringify(fxToJSON(fx))); const back = fxFromJSON(j);
 assert.equal(back.zooms.length, 1); assert.equal(back.overlays.length, 1); assert.equal(back.overlays[0].bitmap, null); assert.equal(back.sfx.length, 1); assert.equal(back.autoZoom.scale, 1.12); assert.equal(back.subs.style.font, SUB_PRESETS.outline.font);
 assert.equal(fxFromJSON(null).zooms.length, 0);
+// fonts: every entry is loadable in the browser (Google CSS or a webfont URL); names unique; presets use catalog fonts
+assert.ok(FONT_CATALOG.length >= 30); assert.equal(new Set(SUB_FONTS).size, SUB_FONTS.length);
+for (const f of FONT_CATALOG) { assert.ok(f.f && f.k && f.cat && [400, 500, 700, 800].includes(f.w), f.f); assert.ok(f.g || /^https:\/\/cdn\.jsdelivr\.net\//.test(f.url), f.f); if (f.ttf) assert.ok(/^https:\/\//.test(f.ttf) && /\.(ttf|otf|woff)$/i.test(f.ttf), f.f); }
+for (const p of Object.values(SUB_PRESETS)) assert.ok(fontInfo(p.font), p.font);
+// dragged positions
+assert.equal(customXY({ pos: 'bottom', x: 0.2, y: 0.2 }), null); assert.deepEqual(customXY({ pos: 'custom', x: 0.2, y: 1.4 }), { x: 0.2, y: 1 });
+assert.deepEqual(overlayBox({ pos: 'custom', x: 0.5, y: 0.25, w: 0.2, ratio: 2 }, 1000, 800), { x: 400, y: 150, w: 200, h: 100 });
+assert.equal(overlayBox({ pos: 'custom', w: 0.2, ratio: 2 }, 1000, 800).x, 400, 'custom without x/y falls back to center');
+// color adjust
+const fx2 = defaultFx(); assert.equal(adjustActive(fx2.adjust), false); assert.equal(adjustFilter(fx2.adjust), 'none'); assert.equal(adjustEq(fx2.adjust), null);
+fx2.adjust.contrast = 20; assert.equal(fxActive(fx2, false), true); assert.equal(adjustFilter(fx2.adjust), 'brightness(1) contrast(1.2) saturate(1)'); assert.deepEqual(adjustEq(fx2.adjust), { brightness: 0, contrast: 1.2, saturation: 1 });
+// caption entrance animation
+assert.deepEqual(captionAnim('none', 0), { alpha: 1, scale: 1, dy: 0 }); assert.equal(captionAnim('fade', 0).alpha, 0); assert.equal(captionAnim('fade', 1).alpha, 1);
+assert.ok(captionAnim('pop', 0.05).scale < 1); assert.equal(captionAnim('pop', 0.3).scale, 1); assert.ok(captionAnim('up', 0).dy > 0 && captionAnim('up', 1).dy === 0);
+// project file keeps text overlay style, dragged positions, color adjust and caption style extras
+fx2.subs.style = { ...fx2.subs.style, pos: 'custom', x: 0.3, y: 0.7, anim: 'pop', font: 'Jalnan' };
+fx2.overlays = [{ id: 't', type: 'text', s: 0, e: 2, pos: 'custom', x: 0.4, y: 0.6, w: 0.05, text: '구독', style: { ...SUB_PRESETS.variety, font: 'Gaegu' } }];
+const back2 = fxFromJSON(JSON.parse(JSON.stringify(fxToJSON(fx2))));
+assert.equal(back2.adjust.contrast, 20); assert.equal(back2.overlays[0].style.font, 'Gaegu'); assert.equal(back2.overlays[0].x, 0.4); assert.equal(back2.overlays[0].pos, 'custom');
+assert.deepEqual([back2.subs.style.pos, back2.subs.style.x, back2.subs.style.anim, back2.subs.style.font], ['custom', 0.3, 'pop', 'Jalnan']);
+assert.equal(fxFromJSON({ adjust: { brightness: 999 } }).adjust.brightness, 50);
 console.log('ALL FX TESTS PASSED');

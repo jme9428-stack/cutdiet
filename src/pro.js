@@ -140,8 +140,12 @@ function boot() {
     if (!$('keysheet').hidden) { if (e.code === 'Escape' || comboFromEvent(e) === keymap.help) { e.preventDefault(); toggleSheet(false); e.cutdietHandled = true; } return; }
     if (listening) return;
     const tag = (e.target && e.target.tagName) || ''; const isRange = tag === 'INPUT' && e.target.type === 'range';
-    if ((tag === 'INPUT' && !isRange) || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
+    const typing = (tag === 'INPUT' && !/^(checkbox|radio|range|color|button|submit|reset|file|image)$/.test(e.target.type || 'text')) || tag === 'TEXTAREA' || e.target.isContentEditable;
+    if (typing) return;
     const combo = comboFromEvent(e); if (!combo) return;
+    // a focused checkbox/dropdown/button must not swallow the play key: drop focus and let the binding run
+    if (combo === keymap.play && (tag === 'INPUT' || tag === 'SELECT' || tag === 'BUTTON')) e.target.blur();
+    else if ((tag === 'INPUT' && !isRange) || tag === 'SELECT') return;
     if (/^Digit[1-9]$/.test(combo)) { const tabs = [...document.querySelectorAll('.tab')]; const t = tabs[Number(combo.slice(5)) - 1]; if (t) { e.preventDefault(); e.cutdietHandled = true; C.showTab(t.dataset.tab); } return; }
     const action = inv[combo];
     if (action) { e.preventDefault(); e.cutdietHandled = true; actions[action](); return; }

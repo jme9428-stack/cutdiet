@@ -7,16 +7,73 @@ export const SUB_PRESETS = {
   round: { label: '둥근 · 주아체 + 남색 외곽선', font: 'Jua', weight: 400, size: 0.06, color: '#FFFFFF', stroke: '#1F2A5C', strokeW: 0.18, box: false, boxColor: '#000000', boxAlpha: 0.6, pos: 'bottom', shadow: false },
   clean: { label: '깔끔 · 흰 글씨 + 그림자', font: 'Noto Sans KR', weight: 500, size: 0.048, color: '#FFFFFF', stroke: '', strokeW: 0, box: false, boxColor: '#000000', boxAlpha: 0, pos: 'bottom', shadow: true },
 };
-export const SUB_FONTS = ['Noto Sans KR', 'Black Han Sans', 'Jua', 'Do Hyeon', 'Gothic A1', 'IBM Plex Sans KR'];
+// Free-for-commercial-use Korean fonts. g = Google Fonts (CSS loaded on demand), url = jsDelivr webfont (FontFace),
+// ttf = file the Pro engine downloads for burned-in subtitles (libass). w = the weight the font is drawn with.
+const GF = 'https://raw.githubusercontent.com/google/fonts/main/ofl/';
+const NOON = 'https://cdn.jsdelivr.net/gh/projectnoonnu/';
+export const FONT_CATALOG = [
+  { f: 'Noto Sans KR', k: '노토 산스', cat: '고딕', w: 700, g: true, ttf: GF + 'notosanskr/NotoSansKR%5Bwght%5D.ttf' },
+  { f: 'Pretendard', k: '프리텐다드', cat: '고딕', w: 700, url: 'https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/static/woff2/Pretendard-Bold.woff2', ttf: 'https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/public/static/Pretendard-Bold.otf' },
+  { f: 'SUIT', k: '수트', cat: '고딕', w: 700, url: 'https://cdn.jsdelivr.net/gh/sun-typeface/SUIT@2/fonts/static/woff2/SUIT-Bold.woff2', ttf: 'https://cdn.jsdelivr.net/gh/sun-typeface/SUIT@2/fonts/static/ttf/SUIT-Bold.ttf' },
+  { f: 'Nanum Gothic', k: '나눔고딕', cat: '고딕', w: 700, g: true, ttf: GF + 'nanumgothic/NanumGothic-Bold.ttf' },
+  { f: 'Gothic A1', k: '고딕 A1', cat: '고딕', w: 700, g: true, ttf: GF + 'gothica1/GothicA1-Bold.ttf' },
+  { f: 'IBM Plex Sans KR', k: 'IBM 플렉스', cat: '고딕', w: 700, g: true, ttf: GF + 'ibmplexsanskr/IBMPlexSansKR-Bold.ttf' },
+  { f: 'GmarketSans', k: 'G마켓 산스', cat: '고딕', w: 700, url: NOON + 'noonfonts_2001@1.1/GmarketSansBold.woff', ttf: NOON + 'noonfonts_2001@1.1/GmarketSansBold.woff' },
+  { f: 'LINE Seed KR', k: 'LINE Seed', cat: '고딕', w: 700, url: NOON + 'noonfonts_11-01@1.0/LINESeedKR-Bd.woff2' },
+  { f: 'Paperlogy', k: '페이퍼로지', cat: '고딕', w: 800, url: NOON + '2408-3@1.0/Paperlogy-8ExtraBold.woff2' },
+  { f: 'Sunflower', k: '해바라기', cat: '고딕', w: 700, g: true, ttf: GF + 'sunflower/Sunflower-Bold.ttf' },
+  { f: 'Gowun Dodum', k: '고운돋움', cat: '고딕', w: 400, g: true, ttf: GF + 'gowundodum/GowunDodum-Regular.ttf' },
+  { f: 'Orbit', k: '오르빗', cat: '고딕', w: 400, g: true, ttf: GF + 'orbit/Orbit-Regular.ttf' },
+  { f: 'Black Han Sans', k: '검은고딕', cat: '제목·예능', w: 400, g: true, ttf: GF + 'blackhansans/BlackHanSans-Regular.ttf' },
+  { f: 'Do Hyeon', k: '도현', cat: '제목·예능', w: 400, g: true, ttf: GF + 'dohyeon/DoHyeon-Regular.ttf' },
+  { f: 'Jua', k: '주아', cat: '제목·예능', w: 400, g: true, ttf: GF + 'jua/Jua-Regular.ttf' },
+  { f: 'Jalnan', k: '여기어때 잘난체', cat: '제목·예능', w: 400, url: NOON + 'noonfonts_four@1.2/JalnanOTF00.woff', ttf: NOON + 'noonfonts_four@1.2/JalnanOTF00.woff' },
+  { f: 'Cafe24Ssurround', k: '카페24 써라운드', cat: '제목·예능', w: 400, url: NOON + 'noonfonts_2105_2@1.0/Cafe24Ssurround.woff', ttf: NOON + 'noonfonts_2105_2@1.0/Cafe24Ssurround.woff' },
+  { f: 'SBAggroB', k: '어그로체', cat: '제목·예능', w: 400, url: NOON + 'noonfonts_2108@1.1/SBAggroB.woff', ttf: NOON + 'noonfonts_2108@1.1/SBAggroB.woff' },
+  { f: 'Bagel Fat One', k: '베이글', cat: '제목·예능', w: 400, g: true, ttf: GF + 'bagelfatone/BagelFatOne-Regular.ttf' },
+  { f: 'Gugi', k: '구기', cat: '제목·예능', w: 400, g: true, ttf: GF + 'gugi/Gugi-Regular.ttf' },
+  { f: 'Dongle', k: '동글', cat: '제목·예능', w: 700, g: true, ttf: GF + 'dongle/Dongle-Bold.ttf' },
+  { f: 'Nanum Pen Script', k: '나눔손글씨 펜', cat: '손글씨', w: 400, g: true, ttf: GF + 'nanumpenscript/NanumPenScript-Regular.ttf' },
+  { f: 'Nanum Brush Script', k: '나눔손글씨 붓', cat: '손글씨', w: 400, g: true, ttf: GF + 'nanumbrushscript/NanumBrushScript-Regular.ttf' },
+  { f: 'Gaegu', k: '개구', cat: '손글씨', w: 700, g: true, ttf: GF + 'gaegu/Gaegu-Bold.ttf' },
+  { f: 'Gamja Flower', k: '감자꽃', cat: '손글씨', w: 400, g: true, ttf: GF + 'gamjaflower/GamjaFlower-Regular.ttf' },
+  { f: 'Hi Melody', k: '하이멜로디', cat: '손글씨', w: 400, g: true, ttf: GF + 'himelody/HiMelody-Regular.ttf' },
+  { f: 'Poor Story', k: '서툰이야기', cat: '손글씨', w: 400, g: true, ttf: GF + 'poorstory/PoorStory-Regular.ttf' },
+  { f: 'Single Day', k: '싱글데이', cat: '손글씨', w: 400, g: true, ttf: GF + 'singleday/SingleDay-Regular.ttf' },
+  { f: 'Yeon Sung', k: '연성', cat: '손글씨', w: 400, g: true, ttf: GF + 'yeonsung/YeonSung-Regular.ttf' },
+  { f: 'East Sea Dokdo', k: '동해독도', cat: '손글씨', w: 400, g: true, ttf: GF + 'eastseadokdo/EastSeaDokdo-Regular.ttf' },
+  { f: 'Noto Serif KR', k: '노토 세리프', cat: '명조', w: 700, g: true, ttf: GF + 'notoserifkr/NotoSerifKR%5Bwght%5D.ttf' },
+  { f: 'Nanum Myeongjo', k: '나눔명조', cat: '명조', w: 700, g: true, ttf: GF + 'nanummyeongjo/NanumMyeongjo-Bold.ttf' },
+  { f: 'Gowun Batang', k: '고운바탕', cat: '명조', w: 700, g: true, ttf: GF + 'gowunbatang/GowunBatang-Bold.ttf' },
+  { f: 'Hahmlet', k: '함렛', cat: '명조', w: 700, g: true, ttf: GF + 'hahmlet/Hahmlet%5Bwght%5D.ttf' },
+  { f: 'Song Myung', k: '송명', cat: '명조', w: 400, g: true, ttf: GF + 'songmyung/SongMyung-Regular.ttf' },
+];
+export const SUB_FONTS = FONT_CATALOG.map(x => x.f);
+export const fontInfo = family => FONT_CATALOG.find(x => x.f === family) || null;
+export const CAPTION_ANIMS = { none: '없음', fade: '페이드', pop: '톡 튀어나오기', up: '아래에서 올라오기' };
 export const SFX_KINDS = { ding: '띵 (알림)', pop: '뿅 (등장)', whoosh: '휙 (전환)', thud: '쿵 (강조)', click: '딸깍 (클릭)' };
 export const POS_LABELS = { tl: '왼쪽 위', tc: '가운데 위', tr: '오른쪽 위', ml: '왼쪽 중간', mc: '정중앙', mr: '오른쪽 중간', bl: '왼쪽 아래', bc: '가운데 아래', br: '오른쪽 아래' };
 
 export function defaultFx() {
-  return { subs: { burn: false, preset: 'outline', style: { ...SUB_PRESETS.outline } }, zooms: [], autoZoom: { on: false, scale: 1.12 }, fade: { in: 0, out: 0 }, transition: { type: 'none', dur: 0.3 }, overlays: [], sfx: [] };
+  return { subs: { burn: false, preset: 'outline', style: { ...SUB_PRESETS.outline } }, zooms: [], autoZoom: { on: false, scale: 1.12 }, fade: { in: 0, out: 0 }, transition: { type: 'none', dur: 0.3 }, adjust: { brightness: 0, contrast: 0, saturation: 0 }, overlays: [], sfx: [] };
 }
 export function fxActive(fx, hasCaptions) {
-  return !!(fx.zooms.length || (fx.autoZoom && fx.autoZoom.on) || fx.fade.in > 0 || fx.fade.out > 0 || (fx.transition && fx.transition.type === 'dissolve') || fx.overlays.length || (fx.subs.burn && hasCaptions));
+  return !!(fx.zooms.length || (fx.autoZoom && fx.autoZoom.on) || fx.fade.in > 0 || fx.fade.out > 0 || (fx.transition && fx.transition.type === 'dissolve') || fx.overlays.length || (fx.subs.burn && hasCaptions) || adjustActive(fx.adjust));
 }
+// Color adjust: percentages -50..50 (0 = untouched). CSS filter for the canvas, eq= values for ffmpeg.
+export function adjustActive(a) { return !!(a && (a.brightness || a.contrast || a.saturation)); }
+export function adjustFilter(a) { if (!adjustActive(a)) return 'none'; return `brightness(${1 + (a.brightness || 0) / 100}) contrast(${1 + (a.contrast || 0) / 100}) saturate(${1 + (a.saturation || 0) / 100})`; }
+export function adjustEq(a) { if (!adjustActive(a)) return null; const r = v => Math.round(v * 1000) / 1000; return { brightness: r((a.brightness || 0) / 250), contrast: r(1 + (a.contrast || 0) / 100), saturation: r(1 + (a.saturation || 0) / 100) }; }
+// Caption entrance animation t seconds into the line: alpha, scale and a downward offset (share of the font size)
+export function captionAnim(kind, t, dur = 0.25) {
+  const p = Math.max(0, Math.min(1, t / dur)); const ease = 1 - Math.pow(1 - p, 3);
+  if (kind === 'fade') return { alpha: ease, scale: 1, dy: 0 };
+  if (kind === 'pop') return { alpha: Math.min(1, p * 2.5), scale: p >= 1 ? 1 : 0.7 + 0.3 * ease + Math.sin(Math.PI * p) * 0.08, dy: 0 };
+  if (kind === 'up') return { alpha: ease, scale: 1, dy: (1 - ease) * 0.6 };
+  return { alpha: 1, scale: 1, dy: 0 };
+}
+// Caption block center when the user dragged it on the preview (pos 'custom'), else null
+export function customXY(style) { return style && style.pos === 'custom' && isFinite(style.x) && isFinite(style.y) ? { x: Math.max(0, Math.min(1, style.x)), y: Math.max(0, Math.min(1, style.y)) } : null; }
 
 // Zoom in effect at a source time. ranges = kept ranges (for the alternating auto zoom that hides jump cuts).
 export function zoomAt(fx, srcT, ranges) {
@@ -57,7 +114,8 @@ export function overlayAlpha(o, srcT) {
 // Box for an image overlay: width as a share of the frame width, aspect from the image, 9 position presets
 export function overlayBox(o, W, H) {
   const w = W * (o.w || 0.25); const h = o.ratio ? w / o.ratio : w; const m = Math.round(W * 0.03);
-  const pos = o.pos || 'tr'; const xs = { l: m, c: (W - w) / 2, r: W - w - m }, ys = { t: m, m: (H - h) / 2, b: H - h - m };
+  const pos = o.pos || 'tr'; if (pos === 'custom' && isFinite(o.x) && isFinite(o.y)) return { x: o.x * W - w / 2, y: o.y * H - h / 2, w, h };
+  const xs = { l: m, c: (W - w) / 2, r: W - w - m }, ys = { t: m, m: (H - h) / 2, b: H - h - m };
   return { x: xs[pos[1]] ?? xs.c, y: ys[pos[0]] ?? ys.t, w, h };
 }
 export function wrapCaption(text, maxChars = 22) {
@@ -102,8 +160,8 @@ export function mixSfxInto(chans, sr, srcStart, sfxList, getBuf) {
 export function hexA(hex, a) { const h = String(hex || '#000000').replace('#', ''); const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16); return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${Math.max(0, Math.min(1, a))})`; }
 // Serialize fx for the project file (image pixels only when a small data URL is available)
 export function fxToJSON(fx) {
-  return { subs: { burn: fx.subs.burn, preset: fx.subs.preset, style: { ...fx.subs.style } }, zooms: fx.zooms.map(z => ({ ...z })), autoZoom: { ...fx.autoZoom }, fade: { ...fx.fade }, transition: { ...fx.transition },
-    overlays: fx.overlays.map(o => ({ id: o.id, type: o.type, s: o.s, e: o.e, pos: o.pos, w: o.w, opacity: o.opacity, fade: o.fade, text: o.text, ratio: o.ratio, name: o.name, dataUrl: o.dataUrl && o.dataUrl.length < 1.5e6 ? o.dataUrl : undefined })),
+  return { subs: { burn: fx.subs.burn, preset: fx.subs.preset, style: { ...fx.subs.style } }, zooms: fx.zooms.map(z => ({ ...z })), autoZoom: { ...fx.autoZoom }, fade: { ...fx.fade }, transition: { ...fx.transition }, adjust: { ...(fx.adjust || {}) },
+    overlays: fx.overlays.map(o => ({ id: o.id, type: o.type, s: o.s, e: o.e, pos: o.pos, x: o.x, y: o.y, w: o.w, opacity: o.opacity, fade: o.fade, text: o.text, style: o.style ? { ...o.style } : undefined, ratio: o.ratio, name: o.name, dataUrl: o.dataUrl && o.dataUrl.length < 1.5e6 ? o.dataUrl : undefined })),
     sfx: fx.sfx.map(s => ({ id: s.id, t: s.t, kind: s.kind, volume: s.volume, name: s.name })) };
 }
 export function fxFromJSON(j) {
@@ -113,7 +171,8 @@ export function fxFromJSON(j) {
   if (j.autoZoom) fx.autoZoom = { on: !!j.autoZoom.on, scale: +j.autoZoom.scale || 1.12 };
   if (j.fade) fx.fade = { in: +j.fade.in || 0, out: +j.fade.out || 0 };
   if (j.transition) fx.transition = { type: j.transition.type === 'dissolve' ? 'dissolve' : 'none', dur: +j.transition.dur || 0.3 };
-  if (Array.isArray(j.overlays)) fx.overlays = j.overlays.filter(o => o && o.e > o.s && (o.type === 'text' || o.dataUrl)).map(o => ({ id: o.id || String(Math.random()).slice(2), type: o.type, s: +o.s, e: +o.e, pos: o.pos || 'tr', w: +o.w || 0.25, opacity: o.opacity ?? 1, fade: +o.fade || 0, text: o.text || '', ratio: +o.ratio || 1, name: o.name || '', dataUrl: o.dataUrl, bitmap: null }));
+  if (j.adjust) for (const k of ['brightness', 'contrast', 'saturation']) fx.adjust[k] = Math.max(-50, Math.min(50, +j.adjust[k] || 0));
+  if (Array.isArray(j.overlays)) fx.overlays = j.overlays.filter(o => o && o.e > o.s && (o.type === 'text' || o.dataUrl)).map(o => ({ id: o.id || String(Math.random()).slice(2), type: o.type, s: +o.s, e: +o.e, pos: o.pos || 'tr', x: o.x == null ? undefined : +o.x, y: o.y == null ? undefined : +o.y, w: +o.w || 0.25, opacity: o.opacity ?? 1, fade: +o.fade || 0, text: o.text || '', style: o.type === 'text' ? { ...SUB_PRESETS.outline, ...(o.style || {}) } : undefined, ratio: +o.ratio || 1, name: o.name || '', dataUrl: o.dataUrl, bitmap: null }));
   if (Array.isArray(j.sfx)) fx.sfx = j.sfx.filter(s => s && isFinite(+s.t) && s.kind && s.kind !== 'custom').map(s => ({ id: s.id || String(Math.random()).slice(2), t: +s.t, kind: s.kind, volume: s.volume ?? 0.8, name: s.name || '' }));
   return fx;
 }

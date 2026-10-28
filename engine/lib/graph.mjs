@@ -2,7 +2,7 @@
 // Timeline model: video frames are snapped to a CFR grid (fps filter), cut with select() in SOURCE time, then re-timed with
 // setpts to output time by subtracting the removed durations before each frame, so audio (cut sample-exact with atrim) never drifts.
 import { outTime, keptDuration } from '../../src/cutlogic.js';
-import { overlayBox as overlayBoxPx } from '../../src/fxlogic.js';
+import { overlayBox as overlayBoxPx, adjustEq } from '../../src/fxlogic.js';
 import { encoderArgs, qualityFor } from './ff.mjs';
 
 const f3 = v => Number(v).toFixed(3);
@@ -50,7 +50,9 @@ function concatChain(labels, prefix, lines) { // hierarchical concat so no singl
 
 // req: { src, ranges, duration, fps, width, height, hasAudio, out:{w,h}, crop, quality, encoder, fx, captionsOut:boolean, total }
 // assets: { ass: path|null, bgm: {path, volume, duck, fade, loop}|null, images: [{path, s, e(out), box:{x,y,w,h}, opacity}], sfx: [{path, outT, volume}] }
-export function buildArgs(req, assets, { fontsDir, hasLibass } = {}) {
+// ffmpeg 7 replaced -filter_complex_script with -/filter_complex (and 8+ dropped the old flag); ffmpeg-static still ships 6.x
+export function scriptFlag(version) { const m = String(version || '').match(/^n?(\d+)\./); return m && Number(m[1]) >= 7 ? '-/filter_complex' : '-filter_complex_script'; }
+export function buildArgs(req, assets, { fontsDir, hasLibass, ffVersion } = {}) {
   const warnings = []; const ranges = req.ranges; const total = req.total ?? ranges.reduce((a, r) => a + r.e - r.s, 0);
   const fps = req.fps || 30; const out = req.out; const inputs = ['-i', req.src]; let idx = 1;
   const lines = [];
@@ -60,6 +62,7 @@ export function buildArgs(req, assets, { fontsDir, hasLibass } = {}) {
   const zx = zoomExprs(req.fx, ranges);
   if (zx) v += `,zoompan=z='${zx.z}':x='${zx.x}':y='${zx.y}':d=1:s=${out.w}x${out.h}:fps=${f3(fps)}`;
   else if ((req.crop ? req.crop.width : req.width) !== out.w || (req.crop ? req.crop.height : req.height) !== out.h) v += `,scale=${out.w}:${out.h}:flags=lanczos`;
+  const eq = adjustEq(req.fx && req.fx.adjust); if (eq) v += `,eq=brightness=${eq.brightness}:contrast=${eq.contrast}:saturation=${eq.saturation}`;
   v += `,select='${selectExpr(ranges)}',setpts='${retimeExpr(ranges)}'`;
   lines.push(`${v}[v0]`); let vl = '[v0]'; let vn = 1;
   for (const im of assets.images || []) {
@@ -105,7 +108,7 @@ export function buildArgs(req, assets, { fontsDir, hasLibass } = {}) {
   lines.push(`${mix}alimiter=limit=0.98:level=false[aout]`);
   const q = qualityFor(req.quality || 'high', out.w, out.h, fps);
   const enc = encoderArgs(req.encoder || 'libx264', q);
-  const args = ['-hide_banner', '-nostdin', '-loglevel', 'error', '-progress', 'pipe:1', '-y', ...inputs, '-filter_complex_script', '__GRAPH__', '-map', '[vout]', '-map', '[aout]', ...enc,
+  const args = ['-hide_banner', '-nostdin', '-loglevel', 'error', '-progress', 'pipe:1', '-y', ...inputs, scriptFlag(ffVersion), '__GRAPH__', '-map', '[vout]', '-map', '[aout]', ...enc,
     '-r', f3(fps), '-fps_mode:v', 'cfr', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2', '-movflags', '+faststart', '-metadata', 'comment=cutdiet', req.outPath];
   return { args, graph: lines.join(';\n') + '\n', warnings, total, encoder: req.encoder || 'libx264', bitrate: q.bitrate };
 }
@@ -117,7 +120,7 @@ export function mapOverlaysAndCaptions(req) {
   const textOverlays = [], images = [];
   for (const o of (req.fx && req.fx.overlays) || []) {
     const s = ot(o.s), e = ot(o.e); if (e - s < 0.05) continue;
-    if (o.type === 'text') textOverlays.push({ s, e, text: o.text, style: o.style, pos: o.pos, sizeFrac: o.w || 0.06, opacity: o.opacity, fade: o.fade });
+    if (o.type === 'text') textOverlays.push({ s, e, text: o.text, style: o.style, pos: o.pos, x: o.x, y: o.y, sizeFrac: o.w || 0.06, opacity: o.opacity, fade: o.fade });
     else if (o.type === 'image' && o.path) images.push({ path: o.path, s, e, opacity: o.opacity ?? 1, box: overlayBoxPx(o, req.out.w, req.out.h), fade: o.fade });
   }
   const sfx = ((req.fx && req.fx.sfx) || []).map(s => ({ ...s, outT: ot(s.t), inKept: segs.some(g => g.keep && s.t >= g.s && s.t < g.e) })).filter(s => s.inKept);

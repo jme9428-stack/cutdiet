@@ -103,7 +103,31 @@ kbd{font-family:var(--font-mono);font-size:11px;border:1px solid var(--line-stro
 .monitor-empty p{font-size:12px;max-width:34ch}
 .monitor-hud{position:absolute;left:10px;top:10px;display:flex;gap:6px;flex-wrap:wrap;pointer-events:none}
 .monitor-hud span{background:rgba(0,0,0,.55);color:#F2F5F8;font-size:11px;font-family:var(--font-mono);padding:2px 8px;border-radius:5px}
-.fx-canvas{position:absolute;pointer-events:none;max-width:none}
+.fx-canvas{position:absolute;max-width:none;touch-action:none}
+.fx-sel{position:absolute;border:1.5px dashed #FFD166;border-radius:4px;pointer-events:none;box-shadow:0 0 0 1px rgba(0,0,0,.35)}
+.fx-handle{position:absolute;right:-7px;bottom:-7px;width:13px;height:13px;border-radius:50%;background:#FFD166;border:2px solid #17202A;cursor:nwse-resize;pointer-events:auto;touch-action:none}
+.fx-guide{position:absolute;background:#FF5FA2;pointer-events:none;opacity:.85}
+.fx-guide.v{width:1px}.fx-guide.h{height:1px}
+.fx-edit{position:absolute;z-index:5;font:600 15px var(--font-body);color:#17202A;background:#FFFDF2;border:2px solid #FFD166;border-radius:6px;padding:4px 6px;resize:none;box-shadow:0 6px 18px rgba(0,0,0,.35)}
+.monitor:fullscreen{aspect-ratio:auto;width:100vw;height:100vh;border-radius:0}
+.vol{display:inline-flex;align-items:center;gap:2px}
+.vol input[type=range]{width:70px;accent-color:var(--accent)}
+.tgroup select{font:inherit;font-size:12px;padding:3px 4px;border:1px solid var(--line-strong);border-radius:7px;background:var(--surface);color:var(--fg)}
+.caplist{max-height:360px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface);margin-top:8px}
+.caprow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:5px 8px;border-bottom:1px solid var(--line);font-size:12.5px}
+.caprow:last-child{border-bottom:0}
+.caprow.on{background:var(--accent-soft)}
+.caprow > .link{min-width:7.5ch;font-size:12px}
+.captime{display:inline-flex;align-items:center;gap:3px}
+.captime input{width:9.5ch;font-size:11.5px;padding:3px 4px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--fg)}
+.captext{flex:1 1 220px;min-width:140px;font:inherit;font-size:13.5px;padding:5px 7px;border:1px solid var(--line-strong);border-radius:7px;background:var(--surface);color:var(--fg)}
+.captext:focus,.captime input:focus{outline:2px solid var(--accent);outline-offset:0}
+.capacts{display:inline-flex;gap:2px}
+.capbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.capbar input[type=text]{width:10ch;flex:1 1 90px;font:inherit;font-size:12.5px;padding:4px 6px;border:1px solid var(--line-strong);border-radius:7px;background:var(--surface);color:var(--fg)}
+.opts{display:flex;flex-wrap:wrap;gap:4px 14px;margin:6px 0 8px}
+.fxlist li.on{outline:2px solid var(--accent)}
+details.bulk summary{cursor:pointer;font-size:12.5px;color:var(--muted);margin-top:8px}
 .crop-overlay{position:absolute;inset:0;pointer-events:none}
 .fxlist{margin:6px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px;font-size:12.5px}
 .fxlist li{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:4px 6px;background:var(--surface-2);border-radius:6px}
@@ -347,6 +371,9 @@ td.ttl input:focus{border-color:var(--accent);background:var(--surface)}
         <button class="btn icon" id="btnFwd" title="앞으로 재생 · 다시 누르면 2배속 (L)">▶▶</button>
         <button class="btn icon" id="btnNextCut" title="다음 컷으로 (])">▶|</button>
         <span class="speed" id="speedBadge"></span>
+        <select id="selRate" title="미리보기 재생 속도 (내보내기에는 영향 없음)" aria-label="재생 속도"><option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option></select>
+        <span class="vol"><button class="btn icon sm" id="btnMute" title="음소거">🔊</button><input type="range" id="rngVolume" min="0" max="100" step="1" value="100" aria-label="미리보기 음량" title="미리보기 음량"></span>
+        <button class="btn icon sm" id="btnFull" title="미리보기 전체 화면 (F)">⛶</button>
       </div>
       <div class="tc"><span class="cur" id="tcCur">00:00.0</span><span class="muted">/</span><span id="tcDur">00:00.0</span><span class="out">편집 후 <span id="tcOut">00:00.0</span></span></div>
       <label class="switch" title="끄면 삭제 구간도 그대로 재생합니다"><input type="checkbox" id="chkSkip" checked>삭제 구간 건너뛰기</label>
@@ -356,6 +383,11 @@ td.ttl input:focus{border-color:var(--accent);background:var(--surface)}
         <button class="btn sm" id="btnTrimL" title="재생 위치 왼쪽(앞부분) 삭제 (Q)">◁ 앞 삭제</button>
         <button class="btn sm" id="btnTrimR" title="재생 위치 오른쪽(뒷부분) 삭제 (W)">뒤 삭제 ▷</button>
         <button class="btn sm" id="btnChapter" title="현재 위치에 챕터 추가 (M)">챕터</button>
+      </div>
+      <div class="tgroup">
+        <button class="btn sm" id="btnMarkIn" title="범위 시작 찍기 (I)">⟦ I</button>
+        <button class="btn sm" id="btnMarkOut" title="범위 끝 찍기 (O)">O ⟧</button>
+        <button class="btn sm" id="btnMarkDel" title="I~O 범위 삭제 (Delete) · Esc로 범위 해제" disabled>범위 삭제</button>
       </div>
       <div class="tgroup">
         <button class="btn icon sm" id="btnUndo" title="되돌리기 (Ctrl+Z)" disabled>↶</button>
@@ -375,7 +407,7 @@ td.ttl input:focus{border-color:var(--accent);background:var(--surface)}
       <span><i class="sw" style="background:var(--remove)"></i>삭제</span>
       <span><i class="sw" style="background:var(--play)"></i>재생 위치</span>
       <span>클릭 이동 · 경계 드래그 · 더블클릭 유지↔삭제 · <kbd>Ctrl</kbd>+휠 확대</span>
-      <span><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> 뒤로·멈춤·앞으로(2배속) <kbd>Q</kbd>앞 삭제 <kbd>W</kbd>뒤 삭제 <kbd>Ctrl</kbd>+<kbd>B</kbd> 분할 <kbd>X</kbd> 전환 <kbd>M</kbd> 챕터 <kbd>Ctrl</kbd>+<kbd>Z</kbd> 되돌리기</span>
+      <span><kbd>Space</kbd> 재생/정지 <kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> 뒤로·멈춤·앞으로(2배속) <kbd>Q</kbd>앞 삭제 <kbd>W</kbd>뒤 삭제 <kbd>Ctrl</kbd>+<kbd>B</kbd> 분할 <kbd>X</kbd> 전환 <kbd>I</kbd><kbd>O</kbd> 범위 → <kbd>Delete</kbd> <kbd>M</kbd> 챕터 <kbd>F</kbd> 전체 화면 <kbd>Ctrl</kbd>+<kbd>Z</kbd> 되돌리기</span>
     </div>
   </section>
 
@@ -469,11 +501,13 @@ td.ttl input:focus{border-color:var(--accent);background:var(--surface)}
         <label class="switch"><input type="checkbox" id="subBurn">자막을 영상에 굽기</label>
         <p class="hint" id="subNote"></p>
         <div class="field"><label for="subPreset">스타일</label><select id="subPreset"></select></div>
-        <div class="field"><span class="pair"><label for="subFont">글꼴</label><select id="subFont"></select></span><span class="pair"><label for="subPos">위치</label><select id="subPos"><option value="bottom">아래</option><option value="center">가운데</option><option value="top">위</option></select></span></div>
-        <div class="field"><span class="pair grow"><label for="subSize">크기</label><input type="range" id="subSize" min="30" max="100" step="1" value="55"><span class="mono small" id="subSizeVal">5.5%</span></span></div>
+        <div class="field"><span class="pair"><label for="subFont">글꼴</label><select id="subFont" title="무료 상업용 한글 글꼴 35종 (구글 폰트·눈누). 고르면 그때 내려받습니다"></select></span><button class="btn sm ghost" id="btnFontPick" title="내 컴퓨터의 TTF·OTF·WOFF 글꼴 파일을 씁니다">내 글꼴 파일</button><input type="file" id="subFontFile" class="sr" tabindex="-1" accept=".ttf,.otf,.woff,.woff2,font/*"></div>
+        <div class="field"><span class="pair"><label for="subPos">위치</label><select id="subPos"><option value="bottom">아래</option><option value="center">가운데</option><option value="top">위</option><option value="custom">직접 배치 (화면에서 끌기)</option></select></span><span class="pair"><label for="subAnim">등장 효과</label><select id="subAnim"></select></span></div>
+        <div class="field"><span class="pair grow"><label for="subSize">크기</label><input type="range" id="subSize" min="25" max="150" step="1" value="55"><span class="mono small" id="subSizeVal">5.5%</span></span></div>
         <div class="field"><span class="pair"><label for="subColor">글자색</label><input type="color" id="subColor" value="#ffffff"></span><span class="pair"><label for="subStroke">외곽선</label><input type="color" id="subStroke" value="#000000"><input type="range" id="subStrokeW" min="0" max="30" step="1" value="16" title="외곽선 두께" aria-label="외곽선 두께" style="flex:0 1 90px;min-width:70px"><span class="muted small">두께</span></span></div>
         <div class="field"><span class="pair"><label class="switch"><input type="checkbox" id="subBox">배경 박스</label><input type="color" id="subBoxColor" value="#000000" aria-label="박스 색"></span><label class="switch"><input type="checkbox" id="subShadow" checked>그림자</label></div>
         <label class="switch"><input type="checkbox" id="subSample">미리보기 화면에 샘플 자막 표시</label>
+        <p class="hint">미리보기 화면에서 자막을 <b>끌어서 옮기고</b>, 노란 모서리로 <b>크기를 바꾸고</b>, <b>더블클릭으로 글자를 고칠</b> 수 있습니다. 가운데에 가까워지면 자동으로 맞춰집니다.</p>
       </div>
       <div class="card">
         <h3>② 편집 효과</h3>
@@ -483,6 +517,8 @@ td.ttl input:focus{border-color:var(--accent);background:var(--surface)}
         <div class="field"><span class="pair grow"><label for="fxZoomScale">구간 줌</label><input type="range" id="fxZoomScale" min="105" max="200" step="5" value="125"><span class="mono small" id="fxZoomScaleVal">1.25×</span></span><select id="fxZoomAnchor" aria-label="줌 중심"></select><select id="fxZoomEase" aria-label="전환"><option value="0">즉시</option><option value="0.3">부드럽게 0.3s</option><option value="0.6">부드럽게 0.6s</option></select><button class="btn sm primary" id="btnZoomAdd">현재 구간에 줌</button></div>
         <ul class="fxlist" id="zoomList"></ul>
         <div class="field"><span class="pair"><label for="fxFadeIn">페이드 인</label><input type="number" id="fxFadeIn" min="0" max="5" step="0.5" value="0"><span class="muted small">초</span></span><span class="pair"><label for="fxFadeOut">페이드 아웃</label><input type="number" id="fxFadeOut" min="0" max="5" step="0.5" value="0"><span class="muted small">초</span></span></div>
+        <div class="field"><span class="pair grow"><label for="fxBright">밝기</label><input type="range" id="fxBright" min="-50" max="50" step="1" value="0" title="더블클릭: 0으로"></span><span class="pair grow"><label for="fxContrast">대비</label><input type="range" id="fxContrast" min="-50" max="50" step="1" value="0" title="더블클릭: 0으로"></span><span class="pair grow"><label for="fxSat">채도</label><input type="range" id="fxSat" min="-50" max="50" step="1" value="0" title="더블클릭: 0으로"></span></div>
+        <div class="field"><span class="muted small" id="fxAdjustVal">원본 그대로</span><button class="btn sm ghost" id="btnAdjustReset">색 보정 초기화</button></div>
         <div class="field"><span class="pair"><label for="fxTransition">컷 전환</label><select id="fxTransition"><option value="none">없음 (바로 컷)</option><option value="dissolve">디졸브 (부드럽게 섞임)</option></select></span><span class="pair"><input type="number" id="fxTransDur" min="0.1" max="1" step="0.1" value="0.3" aria-label="전환 길이"><span class="muted small">초</span></span></div>
       </div>
       <div class="card">
@@ -498,8 +534,9 @@ td.ttl input:focus{border-color:var(--accent);background:var(--surface)}
         <div class="field"><span class="pair"><label for="ovRange">범위</label><select id="ovRange"><option value="seg">현재 구간</option><option value="3s">현재 위치부터 3초</option><option value="5s">현재 위치부터 5초</option><option value="all">영상 전체 (워터마크)</option></select></span><span class="pair"><label for="ovPos">위치</label><select id="ovPos"></select></span></div>
         <div class="field"><span class="pair grow"><label for="ovSize">크기</label><input type="range" id="ovSize" min="5" max="100" step="1" value="25"><span class="mono small" id="ovSizeVal">25%</span></span><span class="pair"><label for="ovOpacity">불투명</label><input type="range" id="ovOpacity" min="10" max="100" step="5" value="100" style="flex:0 1 90px;min-width:70px"></span><span class="pair"><label for="ovFade">페이드</label><select id="ovFade"><option value="0">없음</option><option value="0.3">0.3s</option><option value="0.6">0.6s</option></select></span></div>
         <div class="row"><button class="btn sm primary" id="btnOvImage">이미지 추가</button><input type="file" id="ovImageFile" class="sr" tabindex="-1" accept="image/png,image/jpeg,image/webp,image/gif"></div>
-        <div class="field"><input type="text" id="ovText" placeholder="강조 문구 (예: 핵심 포인트 3가지)" style="flex:1 1 180px"><select id="ovTextStyle" aria-label="텍스트 스타일"></select><button class="btn sm primary" id="btnOvText">텍스트 추가</button></div>
+        <div class="field"><input type="text" id="ovText" placeholder="강조 문구 (예: 핵심 포인트 3가지)" style="flex:1 1 180px"><select id="ovTextStyle" aria-label="텍스트 스타일"></select><select id="ovFont" aria-label="텍스트 글꼴"></select><button class="btn sm primary" id="btnOvText">텍스트 추가</button></div>
         <ul class="fxlist" id="ovList"></ul>
+        <p class="hint">추가한 이미지·텍스트는 미리보기에서 끌어서 옮기고 모서리로 크기를 바꿀 수 있습니다. 텍스트는 더블클릭으로 고칩니다.</p>
       </div>
     </div>
   </section>
@@ -565,11 +602,29 @@ td.ttl input:focus{border-color:var(--accent);background:var(--surface)}
         <h3>② 자막 내보내기</h3>
         <p class="steps-note"><b>편집 후 시간</b> SRT는 ①에서 만든 MP4에 그대로 맞습니다. 캡컷·유튜브 스튜디오에 올리세요. <b>원본 시간</b> SRT는 EDL로 편집 프로그램에서 작업할 때 씁니다. 인식 결과는 틀릴 수 있으니 한 번 훑어보세요.</p>
         <div class="row"><button class="btn primary" id="btnSrtOut" disabled>SRT 저장 (편집 후 시간)</button><button class="btn" id="btnSrtSrc" disabled>SRT 저장 (원본 시간)</button><button class="btn" id="btnTxtCopy" disabled>전체 텍스트 복사</button></div>
-        <textarea id="aiText" readonly aria-label="자막 미리보기" placeholder="자막을 만들면 여기에 표시됩니다"></textarea>
+      </div>
+      <div class="card" style="grid-column:1/-1">
+        <h3>자막 편집 <span class="chip" id="capChip">0줄</span></h3>
+        <p class="steps-note">인식된 자막을 <b>줄마다 바로 고칩니다</b>. 글자를 고치면 미리보기·MP4·SRT에 즉시 반영됩니다. 시간을 클릭하면 그 줄부터 재생, <b>Enter</b>는 다음 줄로. ⇤ ⇥ 시작·끝을 재생 위치로, ✂ 나누기, ⇣ 아래 줄과 합치기. 미리보기 화면에서 자막을 더블클릭해도 고칠 수 있습니다.</p>
+        <div class="capbar">
+          <button class="btn sm primary" id="btnCapAdd" title="재생 위치에 새 자막 줄 추가">+ 현재 위치에 자막</button>
+          <button class="btn sm" id="btnCapImport">SRT 불러오기</button><input type="file" id="capFile" class="sr" tabindex="-1" accept=".srt,.vtt,text/plain">
+          <input type="text" id="capFind" placeholder="찾을 말" aria-label="찾을 말"><input type="text" id="capReplace" placeholder="바꿀 말 (비우면 삭제)" aria-label="바꿀 말"><button class="btn sm" id="btnCapReplace">모두 바꾸기</button>
+          <label class="switch small"><input type="checkbox" id="capFollow" checked>재생 위치 따라가기</label>
+        </div>
+        <div class="caplist" id="capList"></div>
+        <details class="bulk"><summary>텍스트로 한 번에 고치기 · 인식 중 실시간 결과</summary><textarea id="aiText" readonly aria-label="자막 텍스트" placeholder="자막을 만들면 여기에 표시됩니다"></textarea></details>
       </div>
       <div class="card">
-        <h3>③ 삭제 후보 · 추임새와 반복(NG) <span class="chip" id="aiCandChip">0개</span></h3>
-        <p class="steps-note">"어·음" 같은 추임새와, 같은 말을 다시 한 구간(앞의 것이 NG)을 찾아 보여줍니다. 확실한 것은 미리 체크돼 있고, 애매한 것은 비워 둡니다. <b>체크한 항목 삭제 표시</b>를 누르면 타임라인에 반영되고 Ctrl+Z로 되돌릴 수 있습니다.</p>
+        <h3>③ 삭제 후보 · 추임새·버벅임·반복(NG) <span class="chip" id="aiCandChip">0개</span></h3>
+        <p class="steps-note">쓰고 싶은 것만 켜세요. 확실한 것은 미리 체크돼 있고, 애매한 것은 비워 둡니다. <b>체크한 항목 삭제 표시</b>를 누르면 타임라인에 반영되고 Ctrl+Z로 되돌릴 수 있습니다.</p>
+        <div class="opts">
+          <label class="switch" title="어, 음, 그, 저 같은 군말"><input type="checkbox" id="aiOptFiller" checked>추임새 (어·음)</label>
+          <label class="switch" title="그 그러니까 / 저 저는 / 그래서 제가 그래서 제가 처럼 말이 꼬인 부분의 첫 시도"><input type="checkbox" id="aiOptStutter" checked>말 버벅임 (더듬기·말 꼬임)</label>
+          <label class="switch" title="같은 문장을 다시 말한 경우, 앞의 것"><input type="checkbox" id="aiOptRepeat" checked>다시 말한 NG</label>
+          <label class="switch" title="소리는 있는데 글자로 인식되지 않은 구간. 웃음·숨소리일 수도 있어 체크하지 않고 보여줍니다"><input type="checkbox" id="aiOptMumble">웅얼거림 (인식 안 된 소리)</label>
+          <label class="switch" title="삭제한 말이 자막 글자에 남지 않게 합니다"><input type="checkbox" id="aiOptStrip" checked>삭제한 말은 자막에서도 지우기</label>
+        </div>
         <div class="row"><button class="btn sm primary" id="btnAiApply" disabled>체크한 항목 삭제 표시</button><button class="btn sm" id="btnAiCheckAll" disabled>모두 체크</button><button class="btn sm" id="btnAiUncheckAll" disabled>모두 해제</button></div>
         <div class="tbl"><table><thead><tr><th></th><th>종류</th><th>시간</th><th>내용</th><th>길이</th></tr></thead><tbody id="aiCandBody"><tr><td colspan="5" class="muted">자막을 만들면 후보가 여기에 표시됩니다.</td></tr></tbody></table></div>
       </div>
@@ -672,7 +727,8 @@ td.ttl input:focus{border-color:var(--accent);background:var(--surface)}
         <ul>
           <li><b>하는 일</b>: 말이 없는 구간(쉼, NG 뒤의 정적, 생각하는 시간)을 소리 크기로 찾아 1차 컷을 자동으로 만듭니다. 사람은 결과를 듣고 고치기만 하면 됩니다.</li>
           <li><b>꾸미기 탭</b>: 자막을 영상에 굽기(글꼴·색·외곽선·박스), 자동 줌으로 점프컷 숨기기, 구간 줌, 페이드, 디졸브 전환, 효과음 5종(+내 파일), 이미지·텍스트 오버레이. 미리보기에 그대로 보이고 MP4·숏츠에 반영됩니다.</li>
-          <li><b>AI 자막·NG 탭</b>: 음성 인식을 내 PC에서 돌려 자막(SRT)을 만들고, "어·음" 추임새와 같은 말을 다시 한 NG 구간을 삭제 후보로 보여줍니다. 무료이고 음성이 밖으로 나가지 않지만, 시간이 걸리고 인식이 틀릴 수 있어 확인 후 적용합니다.</li>
+          <li><b>AI 자막·NG 탭</b>: 음성 인식을 내 PC에서 돌려 자막(SRT)을 만들고, 줄마다 바로 고칠 수 있습니다(SRT 불러오기·찾아 바꾸기 포함). "어·음" 추임새, "그 그러니까" 같은 말 버벅임, 같은 말을 다시 한 NG 구간을 골라서 삭제 후보로 보여줍니다. 무료이고 음성이 밖으로 나가지 않지만, 시간이 걸리고 인식이 틀릴 수 있어 확인 후 적용합니다.</li>
+          <li><b>미리보기 화면</b>: 자막·텍스트·이미지를 끌어서 옮기고, 모서리로 크기를 바꾸고, 더블클릭으로 글자를 고칩니다. 재생 속도(0.5~2배)·음량·전체 화면(F)도 여기서.</li>
           <li><b>잘 맞는 영상</b>: 토킹헤드 강의, 브이로그 내레이션, 인터뷰, 화면 녹화 설명 영상.</li>
           <li><b>안 맞는 영상</b>: 촬영 때부터 배경음악이 깔린 영상, 여러 사람이 동시에 말하는 영상, 현장음이 큰 영상. (배경음악은 여기서 나중에 까는 것을 권합니다.)</li>
           <li><b>길이</b>: 10분 안팎이 가장 쾌적하고 30분까지 무리 없습니다. 1시간이 넘는 영상은 분석·컷 목록·EDL/FFmpeg 내보내기만 지원합니다.</li>
@@ -689,7 +745,9 @@ td.ttl input:focus{border-color:var(--accent);background:var(--surface)}
           <kbd>W</kbd><span>재생 위치 <b>오른쪽(뒷부분)</b> 삭제</span>
           <kbd>Delete</kbd><span>현재 구간 삭제</span>
           <kbd>Ctrl+Z</kbd><span>되돌리기 · Ctrl+Shift+Z 다시 실행</span>
-          <kbd>Space</kbd><span>재생 / 일시정지</span>
+          <kbd>Space</kbd><span>재생 / 일시정지 (체크박스·슬라이더를 누른 뒤에도 동작)</span>
+          <kbd>I · O</kbd><span>범위 시작·끝 찍기 → <kbd>Delete</kbd>로 그 범위만 삭제 · <kbd>Esc</kbd> 해제</span>
+          <kbd>F</kbd><span>미리보기 전체 화면</span>
           <kbd>← →</kbd><span>1초 이동 (Shift: 5초) · <kbd>,</kbd> <kbd>.</kbd> 1프레임</span>
           <kbd>X</kbd><span>현재 구간 유지 ↔ 삭제</span>
           <kbd>M</kbd><span>현재 위치에 챕터 추가</span>

@@ -114,6 +114,74 @@ export function findRepeats(words, opts = {}) {
   return out;
 }
 
+// Stutters (말 버벅임): "그 그러니까", "저 저는", "그 그", a cut-off "그러-", or a 2–3 word phrase said twice in a row.
+// The FIRST attempt is the candidate; the clean retry stays.
+export function findStutters(words, maxGap = 0.6) {
+  const out = []; let skipTo = -1;
+  const push = (i0, i1, pair, confident) => { out.push({ kind: 'stutter', s: words[i0].s, e: words[i1].e, text: words.slice(i0, i1 + 1).map(w => w.text.trim()).join(' '), pair, confident }); skipTo = i1; };
+  for (let i = 0; i < words.length - 1; i++) {
+    if (i <= skipTo) continue;
+    const a = words[i], b = words[i + 1]; if (b.s - a.e > maxGap) continue;
+    const na = normKo(a.text), nb = normKo(b.text); if (!na || !nb) continue;
+    // 2–3 word phrase repeated right away: "그래서 제가 그래서 제가"
+    let phrase = false;
+    for (let k = 3; k >= 2 && !phrase; k--) {
+      if (i + 2 * k > words.length) continue;
+      const A = words.slice(i, i + k), B = words.slice(i + k, i + 2 * k);
+      if (B[0].s - A[k - 1].e > maxGap) continue;
+      const ja = A.map(w => normKo(w.text)).join(''), jb = B.map(w => normKo(w.text)).join('');
+      if (ja.length >= 3 && ja === jb) { push(i, i + k - 1, B.map(w => w.text.trim()).join(' '), true); phrase = true; }
+    }
+    if (phrase) continue;
+    if (/[-–—~]$/.test(a.text.trim()) && na.length <= 4) { push(i, i, b.text.trim(), true); continue; } // cut-off fragment "그러-"
+    if (na === nb && na.length <= 3) { push(i, i, b.text.trim(), na.length === 1); continue; } // "그 그", "제가 제가" ("많이 많이" can be on purpose)
+    if (na.length <= 2 && nb.length > na.length && nb.startsWith(na)) { push(i, i, b.text.trim(), na.length === 1 || b.s - a.e < 0.3); continue; } // "그 그러니까", "저 저는"
+  }
+  return out;
+}
+
+// Loud stretches between recognized words: Whisper usually drops "어…", "음…" and mumbles, leaving a voiced gap.
+export function findMumbles(words, env, hop, threshold, opts = {}) {
+  if (!env || !env.length || words.length < 2) return [];
+  const minGap = opts.minGap ?? 0.35, minVoiced = opts.minVoiced ?? 0.22; const out = [];
+  for (let i = 0; i < words.length - 1; i++) {
+    const s = words[i].e + 0.04, e = words[i + 1].s - 0.04; if (e - s < minGap) continue;
+    const i0 = Math.max(0, Math.floor(s / hop)), i1 = Math.min(env.length, Math.ceil(e / hop)); let loud = 0;
+    for (let k = i0; k < i1; k++) if (env[k] > threshold) loud++;
+    const voiced = loud * hop; if (voiced >= minVoiced && loud / Math.max(1, i1 - i0) >= 0.45) out.push({ kind: 'mumble', s, e, text: '(인식되지 않은 소리 · 어/음 추정)', pair: words[i + 1].text.trim(), confident: false });
+  }
+  return out;
+}
+
+// Take removed words out of the caption text too, so a burned-in caption doesn't show "어" or "그 그러니까" after the cut.
+// Line-sized removals (repeat NG, mumble) drop lines that lie entirely inside the span.
+export function stripFromLines(lines, cands) {
+  let out = lines.map(l => ({ ...l }));
+  for (const c of cands) {
+    if (c.kind === 'filler' || c.kind === 'stutter') {
+      const l = out.find(l => l.s <= c.s + 0.08 && l.e >= c.e - 0.08); if (!l) continue;
+      const toks = l.text.split(/\s+/), want = c.text.split(/\s+/).map(normKo).filter(Boolean); if (!want.length) continue;
+      for (let i = 0; i + want.length <= toks.length; i++) {
+        if (want.every((w, k) => normKo(toks[i + k]) === w)) { toks.splice(i, want.length); l.text = toks.join(' ').trim(); break; }
+      }
+    } else out = out.filter(l => !(l.s >= c.s - 0.1 && l.e <= c.e + 0.1));
+  }
+  return out.filter(l => normKo(l.text).length);
+}
+
+// SRT / WebVTT -> [{s, e, text}]
+export function parseSRT(text) {
+  const toSec = t => { const m = String(t).trim().match(/^(?:(\d+):)?(\d+):(\d+)[,.](\d{1,3})$/); return m ? (+(m[1] || 0)) * 3600 + +m[2] * 60 + +m[3] + +m[4].padEnd(3, '0') / 1000 : NaN; };
+  const out = [];
+  for (const block of String(text || '').replace(/\r/g, '').split(/\n\s*\n/)) {
+    const rows = block.split('\n').map(r => r.trim()).filter(Boolean); const ti = rows.findIndex(r => r.includes('-->')); if (ti < 0) continue;
+    const [a, b] = rows[ti].split('-->'); const s = toSec(a), e = toSec(String(b).trim().split(/\s+/)[0]);
+    const body = rows.slice(ti + 1).join(' ').replace(/<[^>]+>/g, '').trim();
+    if (isFinite(s) && isFinite(e) && e > s && body) out.push({ s, e, text: body });
+  }
+  return out.sort((x, y) => x.s - y.s);
+}
+
 // Merge overlapping/adjacent candidate spans with padding
 export function mergeSpans(cands, pad = 0.04) {
   const spans = cands.map(c => ({ s: Math.max(0, c.s - pad), e: c.e + pad })).sort((a, b) => a.s - b.s); const out = [];
