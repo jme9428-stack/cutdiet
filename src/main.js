@@ -1,5 +1,6 @@
 import { initTranscribe } from './transcribe.js';
 import { initDecorate, makeCompositor, preloadFonts } from './decorate.js';
+import { initInspector } from './inspector.js';
 import { defaultFx, defaultTracks, fxActive, fxToJSON, fxFromJSON, mixSfxInto, liveFx, layerCount } from './fxlogic.js';
 import { HOP, clamp, PRESETS, detectSegments, suggestThreshold, keepRanges, intersectRanges, rangesDuration, keptDuration, applySpan, countRemoveRuns, outTime, sourceTimeAtOutput, segIndexAt, fmtClock, ytStamp, tcFromSeconds, buildEDL, buildFCPXML, buildFFmpeg, chapterLines, validateChapters, pickThumbnailTimes, mixBgmInto, buildZip, assembleBlob, accumulateEnergy, energyToDb, demoEnvelope } from './cutlogic.js';
 const LS_PREFIX = 'cutdiet:v1:';
@@ -29,7 +30,7 @@ const state = {
   engineMedia: null, hooks: {}, outDirHandle: null,
 };
 const $ = s => document.querySelector(s);
-let decor = null; let captionsOf = () => []; let trApi = null;
+let decor = null; let captionsOf = () => []; let trApi = null; let inspApi = null;
 const ids = ['drop','fileInput','filebar','fileName','fileMeta','btnOtherFile','notice','video','monitor','monitorEmpty','hudState','hudRes','hudCand','tlHeads','btnMiniClose','engineChip','cropOverlay','cropFrame',
   'presetNote','adv','advSummary','rngThreshold','rngMinSilence','rngPad','valThreshold','valMinSilence','valPad','btnAuto','btnReanalyze','dirtyHint',
   'stOrig','stAfter','stSaved','stSavedPct','stCuts','stCutsNote',
@@ -302,7 +303,12 @@ function snapshot() {
 }
 // put clips back where they were; ones deleted on the timeline since then come back, everything added later stays
 function restoreClips(c) {
-  const back = (list, entries, fields) => { for (const en of entries) { const { ref, ...f } = en; Object.assign(ref, f); if (!list.includes(ref) && ref._tlDeleted) { delete ref._tlDeleted; list.push(ref); } } };
+  // put back what was deleted on the timeline since; take out what a split added since (and remember both for redo)
+  const back = (list, entries) => {
+    const refs = new Set(entries.map(e => e.ref));
+    for (const en of entries) { const { ref, ...f } = en; Object.assign(ref, f); if (!list.includes(ref) && ref._tlDeleted) { delete ref._tlDeleted; ref._tlAdded = true; list.push(ref); } }
+    for (let k = list.length - 1; k >= 0; k--) { const r = list[k]; if (r._tlAdded && !refs.has(r)) { list.splice(k, 1); delete r._tlAdded; r._tlDeleted = true; } }
+  };
   back(state.fx.overlays, c.ov); back(state.fx.sfx, c.sfx); state.fx.overlays.sort((x, y) => x.s - y.s); state.fx.sfx.sort((x, y) => x.t - y.t);
   const lines = captionsOf() || []; back(lines, c.caps); lines.sort((x, y) => x.s - y.s); if (trApi) trApi.refresh();
   state.bgm.start = c.bgmStart; if (decor) { decor.renderLists(); decor.previewTick(false); }
@@ -319,11 +325,40 @@ els.btnUndo.addEventListener('click', doUndo); els.btnRedo.addEventListener('cli
 // ===================== SEGMENT OPS =====================
 function markDirty() { state.dirty = true; els.btnReanalyze.hidden = !state.env; els.dirtyHint.hidden = false; }
 function toggleSegmentAt(t) { if (!state.segments.length) return; pushUndo(); const i = segIndexAt(state.segments, t); state.segments[i].keep = !state.segments[i].keep; markDirty(); refreshAll(); toast(state.segments[i].keep ? '유지로 바꿨습니다' : '삭제로 바꿨습니다', 1200); }
-function splitAt(t) {
-  if (!state.segments.length) return; const i = segIndexAt(state.segments, t); const g = state.segments[i];
-  if (t < g.s + 0.05 || t > g.e - 0.05) { toast('구간 경계와 너무 가깝습니다', 1500); return; }
-  pushUndo(); state.segments.splice(i, 1, { s: g.s, e: t, keep: g.keep }, { s: t, e: g.e, keep: g.keep }); markDirty(); refreshAll(); toast('구간을 나눴습니다. 한쪽을 Q·W·X로 삭제 표시하세요', 1800);
+// Split (S / Ctrl+B), like CapCut: a selected caption or text/image clip is split on its own; otherwise everything under
+// the playhead is cut there — the video segment, the caption (at the most natural word boundary) and text/image clips.
+function splitClip(c, t) {
+  if (c.kind === 'cap') {
+    const two = trApi && trApi.splitCaptionAt(t, c.ref); if (!two) return false;
+    c.ref._tlDeleted = true; two.forEach(x => { x._tlAdded = true; }); return true;
+  }
+  if (c.kind === 'ov') {
+    const o = c.ref; if (!(t > o.s + 0.1 && t < o.e - 0.1)) return false;
+    const n = { ...o, id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), s: t, style: o.style ? { ...o.style } : o.style, _tlAdded: true }; delete n._tlDeleted;
+    o.e = t; state.fx.overlays.splice(state.fx.overlays.indexOf(o) + 1, 0, n); return true;
+  }
+  return false;
 }
+function splitAt(t) {
+  const sel = state.selClip;
+  if (sel && (sel.kind === 'cap' || sel.kind === 'ov') && t > sel.ref.s + 0.1 && t < sel.ref.e - 0.1) {
+    const lane = sel.kind === 'cap' ? 'cap' : 'ov' + (sel.ref.layer || 0); if (isLocked(lane)) { toast('잠긴 트랙입니다'); return; }
+    pushUndo(); if (!splitClip(sel, t)) { popUndoSilently(); toast('이 위치에서는 나눌 수 없습니다'); return; }
+    state.selClip = null; afterClipSplit(); toast(sel.kind === 'cap' ? '자막을 둘로 나눴습니다' : '클립을 둘로 나눴습니다', 1500); return;
+  }
+  if (!state.segments.length) return; const i = segIndexAt(state.segments, t); const g = state.segments[i];
+  const segOk = t >= g.s + 0.05 && t <= g.e - 0.05;
+  const clips = [];
+  if (!isLocked('cap')) { const l = (captionsOf() || []).find(x => t > x.s + 0.1 && t < x.e - 0.1); if (l) clips.push({ kind: 'cap', ref: l }); }
+  for (const o of state.fx.overlays) if (t > o.s + 0.1 && t < o.e - 0.1 && !isLocked('ov' + (o.layer || 0))) clips.push({ kind: 'ov', ref: o });
+  if (!segOk && !clips.length) { toast('구간 경계와 너무 가깝습니다', 1500); return; }
+  pushUndo();
+  if (segOk) { state.segments.splice(i, 1, { s: g.s, e: t, keep: g.keep }, { s: t, e: g.e, keep: g.keep }); markDirty(); }
+  let n = 0; for (const c of clips) if (splitClip(c, t)) n++;
+  afterClipSplit(); refreshAll();
+  toast(n ? `여기서 나눴습니다 (영상${n ? ` + 자막·텍스트 ${n}개` : ''}) · 한쪽을 Q·W·X로 지우세요` : '구간을 나눴습니다. 한쪽을 Q·W·X로 삭제 표시하세요', 2200);
+}
+function afterClipSplit() { autosave(); drawTimeline(); if (decor) { decor.renderLists(); decor.previewTick(false); } }
 // CapCut Q/W: delete the part of the current clip left/right of the playhead
 function trimDelete(side) {
   if (!state.segments.length) return; const t = state.cur; const i = segIndexAt(state.segments, t); const g = state.segments[i];
@@ -647,7 +682,7 @@ function drawTimeline() {
   for (const l of lay.L) {
     if (l.kind === 'main' || l.kind === 'marks') continue;
     const clips = laneClips(l); const dim = laneDimmed(l);
-    if (!clips.length && l.kind !== 'cand') { ctx.fillStyle = C.muted; ctx.globalAlpha = 0.7; ctx.textAlign = 'left'; ctx.fillText({ cap: '자막 없음 · AI 자막·NG 탭에서 만들거나 SRT 불러오기', ov: '텍스트·이미지 없음 · 꾸미기 탭 ④에서 추가', sfx: '효과음 없음 · 꾸미기 탭 ③', bgm: '음악 없음 · 배경음악 탭에서 넣으면 여기서 위치를 옮길 수 있습니다' }[l.kind], 8, l.y + l.h / 2); ctx.globalAlpha = 1; continue; }
+    if (!clips.length && l.kind !== 'cand') { ctx.fillStyle = C.muted; ctx.globalAlpha = 0.7; ctx.textAlign = 'left'; ctx.fillText({ cap: '자막 없음 · 왼쪽 자막에서 만들거나 SRT 불러오기', ov: '텍스트·이미지 없음 · 왼쪽 텍스트에서 추가', sfx: '효과음 없음 · 왼쪽 오디오에서 추가', bgm: '음악 없음 · 왼쪽 오디오에서 넣으면 여기서 위치를 옮길 수 있습니다' }[l.kind], 8, l.y + l.h / 2); ctx.globalAlpha = 1; continue; }
     for (const c of clips) {
       const x0 = (c.s - t0) * pps, x1 = (c.e - t0) * pps; if (x1 < -2 || x0 > W + 2) continue;
       const x = Math.max(-4, x0), w = Math.max(3, Math.min(W + 4, x1) - x); const y = l.y + 2, hh = l.h - 4;
@@ -672,6 +707,7 @@ function drawTimeline() {
   els.scroller.max = String(Math.max(0, dur - vis)); els.scroller.value = String(t0); els.scroller.disabled = state.zoom <= 1.0001;
   els.zoomLabel.textContent = state.zoom < 10 ? state.zoom.toFixed(1).replace(/\.0$/, '') + '×' : Math.round(state.zoom) + '×';
   updateCandHud();
+  if (inspApi) inspApi.render();
 }
 // ---- track headers (DOM column left of the canvas): eye / lock / speaker ----
 const HEAD_INFO = { cap: ['T', '자막'], ov: ['▣', '레이어'], cand: ['!', 'NG 후보'], main: ['▶', '영상'], sfx: ['♪', '효과음'], bgm: ['♫', '음악'] };
@@ -800,7 +836,7 @@ function deleteSelectedClip() {
   if (c.kind === 'cap') { const lines = captionsOf() || []; const i = lines.indexOf(c.ref); if (i >= 0) lines.splice(i, 1); if (trApi) trApi.refresh(); }
   else if (c.kind === 'ov') { const i = state.fx.overlays.indexOf(c.ref); if (i >= 0) state.fx.overlays.splice(i, 1); compactLayers(); if (decor) decor.renderLists(); }
   else if (c.kind === 'sfx') { const i = state.fx.sfx.indexOf(c.ref); if (i >= 0) state.fx.sfx.splice(i, 1); if (decor) decor.renderLists(); }
-  else if (c.kind === 'bgm') { popUndoSilently(); toast('음악은 배경음악 탭에서 지울 수 있습니다'); return true; }
+  else if (c.kind === 'bgm') { popUndoSilently(); toast('음악은 왼쪽 오디오에서 지울 수 있습니다'); return true; }
   state.selClip = null; autosave(); drawTimeline(); if (decor) decor.previewTick(false); toast('클립을 지웠습니다 (Ctrl+Z로 되돌리기)', 1500); return true;
 }
 els.tl.addEventListener('wheel', e => {
@@ -1283,7 +1319,12 @@ const tr = initTranscribe({ state, HOP, toast, saveFile, copyText, outTime, kept
 if (tr && tr.getLines) captionsOf = tr.getLines;
 trApi = tr;
 
-decor = initDecorate({ state, els, toast, fmtClock, seek, refreshAll, autosave, keepRanges, keptDuration, outTime, segIndexAt, escapeHtml, captionsOf: () => captionsOf(), captionsChanged: () => { if (tr && tr.refresh) tr.refresh(); drawTimeline(); }, selectionChanged: o => { state.selClip = o ? { kind: 'ov', ref: o } : (state.selClip && state.selClip.kind === 'ov' ? null : state.selClip); drawTimeline(); } });
+decor = initDecorate({ state, els, toast, fmtClock, seek, refreshAll, autosave, keepRanges, keptDuration, outTime, segIndexAt, escapeHtml, captionsOf: () => captionsOf(), captionsChanged: () => { if (tr && tr.refresh) tr.refresh(); drawTimeline(); }, selectionChanged: c => { state.selClip = c && c.ref ? c : null; drawTimeline(); } });
+// right-hand inspector: properties of the selected clip
+inspApi = initInspector({ state, fmtClock, escapeHtml, toast, showTab, seek, captionsOf: () => captionsOf(),
+  play: () => { if (els.video.paused) togglePlay(); }, split: () => splitAt(state.cur), del: () => deleteSelectedClip(), select: c => selectClip(c),
+  changed: (c, typing) => { autosave(); if (c.kind === 'cap' && trApi) { if (!typing) (captionsOf() || []).sort((a, b) => a.s - b.s); trApi.refresh(); } if (decor) { decor.renderLists(); decor.previewTick(false); } if (c.kind === 'bgm') syncBgmPreview(isPlaying()); drawTimeline(); } });
+document.getElementById('btnTopExport').addEventListener('click', () => showTab('export'));
 window.addEventListener('resize', () => decor && decor.previewTick(false));
 
 // Public API used by the Pro layer (src/pro.js)

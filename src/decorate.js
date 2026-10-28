@@ -134,7 +134,7 @@ export function initDecorate(api) {
     ensureFont(s.font).then(redraw); api.autosave(); redraw();
   }
   subEls.preset.addEventListener('change', () => { const p = SUB_PRESETS[subEls.preset.value]; if (!p) return; const old = fx().subs.style; fx().subs.preset = subEls.preset.value; fx().subs.style = { ...p, anim: old.anim || 'none', ...(customXY(old) ? { pos: 'custom', x: old.x, y: old.y } : {}) }; styleToUI(); ensureFont(p.font).then(redraw); api.autosave(); });
-  ['font', 'size', 'color', 'stroke', 'strokeW', 'box', 'boxColor', 'pos', 'anim', 'shadow', 'burn'].forEach(k => subEls[k].addEventListener('input', () => { if (k === 'burn') { fx().subs.burn = subEls.burn.checked; api.autosave(); redraw(); } else uiToStyle(k); if (k === 'burn' && subEls.burn.checked && !(captionsOf() || []).length) subEls.note.textContent = '아직 자막이 없습니다. AI 자막·NG 탭에서 자막을 만들거나 SRT를 불러오면 영상에 구워집니다.'; else subEls.note.textContent = ''; }));
+  ['font', 'size', 'color', 'stroke', 'strokeW', 'box', 'boxColor', 'pos', 'anim', 'shadow', 'burn'].forEach(k => subEls[k].addEventListener('input', () => { if (k === 'burn') { fx().subs.burn = subEls.burn.checked; api.autosave(); redraw(); } else uiToStyle(k); if (k === 'burn' && subEls.burn.checked && !(captionsOf() || []).length) subEls.note.textContent = '아직 자막이 없습니다. 왼쪽 자막에서 자막을 만들거나 SRT를 불러오면 영상에 구워집니다.'; else subEls.note.textContent = ''; }));
   for (const sel of [subEls.font]) { sel.addEventListener('pointerdown', previewFontNames); sel.addEventListener('focus', previewFontNames); }
   // the user's own font file (this session only; not stored in the project)
   subEls.fontPick.addEventListener('click', () => subEls.fontFile.click());
@@ -206,7 +206,7 @@ export function initDecorate(api) {
   const cv = $('fxCanvas'); const cctx = cv.getContext('2d'); let lastSfxCur = -1; let lastComp = null; let view = null; // view: canvas px <-> CSS px
   const SAMPLE = [{ s: 0, e: Infinity, text: '자막 미리보기 · 끌어서 옮기세요' }];
   function previewTick(playing) {
-    const f = liveFx(fx()); const caps = captionsOf() || []; const showSample = subEls.sample.checked && !$('tab-decorate').hidden;
+    const f = liveFx(fx()); const caps = captionsOf() || []; const showSample = subEls.sample.checked && !$('tab-ai').hidden;
     const active = state.hasMedia && state.videoPlayable && (fxActive(f, caps.length > 0) || showSample || f.sfx.length);
     if (!active) { if (!cv.hidden) { cv.hidden = true; lastComp = null; layoutSel(); } return; }
     const M = els.monitor.getBoundingClientRect(); const sw = state.width || els.video.videoWidth, sh = state.height || els.video.videoHeight; if (!sw || !sh) { cv.hidden = true; return; }
@@ -235,14 +235,14 @@ export function initDecorate(api) {
   let sel = null; // {kind: 'cap'} | {kind: 'ov', id}
   let drag = null;
   const boxOf = s => { if (!s || !lastComp) return null; return lastComp.boxes.find(b => s.kind === 'cap' ? b.kind === 'cap' : (b.kind === 'ov' && b.o.id === s.id)) || null; };
-  function select(s, fromTimeline) { sel = s; layoutSel(); if (ovEls.list) renderLists(); if (!fromTimeline && api.selectionChanged) api.selectionChanged(s && s.kind === 'ov' ? ovById(s.id) || null : null); }
+  function select(s, fromTimeline) { sel = s; layoutSel(); if (ovEls.list) renderLists(); if (!fromTimeline && api.selectionChanged) api.selectionChanged(s && s.kind === 'ov' ? { kind: 'ov', ref: ovById(s.id) } : s && s.kind === 'cap' && s.line && s.line !== SAMPLE[0] ? { kind: 'cap', ref: s.line } : null); }
   function layoutSel() {
     const b = boxOf(sel); if (!b || !view || cv.hidden) { selBox.hidden = true; return; }
     const pad = 4; Object.assign(selBox.style, { left: (view.left + b.x * view.k - pad) + 'px', top: (view.top + b.y * view.k - pad) + 'px', width: (b.w * view.k + pad * 2) + 'px', height: (b.h * view.k + pad * 2) + 'px' }); selBox.hidden = false;
   }
   const toCanvas = e => { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) * (cv.width / r.width), y: (e.clientY - r.top) * (cv.height / r.height) }; };
   const hit = p => { if (!lastComp) return null; const bs = lastComp.boxes; for (let i = bs.length - 1; i >= 0; i--) { const b = bs[i]; const m = 6; if (p.x >= b.x - m && p.x <= b.x + b.w + m && p.y >= b.y - m && p.y <= b.y + b.h + m) return b; } return null; };
-  const targetOf = b => b.kind === 'cap' ? { kind: 'cap' } : { kind: 'ov', id: b.o.id };
+  const targetOf = b => b.kind === 'cap' ? { kind: 'cap', line: b.line } : { kind: 'ov', id: b.o.id };
   const ovById = id => fx().overlays.find(o => o.id === id);
   function startDrag(e, b, mode) {
     e.preventDefault(); e.stopPropagation(); cv.setPointerCapture(e.pointerId);
@@ -286,7 +286,7 @@ export function initDecorate(api) {
   let editor = null;
   cv.addEventListener('dblclick', e => {
     const b = hit(toCanvas(e)); if (!b || !view) return; e.preventDefault();
-    if (b.kind === 'cap' && (!b.line || b.line === SAMPLE[0])) { toast('샘플 자막입니다. AI 자막·NG 탭에서 자막을 만들거나 SRT를 불러오세요'); return; }
+    if (b.kind === 'cap' && (!b.line || b.line === SAMPLE[0])) { toast('샘플 자막입니다. 왼쪽 자막에서 자막을 만들거나 SRT를 불러오세요'); return; }
     if (editor) editor.remove();
     const ta = document.createElement('textarea'); ta.className = 'fx-edit'; ta.value = b.kind === 'cap' ? b.line.text : b.o.text; editor = ta;
     Object.assign(ta.style, { left: (view.left + b.x * view.k) + 'px', top: (view.top + b.y * view.k) + 'px', width: Math.max(160, b.w * view.k) + 'px', height: Math.max(40, b.h * view.k + 8) + 'px' });

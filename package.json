@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "engine": "node engine/server.mjs",
     "engine:install": "cd engine && npm install",
-    "test": "node scripts/make-pro.mjs && node tests/test_logic.mjs && node tests/test_pro.mjs && node tests/test_fx.mjs && node tests/test_audio.mjs && node tests/test_engine.mjs",
+    "test": "node scripts/make-pro.mjs && node tests/test_logic.mjs && node tests/test_pro.mjs && node tests/test_fx.mjs && node tests/test_audio.mjs && node tests/test_asrplan.mjs && node tests/test_engine.mjs",
     "test:engine": "node tests/test_engine.mjs && node tests/test_engine_http.mjs"
   },
   "dependencies": {

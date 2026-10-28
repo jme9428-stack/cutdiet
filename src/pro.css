@@ -1,24 +1,11 @@
-/* Pro layer: denser, keyboard-first. Loaded only on pro.html */
+/* Pro layer: denser, keyboard-first. Loaded only on pro.html — same editor layout as the member page,
+   plus a "Pro" rail tab (queue · channel defaults · local engine), work log and key remapping. */
 body.pro{font-size:13px}
-body.pro .wrap{max-width:1480px;padding-block:8px 40px}
-body.pro .steps-note,body.pro .drop .steps,body.pro .legend span:nth-child(n+4),body.pro #presetNote,body.pro .ctl .desc,body.pro .onb{display:none!important}
-body.pro .brand .tag{display:none}
-body.pro .top{padding-block:2px 8px}
-body.pro .panel,body.pro .card,body.pro .timeline{padding:10px 12px}
-body.pro .bench{grid-template-columns:minmax(0,1.2fr) minmax(300px,1fr)}
-body.pro .monitor{max-height:360px;aspect-ratio:auto;height:360px}
-body.pro .monitor.mini{height:auto;max-height:none;aspect-ratio:16/9}
-body.pro canvas#tl{height:180px}
-body.pro .timeline{position:sticky;top:0;z-index:5;box-shadow:0 6px 18px rgba(0,0,0,.08)}
-body.pro .tabs{position:sticky;top:0;z-index:4;background:var(--bg)}
-body.pro .stats{grid-template-columns:repeat(4,minmax(0,1fr))}
-body.pro .tab{padding:7px 11px;font-size:13px}
-body.pro .tab::before{content:attr(data-key);display:inline-block;font-family:var(--font-mono);font-size:10px;color:var(--muted);border:1px solid var(--line-strong);border-radius:3px;padding:0 4px;margin-right:6px}
-body.pro .tabpanel{padding-top:10px}
+body.pro .steps-note,body.pro #presetNote,body.pro .ctl .desc,body.pro .onb{display:none!important}
+body.pro .rail .tab::after{content:attr(data-key);font-family:var(--font-mono);font-size:9px;color:var(--muted);opacity:.75;line-height:1}
 body.pro td,body.pro th{padding:4px 8px}
 
-.probar{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(280px,1fr);gap:10px;margin-top:8px}
-@media (max-width:900px){.probar{grid-template-columns:1fr}}
+.probar{display:flex;flex-direction:column;gap:10px}
 .probar .card{gap:8px}
 .probar .card.engine{grid-column:1 / -1}
 .probar .card.engine .row{flex-wrap:wrap;gap:6px}

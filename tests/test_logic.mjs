@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as A from '../src/cutlogic.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { normKo, similarity, wordsFromChunks, dropSilentWords, buildCaptionLines, buildSentences, buildSRT, srtTime, findFillers, findRepeats, findStutters, findMumbles, findShortBursts, stripFromLines, parseSRT, mergeSpans, resampleInto } from '../src/textlogic.js';
+import { normKo, similarity, wordsFromChunks, dropSilentWords, buildCaptionLines, buildSentences, buildSRT, srtTime, findFillers, findRepeats, findStutters, findMumbles, findShortBursts, stripFromLines, parseSRT, breakScore, resplitLines, splitLineAt, wordsOfLines, mergeSpans, resampleInto } from '../src/textlogic.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const main = fs.readFileSync(path.join(root, 'src/main.js'), 'utf8');
@@ -90,9 +90,42 @@ assert.equal(dropSilentWords([{ text: 'x', s: 5, e: 5.2 }], null, 0.02, -45).len
   const ch = [new Float32Array(2000)]; A.mixBgmInto(ch, sr, 0, 0, bgm, null, A.HOP, -40, 10, { g: 1 });
   assert.equal(ch[0][500], 0); assert.ok(Math.abs(ch[0][1500] - 0.5) < 1e-6);
 }
+// natural caption lines: break at sentence ends / connectives / pauses, never between a modifier and its noun
+{
+  const mk = (txt, t0 = 0, gaps = {}) => { let t = t0; return txt.split(' ').map((x, i) => { const w = { text: ' ' + x, s: t, e: t + 0.32 }; t += 0.36 + (gaps[i] || 0); return w; }); };
+  const words = mk('그리고 이거는 이제 오에이보다 조금 더 얇고 가벼운 칠에이입니다. 이렇게 이런 스틱을 쓰면 연습하다 보면 손이 좀 덜 아프거든요.');
+  const lines = buildCaptionLines(words, { maxChars: 18 }); const texts = lines.map(l => l.text);
+  assert.ok(lines.every(l => normKo(l.text).length <= 22), JSON.stringify(texts));
+  assert.ok(texts.some(t => t.endsWith('칠에이입니다.')), 'sentence ends a line: ' + JSON.stringify(texts));
+  assert.ok(!texts.some(t => /이런$/.test(t)), 'no break after a modifier: ' + JSON.stringify(texts));
+  assert.ok(!texts.some(t => /연습하다$/.test(t)), '"연습하다 보면" stays together: ' + JSON.stringify(texts));
+  assert.equal(texts.join(' ').replace(/\s+/g, ''), words.map(w => w.text.trim()).join('').replace(/\s+/g, ''), 'no words lost');
+  assert.ok(breakScore({ text: '얇고', e: 1 }, { s: 1.05 }) > breakScore({ text: '이런', e: 1 }, { s: 1.05 }));
+  // a long pause always ends a line
+  const pw = mk('첫 문장 하나 그리고 둘째', 0, { 2: 1.5 }); assert.ok(buildCaptionLines(pw).length >= 2);
+  // re-split hand-edited lines: one long edited line becomes natural lines with times spread over it
+  const re = resplitLines([{ s: 10, e: 20, text: '오늘은 편집 방법을 알려 드릴게요. 먼저 무음 구간을 자동으로 찾아서 잘라 냅니다.', edited: true }], [], { maxChars: 18 });
+  assert.ok(re.length >= 2 && re[0].s === 10 && Math.abs(re[re.length - 1].e - 20) < 0.9 && re.every(l => l.e > l.s), JSON.stringify(re));
+  assert.ok(re.some(l => l.text.endsWith('드릴게요.')) && !re.some(l => /드릴게요. /.test(l.text)), 'the sentence end closes a line: ' + JSON.stringify(re.map(l => l.text)));
+  // untouched lines keep the recognized word times
+  const rw = mk('안녕하세요 반갑습니다', 5); const wl = wordsOfLines([{ s: 5, e: 5.7, text: '안녕하세요 반갑습니다' }], rw); assert.equal(wl[1].s, rw[1].s);
+  // splitting one caption at the playhead picks the nearest natural word boundary
+  const sp = splitLineAt({ s: 0, e: 4, text: '조금 더 얇고 가벼운 스틱입니다' }, 1.7);
+  assert.ok(sp && sp[0].e === 1.7 && sp[1].s === 1.7, JSON.stringify(sp)); assert.equal(sp[0].text + ' ' + sp[1].text, '조금 더 얇고 가벼운 스틱입니다');
+  assert.ok(!/가벼운$/.test(sp[0].text), 'not between "가벼운" and its noun: ' + JSON.stringify(sp));
+  assert.equal(splitLineAt({ s: 0, e: 1, text: '하나' }, 0.5), null);
+}
 for (const id of ['tlHeads', 'hudCand', 'btnMiniClose', 'aiCandNote', 'btnAiRescan']) assert.ok(html.includes(`id="${id}"`), 'missing ' + id);
 // the candidates card sits right under ② and before the caption editor
-assert.ok(html.indexOf('② 자막 내보내기') < html.indexOf('③ 삭제 후보') && html.indexOf('③ 삭제 후보') < html.indexOf('자막 편집 <span'));
+// editor layout: every rail tab has its panel; NG candidates live in their own panel; the caption tools are in 자막
+{
+  const tabs = [...html.matchAll(/class="tab" role="tab" data-tab="([a-z]+)"/g)].map(m => m[1]);
+  assert.deepEqual(tabs, ['segments', 'ai', 'ng', 'text', 'bgm', 'decorate', 'shorts', 'export', 'guide']);
+  for (const t of tabs) assert.ok(html.includes(`id="tab-${t}"`), 'panel for ' + t);
+  const sect = id => html.slice(html.indexOf(`id="tab-${id}"`), html.indexOf('</section>', html.indexOf(`id="tab-${id}"`)));
+  assert.ok(sect('ng').includes('id="aiCandBody"') && sect('ai').includes('id="btnCapResplit"') && sect('ai').includes('id="subPreset"') && sect('export').includes('id="thumbGrid"') && sect('export').includes('id="chBody"'));
+  assert.ok(html.includes('id="inspector"') && html.includes('id="btnTopExport"'));
+}
 for (const id of ['capList', 'capChip', 'btnCapAdd', 'btnCapImport', 'capFile', 'capFind', 'capReplace', 'btnCapReplace', 'capFollow', 'aiOptFiller', 'aiOptStutter', 'aiOptRepeat', 'aiOptMumble', 'aiOptStrip']) assert.ok(html.includes(`id="${id}"`), 'missing ' + id);
 console.log('text logic ok');
 console.log('ALL SITE TESTS PASSED');

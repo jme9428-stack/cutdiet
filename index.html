@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ko">
+<html lang="ko" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -11,8 +11,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=Noto+Sans+KR:wght@500;700;900&family=Black+Han+Sans&family=Jua&family=Do+Hyeon&family=Gothic+A1:wght@700;900&display=swap">
 <style>
-/* Layout: one editing workbench — monitor + cut settings on top, a full-width timeline strip with transport,
-   and tabbed detail panels below. Phone: everything stacks. */
+/* Components and theme. The editor layout (CapCut-like) is at the end of this block. */
 :root{
   --bg:#EEF1F4; --surface:#FFFFFF; --surface-2:#F5F7FA; --fg:#17202A; --muted:#5B6878; --line:#D3DAE2; --line-strong:#B8C2CE;
   --accent:#2B4ED8; --accent-fg:#FFFFFF; --accent-soft:#E4EAFF;
@@ -270,479 +269,499 @@ td.ttl input:focus{border-color:var(--accent);background:var(--surface)}
   canvas#tl{height:120px}
   .presets{grid-template-columns:1fr 1fr}
 }
+
+/* ===== Editor layout, modeled on CapCut: top bar · [feature rail | feature panel | player | inspector] · timeline.
+   Desktop fills the window (panels scroll inside); narrow screens stack and the page scrolls. ===== */
+.app{max-width:none;padding:0;height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+.app .top{flex:0 0 auto;padding:6px 12px;border-bottom:1px solid var(--line);background:var(--surface);flex-wrap:nowrap;min-height:46px}
+.app .brand{align-items:center;min-width:0;flex-wrap:nowrap}
+.app .brand .name{font-size:16px;white-space:nowrap}
+.app .filebar{border:0;padding:0;background:none;display:inline-flex;gap:8px;align-items:center;min-width:0;flex-wrap:nowrap}
+.app .filebar .fname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38vw;font-size:13px;color:var(--muted);font-weight:500}
+.app .top-actions{flex-wrap:nowrap}
+.app .notice{margin:6px 12px 0;flex:0 0 auto}
+.workspace{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:64px minmax(280px,340px) minmax(0,1fr) minmax(230px,290px);border-bottom:1px solid var(--line)}
+.rail{display:flex;flex-direction:column;gap:2px;padding:8px 5px;border:0;border-right:1px solid var(--line);background:var(--surface);margin:0;overflow-y:auto;overflow-x:hidden}
+.rail .tab{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 2px 6px;border:0;border-radius:8px;font-size:10.5px;line-height:1.2;margin:0;color:var(--muted);white-space:normal;text-align:center}
+.rail .tab::before{font-size:17px;line-height:1;content:"•"}
+.rail .tab:hover{background:var(--surface-2);color:var(--fg)}
+.rail .tab[aria-selected="true"]{background:var(--accent-soft);color:var(--accent);border:0}
+.rail .tab[data-tab="segments"]::before{content:"✂"}
+.rail .tab[data-tab="ai"]::before{content:"💬"}
+.rail .tab[data-tab="ng"]::before{content:"🧹"}
+.rail .tab[data-tab="text"]::before{content:"T";font-weight:700;font-family:Georgia,serif}
+.rail .tab[data-tab="bgm"]::before{content:"♫"}
+.rail .tab[data-tab="decorate"]::before{content:"✦"}
+.rail .tab[data-tab="shorts"]::before{content:"▯"}
+.rail .tab[data-tab="export"]::before{content:"⇪"}
+.rail .tab[data-tab="guide"]::before{content:"?";font-weight:700}
+.rail .tab[data-tab="pro"]::before{content:"★"}
+.rail .tab[data-tab="log"]::before{content:"▤"}
+.rail .tab[data-tab="keys"]::before{content:"⌨"}
+.rail-gap{flex:1 1 auto;min-height:6px}
+.sidepanel{overflow-y:auto;padding:12px 14px 28px;background:var(--surface);border-right:1px solid var(--line);min-width:0;min-height:0}
+.sidepanel .tabpanel{padding:0;display:flex;flex-direction:column;gap:9px}
+.sidepanel .tabpanel[hidden]{display:none!important}
+.sidepanel .toolbar{margin:0}
+.sidepanel textarea{width:100%;min-height:90px;resize:vertical;font-family:var(--font-mono);font-size:12px;line-height:1.5;color:var(--fg);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:8px}
+.sidepanel .caplist{max-height:none;margin-top:0}
+.sidepanel .guide{grid-template-columns:1fr}
+.ph{font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.sh{font-size:13px;font-weight:600;margin-top:6px;padding-top:10px;border-top:1px solid var(--line);display:flex;gap:8px;align-items:center}
+details.sect{border-top:1px solid var(--line);padding-top:8px;display:flex;flex-direction:column;gap:8px}
+details.sect > summary{cursor:pointer;font-size:12.5px;font-weight:500;color:var(--muted);list-style:none;display:flex;gap:6px;align-items:center}
+details.sect > summary::-webkit-details-marker{display:none}
+details.sect > summary::before{content:"▸";font-size:10px}
+details.sect[open] > summary::before{content:"▾"}
+details.sect[open] > summary{color:var(--fg);margin-bottom:6px}
+details.sect > :not(summary){margin-bottom:8px}
+.stage{display:flex;flex-direction:column;min-width:0;min-height:0;padding:10px 12px 8px;gap:8px;background:var(--bg)}
+.stage .drop{flex:0 0 auto;padding:12px 14px}
+.stage .drop .big{font-size:15px}
+.stage .monitor-slot{flex:1 1 auto;min-height:0;display:flex}
+.stage .monitor-slot > .monitor:not(.mini){flex:1 1 auto;aspect-ratio:auto;min-height:0;width:100%}
+.player{display:flex;align-items:center;justify-content:space-between;gap:6px 10px;flex-wrap:wrap}
+.player .play{min-width:96px;justify-content:center}
+.player .tc{min-width:150px}
+.inspector{overflow-y:auto;padding:12px 14px 24px;background:var(--surface);border-left:1px solid var(--line);display:flex;flex-direction:column;gap:10px;min-width:0;min-height:0}
+.inspector .stats{margin-top:0}
+.ins{display:flex;flex-direction:column;gap:9px}
+.ins textarea{width:100%;min-height:70px;resize:vertical;font:inherit;font-size:13.5px;line-height:1.5;color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:8px;padding:8px}
+.ins .times{display:grid;grid-template-columns:auto 1fr auto 1fr;gap:6px;align-items:center;font-size:12px}
+.ins .times input{width:100%;font-family:var(--font-mono);font-size:12px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--fg)}
+.ins .kind{font-size:11px;font-weight:600;color:var(--accent);letter-spacing:.02em}
+.ins .acts{display:flex;gap:6px;flex-wrap:wrap}
+.app .timeline{flex:0 0 auto;margin:0;border:0;border-radius:0;padding:4px 10px 6px;background:var(--surface);box-shadow:none}
+.app .transport{margin-bottom:4px;gap:2px 12px}
+.app .transport .tgroup{gap:2px}
+.app .scroller{margin-top:3px;height:10px}
+@media (max-width:1100px){
+  .app{height:auto;overflow:visible}
+  .workspace{display:contents}
+  .app .top{order:-2}.app .notice{order:-1}.stage{order:1}.app .timeline{order:2}.app .rail{order:3}.sidepanel{order:4}.inspector{order:5}
+  .rail{flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+  .rail .tab{flex:0 0 auto;min-width:58px}
+  .rail-gap{display:none}
+  .stage .monitor-slot{flex:none}
+  .stage .monitor-slot > .monitor:not(.mini){aspect-ratio:16/9;flex:none}
+  .sidepanel,.inspector{border:0;overflow:visible}
+  .app .filebar .fname{max-width:30vw}
+}
 </style>
 </head>
 <body>
 
-<div class="wrap">
+<div class="wrap app">
   <header class="top">
     <div class="brand">
       <span class="name">컷다이어트</span>
-      <span class="tag">유튜브 컷편집 어시스턴트 · 무음·버벅임 구간 자동 컷</span>
+      <div class="filebar" id="filebar" hidden><span class="fname" id="fileName"></span> <span class="fmeta" id="fileMeta"></span><button class="btn sm ghost" id="btnOtherFile">다른 영상</button></div>
     </div>
     <div class="top-actions">
-      <button class="btn sm" id="btnLoadProject">프로젝트 불러오기</button>
-      <button class="btn sm" id="btnSaveProject">프로젝트 저장</button>
-      <button class="btn sm ghost" id="btnHelp">사용법</button>
+      <button class="btn sm ghost" id="btnLoadProject" title="저장해 둔 프로젝트(.json) 열기">불러오기</button>
+      <button class="btn sm ghost" id="btnSaveProject" title="컷·자막·꾸미기를 프로젝트(.json)로 저장">저장</button>
+      <button class="btn sm ghost" id="btnHelp" title="사용법">?</button>
+      <button class="btn sm primary" id="btnTopExport">내보내기</button>
       <input type="file" id="projectInput" accept=".json,application/json" class="sr" tabindex="-1">
     </div>
   </header>
 
-  <div class="drop" id="drop" role="button" tabindex="0" aria-label="영상 파일 선택">
-    <div class="big">영상 파일을 여기에 놓거나 클릭해서 선택</div>
-    <div class="hint" style="margin-top:4px">MP4 · MOV · WebM · MKV · 음성만 있는 파일도 가능 · 영상은 업로드되지 않고 이 브라우저 안에서만 처리됩니다</div>
-    <div class="steps"><span><b>1</b>영상 선택</span><span><b>2</b>자동으로 잡힌 컷 확인·수정</span><span><b>3</b>MP4 또는 편집 프로그램용 파일로 내보내기</span></div>
-    <input type="file" id="fileInput" accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.m4a,.mp3,.wav">
-  </div>
-  <div class="filebar" id="filebar" hidden>
-    <div><span class="fname" id="fileName"></span> <span class="fmeta" id="fileMeta"></span></div>
-    <div class="row"><button class="btn sm" id="btnOtherFile">다른 파일 열기</button></div>
-  </div>
-
   <div id="notice" hidden class="notice"></div>
 
-  <section class="bench">
-    <div class="monitor" id="monitor">
-      <video id="video" playsinline preload="metadata"></video>
-      <div class="monitor-empty" id="monitorEmpty">
-        <div class="me-title">영상을 불러오면 여기서 컷 결과를 미리 봅니다</div>
-        <p>삭제 구간을 자동으로 건너뛰며 재생돼서, 내보내기 전에 완성본의 흐름을 들어볼 수 있습니다.</p>
-      </div>
-      <canvas id="fxCanvas" class="fx-canvas" hidden aria-hidden="true"></canvas>
-      <div class="crop-overlay" id="cropOverlay" hidden><div class="crop-frame" id="cropFrame" title="드래그해서 크롭 위치 이동"><span>9:16</span></div></div>
-      <div class="monitor-hud"><span id="hudState">예시 데이터</span><span id="hudRes" hidden></span><span id="hudCand" class="hud-cand" hidden></span></div>
-      <button class="mini-close" id="btnMiniClose" title="작은 화면 닫기 (위로 스크롤하면 원래 자리로)" aria-label="작은 화면 닫기">✕</button>
-    </div>
+  <main class="workspace">
+    <nav class="tabs rail" role="tablist" aria-label="기능">
+      <button class="tab" role="tab" data-tab="segments" aria-selected="true">컷</button>
+      <button class="tab" role="tab" data-tab="ai" aria-selected="false">자막</button>
+      <button class="tab" role="tab" data-tab="ng" aria-selected="false">NG 정리</button>
+      <button class="tab" role="tab" data-tab="text" aria-selected="false">텍스트</button>
+      <button class="tab" role="tab" data-tab="bgm" aria-selected="false">오디오</button>
+      <button class="tab" role="tab" data-tab="decorate" aria-selected="false">효과</button>
+      <button class="tab" role="tab" data-tab="shorts" aria-selected="false">숏츠</button>
+      <button class="tab" role="tab" data-tab="export" aria-selected="false">내보내기</button>
+      <span class="rail-gap"></span>
+      <button class="tab" role="tab" data-tab="guide" aria-selected="false">가이드</button>
+    </nav>
 
-    <aside class="panel">
-      <div class="panel-head"><h2>자동 컷 설정</h2><span class="chip" id="engineChip">엔진 확인 중</span></div>
-      <div class="presets" role="group" aria-label="프리셋">
-        <button class="preset" data-preset="lecture" aria-pressed="true"><b>강의형</b><span>토킹헤드 · 화면 녹화</span></button>
-        <button class="preset" data-preset="talk" aria-pressed="false"><b>토크·인터뷰</b><span>대화 간격은 남김</span></button>
-        <button class="preset" data-preset="vlog" aria-pressed="false"><b>브이로그</b><span>현장음 · 보수적</span></button>
-      </div>
-      <p class="preset-note" id="presetNote"></p>
-      <details class="adv" id="adv">
-        <summary><span>세부 설정</span><span class="mono muted small" id="advSummary"></span></summary>
-        <div class="ctl">
-          <label for="rngThreshold">말소리 기준 (dB)</label><span class="val" id="valThreshold">-42 dB</span>
-          <input type="range" id="rngThreshold" min="-70" max="-20" step="1" value="-42">
-          <span class="desc">이 값보다 작은 소리는 무음으로 봅니다. 숨소리·잡음까지 잡힌다면 낮추고(-50), 말이 끊겨 잘린다면 올리세요(-35).</span>
-        </div>
-        <div class="ctl">
-          <label for="rngMinSilence">무음으로 볼 최소 길이</label><span class="val" id="valMinSilence">0.60 s</span>
-          <input type="range" id="rngMinSilence" min="0.2" max="2" step="0.05" value="0.6">
-          <span class="desc">이보다 짧은 쉼은 자연스러운 호흡으로 보고 남깁니다.</span>
-        </div>
-        <div class="ctl">
-          <label for="rngPad">말 앞뒤 여백</label><span class="val" id="valPad">0.15 s</span>
-          <input type="range" id="rngPad" min="0" max="0.5" step="0.01" value="0.15">
-          <span class="desc">컷이 너무 붙어 숨 가쁘면 늘리세요. 첫 음절이 잘릴 때도 여백을 늘리면 해결됩니다.</span>
-        </div>
-        <div class="ctl-actions">
-          <button class="btn sm" id="btnAuto">추천 기준값으로</button>
-          <button class="btn sm primary" id="btnReanalyze" hidden>다시 분석 (수동 수정 초기화)</button>
-        </div>
-        <p class="hint" id="dirtyHint" hidden style="margin-top:8px">수동으로 수정한 구간이 있어 설정이 자동 적용되지 않습니다. 위 버튼으로 다시 적용할 수 있습니다.</p>
-      </details>
-      <div class="stats">
-        <div class="stat"><div class="k">원본 길이</div><div class="v" id="stOrig">–</div></div>
-        <div class="stat"><div class="k">편집 후 길이</div><div class="v good" id="stAfter">–</div></div>
-        <div class="stat"><div class="k">줄어드는 시간</div><div class="v" id="stSaved">–</div><div class="s" id="stSavedPct"></div></div>
-        <div class="stat"><div class="k">삭제 구간</div><div class="v" id="stCuts">–</div><div class="s" id="stCutsNote"></div></div>
-      </div>
-    </aside>
-  </section>
-
-  <section class="timeline">
-    <div class="transport">
-      <div class="tgroup">
-        <button class="btn icon" id="btnPrevCut" title="이전 컷으로 ([)">|◀</button>
-        <button class="btn icon" id="btnRev" title="뒤로 재생 · 다시 누르면 2배속 (J)">◀◀</button>
-        <button class="btn primary" id="btnPlay" title="재생/일시정지 (Space · K)">▶ 재생</button>
-        <button class="btn icon" id="btnFwd" title="앞으로 재생 · 다시 누르면 2배속 (L)">▶▶</button>
-        <button class="btn icon" id="btnNextCut" title="다음 컷으로 (])">▶|</button>
-        <span class="speed" id="speedBadge"></span>
-        <select id="selRate" title="미리보기 재생 속도 (내보내기에는 영향 없음)" aria-label="재생 속도"><option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option></select>
-        <span class="vol"><button class="btn icon sm" id="btnMute" title="음소거">🔊</button><input type="range" id="rngVolume" min="0" max="100" step="1" value="100" aria-label="미리보기 음량" title="미리보기 음량"></span>
-        <button class="btn icon sm" id="btnFull" title="미리보기 전체 화면 (F)">⛶</button>
-      </div>
-      <div class="tc"><span class="cur" id="tcCur">00:00.0</span><span class="muted">/</span><span id="tcDur">00:00.0</span><span class="out">편집 후 <span id="tcOut">00:00.0</span></span></div>
-      <label class="switch" title="끄면 삭제 구간도 그대로 재생합니다"><input type="checkbox" id="chkSkip" checked>삭제 구간 건너뛰기</label>
-      <div class="tgroup">
-        <button class="btn sm" id="btnToggle" title="현재 위치 구간을 유지↔삭제 (X)">유지↔삭제</button>
-        <button class="btn sm" id="btnSplit" title="현재 위치에서 구간 나누기 (S · Ctrl+B)">분할</button>
-        <button class="btn sm" id="btnTrimL" title="재생 위치 왼쪽(앞부분) 삭제 (Q)">◁ 앞 삭제</button>
-        <button class="btn sm" id="btnTrimR" title="재생 위치 오른쪽(뒷부분) 삭제 (W)">뒤 삭제 ▷</button>
-        <button class="btn sm" id="btnChapter" title="현재 위치에 챕터 추가 (M)">챕터</button>
-      </div>
-      <div class="tgroup">
-        <button class="btn sm" id="btnMarkIn" title="범위 시작 찍기 (I)">⟦ I</button>
-        <button class="btn sm" id="btnMarkOut" title="범위 끝 찍기 (O)">O ⟧</button>
-        <button class="btn sm" id="btnMarkDel" title="I~O 범위 삭제 (Delete) · Esc로 범위 해제" disabled>범위 삭제</button>
-      </div>
-      <div class="tgroup">
-        <button class="btn icon sm" id="btnUndo" title="되돌리기 (Ctrl+Z)" disabled>↶</button>
-        <button class="btn icon sm" id="btnRedo" title="다시 실행 (Ctrl+Shift+Z)" disabled>↷</button>
-      </div>
-      <div class="tgroup zoom">
-        <button class="btn icon sm" id="btnZoomOut" title="축소">−</button>
-        <span id="zoomLabel" class="mono">1×</span>
-        <button class="btn icon sm" id="btnZoomIn" title="확대">+</button>
-        <button class="btn sm" id="btnZoomFit">전체</button>
-      </div>
-    </div>
-    <div class="tlwrap"><div class="tlheads" id="tlHeads" aria-label="트랙"></div><canvas id="tl" tabindex="0" aria-label="타임라인. 클릭해 이동, 경계를 드래그해 조정, 더블클릭으로 유지와 삭제 전환"></canvas></div>
-    <input type="range" class="scroller" id="scroller" min="0" max="0" step="0.01" value="0" aria-label="타임라인 스크롤">
-    <div class="legend">
-      <span><i class="sw" style="background:var(--keep)"></i>유지</span>
-      <span><i class="sw" style="background:var(--remove)"></i>삭제</span>
-      <span><i class="sw" style="background:var(--play)"></i>재생 위치</span>
-      <span>영상 줄: 클릭 이동 · 경계 드래그 · 더블클릭 유지↔삭제 · <kbd>Ctrl</kbd>+휠 확대</span>
-      <span>자막·텍스트·효과음·음악 줄: 클립을 끌어 옮기기 · 양끝 끌어 길이 조절 · 텍스트·이미지는 위아래로 끌어 레이어 이동 · 선택 후 <kbd>Delete</kbd> · 왼쪽 👁 숨기기 🔒 잠금 🔊 소리</span>
-      <span><kbd>Space</kbd> 재생/정지 <kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> 뒤로·멈춤·앞으로(2배속) <kbd>Q</kbd>앞 삭제 <kbd>W</kbd>뒤 삭제 <kbd>Ctrl</kbd>+<kbd>B</kbd> 분할 <kbd>X</kbd> 전환 <kbd>I</kbd><kbd>O</kbd> 범위 → <kbd>Delete</kbd> <kbd>M</kbd> 챕터 <kbd>F</kbd> 전체 화면 <kbd>Ctrl</kbd>+<kbd>Z</kbd> 되돌리기</span>
-    </div>
-  </section>
-
-  <nav class="tabs" role="tablist">
-    <button class="tab" role="tab" data-tab="segments" aria-selected="true">구간 목록</button>
-    <button class="tab" role="tab" data-tab="chapters" aria-selected="false">챕터</button>
-    <button class="tab" role="tab" data-tab="bgm" aria-selected="false">배경음악</button>
-    <button class="tab" role="tab" data-tab="decorate" aria-selected="false">꾸미기</button>
-    <button class="tab" role="tab" data-tab="shorts" aria-selected="false">숏츠 9:16</button>
-    <button class="tab" role="tab" data-tab="thumbs" aria-selected="false">썸네일 프레임</button>
-    <button class="tab" role="tab" data-tab="ai" aria-selected="false">AI 자막·NG</button>
-    <button class="tab" role="tab" data-tab="export" aria-selected="false">내보내기</button>
-    <button class="tab" role="tab" data-tab="guide" aria-selected="false">가이드</button>
-  </nav>
-
+    <div class="sidepanel">
   <section class="tabpanel" id="tab-segments" role="tabpanel">
-    <div class="toolbar">
-      <select id="segFilter" aria-label="구간 필터">
-        <option value="all">전체 구간</option>
-        <option value="remove">삭제 구간만</option>
-        <option value="keep">유지 구간만</option>
-      </select>
-      <span class="hint" id="segCount"></span>
-      <span style="flex:1"></span>
-      <button class="btn sm" id="btnReviveShort" title="짧은 삭제 구간은 호흡일 때가 많습니다">0.4초 미만 삭제 구간 되살리기</button>
-      <button class="btn sm" id="btnKeepAll">모두 유지</button>
+    <h2 class="ph">자동 컷 <span class="chip" id="engineChip">엔진 확인 중</span></h2>
+    <div class="presets" role="group" aria-label="프리셋">
+      <button class="preset" data-preset="lecture" aria-pressed="true"><b>강의형</b><span>토킹헤드 · 화면 녹화</span></button>
+      <button class="preset" data-preset="talk" aria-pressed="false"><b>토크·인터뷰</b><span>대화 간격은 남김</span></button>
+      <button class="preset" data-preset="vlog" aria-pressed="false"><b>브이로그</b><span>현장음 · 보수적</span></button>
     </div>
-    <div class="tbl">
-      <table>
-        <thead><tr><th>#</th><th>상태</th><th>시작 – 끝</th><th>길이</th><th>편집 후 위치</th></tr></thead>
-        <tbody id="segBody"></tbody>
-      </table>
-    </div>
-    <p class="hint" style="margin-top:8px">상태 버튼을 누르면 유지↔삭제가 바뀝니다. 시작 시간을 누르면 그 위치로 이동합니다. 경계를 미세 조정하려면 타임라인에서 경계선을 드래그하세요.</p>
-  </section>
-
-  <section class="tabpanel" id="tab-chapters" role="tabpanel" hidden>
-    <div class="toolbar">
-      <button class="btn sm primary" id="btnChapterHere">현재 위치에 챕터 추가 (M)</button>
-      <span class="hint">챕터 시간은 <b>편집 후</b> 기준으로 자동 환산됩니다. 유튜브 설명란에 그대로 붙여 넣으세요.</span>
-    </div>
-    <div class="cards">
-      <div class="card" style="gap:6px">
-        <div class="tbl">
-          <table>
-            <thead><tr><th>제목</th><th>원본 시간</th><th>편집 후</th><th></th></tr></thead>
-            <tbody id="chBody"></tbody>
-          </table>
-        </div>
+    <p class="preset-note" id="presetNote"></p>
+    <details class="adv" id="adv">
+      <summary><span>세부 설정</span><span class="mono muted small" id="advSummary"></span></summary>
+      <div class="ctl">
+        <label for="rngThreshold">말소리 기준</label><span class="val" id="valThreshold">-42 dB</span>
+        <input type="range" id="rngThreshold" min="-70" max="-20" step="1" value="-42">
+        <span class="desc">말이 잘리면 내리고(-48), 숨소리까지 남으면 올리세요(-36).</span>
       </div>
-      <div class="card">
-        <h3>유튜브 설명란용 타임스탬프</h3>
-        <textarea id="chText" readonly aria-label="챕터 타임스탬프 텍스트"></textarea>
-        <div class="row"><button class="btn sm primary" id="btnCopyChapters">복사</button><span class="hint" id="chValid"></span></div>
+      <div class="ctl">
+        <label for="rngMinSilence">무음으로 볼 최소 길이</label><span class="val" id="valMinSilence">0.60 s</span>
+        <input type="range" id="rngMinSilence" min="0.2" max="2" step="0.05" value="0.6">
       </div>
-    </div>
-  </section>
-
-  <section class="tabpanel" id="tab-bgm" role="tabpanel" hidden>
-    <div class="cards">
-      <div class="card">
-        <h3>배경음악 파일 <span class="chip" id="bgmChip">없음</span></h3>
-        <p class="steps-note">MP3·M4A·WAV 등 음악 파일을 고르면 <b>편집 후 영상 전체</b>에 깔립니다(컷을 건너뛰어도 음악은 끊기지 않고 이어집니다). 미리보기 재생에서도 함께 들립니다. 음악은 MP4 렌더링·숏츠·FFmpeg 스크립트에 반영되고, EDL에는 들어가지 않습니다.</p>
-        <div class="row">
-          <button class="btn primary" id="btnBgmPick">음악 파일 선택</button>
-          <button class="btn" id="btnBgmClear" hidden>음악 제거</button>
-          <input type="file" id="bgmInput" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.flac" class="sr" tabindex="-1">
-        </div>
-        <p class="hint" id="bgmInfo">15분 이하의 음악 파일을 권장합니다. 저작권이 확인된 음원(유튜브 오디오 보관함 등)을 쓰세요.</p>
-        <div class="progress" id="bgmProgress" hidden><i></i></div>
+      <div class="ctl">
+        <label for="rngPad">말 앞뒤 여백</label><span class="val" id="valPad">0.15 s</span>
+        <input type="range" id="rngPad" min="0" max="0.5" step="0.01" value="0.15">
       </div>
-      <div class="card">
-        <h3>음량과 느낌</h3>
-        <div class="field"><label for="bgmVol">음량</label><input type="range" id="bgmVol" min="0" max="60" step="1" value="18"><span class="mono small" id="bgmVolVal">18%</span></div>
-        <label class="switch"><input type="checkbox" id="bgmDuck" checked>말할 때 자동으로 음악 줄이기 (덕킹)</label>
-        <div class="field"><label for="bgmFade">시작·끝 페이드</label><input type="range" id="bgmFade" min="0" max="5" step="0.5" value="1.5"><span class="mono small" id="bgmFadeVal">1.5 s</span></div>
-        <label class="switch"><input type="checkbox" id="bgmLoop" checked>영상이 음악보다 길면 반복</label>
-        <p class="hint">기준: 내레이션 아래 깔리는 음악은 15~25%가 무난합니다. 덕킹을 켜면 말하는 동안 음악이 30% 수준으로 내려가고, 쉬는 구간에서 다시 올라옵니다.</p>
+      <div class="ctl-actions">
+        <button class="btn sm" id="btnAuto">추천 기준값으로</button>
+        <button class="btn sm primary" id="btnReanalyze" hidden>다시 분석 (수동 수정 초기화)</button>
       </div>
-    </div>
-  </section>
-
-  <section class="tabpanel" id="tab-decorate" role="tabpanel" hidden>
-    <p class="hint" id="fxSummary" style="margin-bottom:10px"></p>
-    <div class="cards">
-      <div class="card">
-        <h3>① 자막 스타일 · 영상에 굽기</h3>
-        <p class="steps-note">AI 자막·NG 탭에서 만든 자막을 <b>영상에 직접 새겨</b> 내보냅니다(캡컷 없이 바로 업로드할 때). 캡컷에서 자막을 꾸밀 거면 끄고 SRT만 쓰세요.</p>
-        <label class="switch"><input type="checkbox" id="subBurn">자막을 영상에 굽기</label>
-        <p class="hint" id="subNote"></p>
-        <div class="field"><label for="subPreset">스타일</label><select id="subPreset"></select></div>
-        <div class="field"><span class="pair"><label for="subFont">글꼴</label><select id="subFont" title="무료 상업용 한글 글꼴 35종 (구글 폰트·눈누). 고르면 그때 내려받습니다"></select></span><button class="btn sm ghost" id="btnFontPick" title="내 컴퓨터의 TTF·OTF·WOFF 글꼴 파일을 씁니다">내 글꼴 파일</button><input type="file" id="subFontFile" class="sr" tabindex="-1" accept=".ttf,.otf,.woff,.woff2,font/*"></div>
-        <div class="field"><span class="pair"><label for="subPos">위치</label><select id="subPos"><option value="bottom">아래</option><option value="center">가운데</option><option value="top">위</option><option value="custom">직접 배치 (화면에서 끌기)</option></select></span><span class="pair"><label for="subAnim">등장 효과</label><select id="subAnim"></select></span></div>
-        <div class="field"><span class="pair grow"><label for="subSize">크기</label><input type="range" id="subSize" min="25" max="150" step="1" value="55"><span class="mono small" id="subSizeVal">5.5%</span></span></div>
-        <div class="field"><span class="pair"><label for="subColor">글자색</label><input type="color" id="subColor" value="#ffffff"></span><span class="pair"><label for="subStroke">외곽선</label><input type="color" id="subStroke" value="#000000"><input type="range" id="subStrokeW" min="0" max="30" step="1" value="16" title="외곽선 두께" aria-label="외곽선 두께" style="flex:0 1 90px;min-width:70px"><span class="muted small">두께</span></span></div>
-        <div class="field"><span class="pair"><label class="switch"><input type="checkbox" id="subBox">배경 박스</label><input type="color" id="subBoxColor" value="#000000" aria-label="박스 색"></span><label class="switch"><input type="checkbox" id="subShadow" checked>그림자</label></div>
-        <label class="switch"><input type="checkbox" id="subSample">미리보기 화면에 샘플 자막 표시</label>
-        <p class="hint">미리보기 화면에서 자막을 <b>끌어서 옮기고</b>, 노란 모서리로 <b>크기를 바꾸고</b>, <b>더블클릭으로 글자를 고칠</b> 수 있습니다. 가운데에 가까워지면 자동으로 맞춰집니다.</p>
+      <p class="hint" id="dirtyHint" hidden style="margin-top:8px">손으로 고친 구간이 있어 설정이 자동 적용되지 않습니다.</p>
+    </details>
+    <details class="sect">
+      <summary>구간 목록 <span class="hint" id="segCount"></span></summary>
+      <div class="toolbar">
+        <select id="segFilter" aria-label="구간 필터">
+          <option value="all">전체 구간</option>
+          <option value="remove">삭제 구간만</option>
+          <option value="keep">유지 구간만</option>
+        </select>
+        <button class="btn sm" id="btnReviveShort" title="짧은 삭제 구간은 호흡일 때가 많습니다">0.4초 미만 되살리기</button>
+        <button class="btn sm" id="btnKeepAll">모두 유지</button>
       </div>
-      <div class="card">
-        <h3>② 편집 효과</h3>
-        <p class="steps-note"><b>자동 줌</b>은 컷마다 화면을 살짝 번갈아 키워 점프컷을 자연스럽게 숨깁니다. 유튜브 토킹헤드 영상에서 가장 많이 쓰는 기법입니다.</p>
-        <label class="switch"><input type="checkbox" id="fxAutoZoom">자동 줌 (컷마다 번갈아)</label>
-        <div class="field"><span class="pair grow"><label for="fxAutoScale">자동 줌 배율</label><input type="range" id="fxAutoScale" min="105" max="135" step="1" value="112"><span class="mono small" id="fxAutoScaleVal">1.12×</span></span></div>
-        <div class="field"><span class="pair grow"><label for="fxZoomScale">구간 줌</label><input type="range" id="fxZoomScale" min="105" max="200" step="5" value="125"><span class="mono small" id="fxZoomScaleVal">1.25×</span></span><select id="fxZoomAnchor" aria-label="줌 중심"></select><select id="fxZoomEase" aria-label="전환"><option value="0">즉시</option><option value="0.3">부드럽게 0.3s</option><option value="0.6">부드럽게 0.6s</option></select><button class="btn sm primary" id="btnZoomAdd">현재 구간에 줌</button></div>
-        <ul class="fxlist" id="zoomList"></ul>
-        <div class="field"><span class="pair"><label for="fxFadeIn">페이드 인</label><input type="number" id="fxFadeIn" min="0" max="5" step="0.5" value="0"><span class="muted small">초</span></span><span class="pair"><label for="fxFadeOut">페이드 아웃</label><input type="number" id="fxFadeOut" min="0" max="5" step="0.5" value="0"><span class="muted small">초</span></span></div>
-        <div class="field"><span class="pair grow"><label for="fxBright">밝기</label><input type="range" id="fxBright" min="-50" max="50" step="1" value="0" title="더블클릭: 0으로"></span><span class="pair grow"><label for="fxContrast">대비</label><input type="range" id="fxContrast" min="-50" max="50" step="1" value="0" title="더블클릭: 0으로"></span><span class="pair grow"><label for="fxSat">채도</label><input type="range" id="fxSat" min="-50" max="50" step="1" value="0" title="더블클릭: 0으로"></span></div>
-        <div class="field"><span class="muted small" id="fxAdjustVal">원본 그대로</span><button class="btn sm ghost" id="btnAdjustReset">색 보정 초기화</button></div>
-        <div class="field"><span class="pair"><label for="fxTransition">컷 전환</label><select id="fxTransition"><option value="none">없음 (바로 컷)</option><option value="dissolve">디졸브 (부드럽게 섞임)</option></select></span><span class="pair"><input type="number" id="fxTransDur" min="0.1" max="1" step="0.1" value="0.3" aria-label="전환 길이"><span class="muted small">초</span></span></div>
+      <div class="tbl">
+        <table>
+          <thead><tr><th>#</th><th>상태</th><th>시작 – 끝</th><th>길이</th><th>편집 후</th></tr></thead>
+          <tbody id="segBody"></tbody>
+        </table>
       </div>
-      <div class="card">
-        <h3>③ 효과음</h3>
-        <p class="steps-note">재생 위치에 효과음을 찍습니다. 기본 5종은 저작권 걱정 없는 합성음이고, 내 파일(10초 이하)도 넣을 수 있습니다. 미리보기 재생 중에도 들립니다.</p>
-        <div class="field"><select id="sfxKind" aria-label="효과음 종류"></select><button class="btn sm" id="btnSfxTest">들어보기</button><span class="pair"><label for="sfxVol">음량</label><input type="range" id="sfxVol" min="10" max="100" step="5" value="80" style="flex:0 1 100px;min-width:80px"><span class="mono small" id="sfxVolVal">80%</span></span></div>
-        <div class="row"><button class="btn sm primary" id="btnSfxAdd">현재 위치에 추가</button><button class="btn sm" id="btnSfxPick">내 소리 파일 추가</button><input type="file" id="sfxFile" class="sr" tabindex="-1" accept="audio/*,.mp3,.wav,.m4a,.ogg"></div>
-        <ul class="fxlist" id="sfxList"></ul>
-      </div>
-      <div class="card">
-        <h3>④ 이미지 · 텍스트</h3>
-        <p class="steps-note">로고 워터마크, 자료 이미지, 강조 문구를 올립니다. 범위를 "현재 구간"으로 두면 지금 재생 위치가 속한 컷 동안만 보입니다.</p>
-        <div class="field"><span class="pair"><label for="ovRange">범위</label><select id="ovRange"><option value="seg">현재 구간</option><option value="3s">현재 위치부터 3초</option><option value="5s">현재 위치부터 5초</option><option value="all">영상 전체 (워터마크)</option></select></span><span class="pair"><label for="ovPos">위치</label><select id="ovPos"></select></span></div>
-        <div class="field"><span class="pair grow"><label for="ovSize">크기</label><input type="range" id="ovSize" min="5" max="100" step="1" value="25"><span class="mono small" id="ovSizeVal">25%</span></span><span class="pair"><label for="ovOpacity">불투명</label><input type="range" id="ovOpacity" min="10" max="100" step="5" value="100" style="flex:0 1 90px;min-width:70px"></span><span class="pair"><label for="ovFade">페이드</label><select id="ovFade"><option value="0">없음</option><option value="0.3">0.3s</option><option value="0.6">0.6s</option></select></span></div>
-        <div class="row"><button class="btn sm primary" id="btnOvImage">이미지 추가</button><input type="file" id="ovImageFile" class="sr" tabindex="-1" accept="image/png,image/jpeg,image/webp,image/gif"></div>
-        <div class="field"><input type="text" id="ovText" placeholder="강조 문구 (예: 핵심 포인트 3가지)" style="flex:1 1 180px"><select id="ovTextStyle" aria-label="텍스트 스타일"></select><select id="ovFont" aria-label="텍스트 글꼴"></select><button class="btn sm primary" id="btnOvText">텍스트 추가</button></div>
-        <ul class="fxlist" id="ovList"></ul>
-        <p class="hint">추가한 이미지·텍스트는 미리보기에서 끌어서 옮기고 모서리로 크기를 바꿀 수 있습니다. 텍스트는 더블클릭으로 고칩니다.</p>
-      </div>
-    </div>
-  </section>
-
-  <section class="tabpanel" id="tab-shorts" role="tabpanel" hidden>
-    <div class="cards">
-      <div class="card">
-        <h3>① 숏츠로 만들 구간</h3>
-        <div class="field"><span class="muted">시작</span><span class="mono" id="shIn">–</span><button class="btn sm" id="btnShInHere">현재 위치로</button></div>
-        <div class="field"><span class="muted">끝</span><span class="mono" id="shOut">–</span><button class="btn sm" id="btnShOutHere">현재 위치로</button><button class="btn sm ghost" id="btnShAll">처음부터 60초</button></div>
-        <p class="hint" id="shInfo"></p>
-        <div class="row"><button class="btn sm" id="btnShPreview">이 구간만 재생</button></div>
-      </div>
-      <div class="card">
-        <h3>② 세로 크롭 위치</h3>
-        <p class="steps-note">미리보기 화면의 노란 9:16 틀을 <b>드래그</b>하거나 아래 슬라이더로 옮기세요. 얼굴이 틀 안에 들어오게 맞추면 됩니다.</p>
-        <div class="field"><label for="cropPos">위치</label><input type="range" id="cropPos" min="0" max="100" step="1" value="50"><span class="mono small" id="cropPosVal">가운데</span></div>
-        <label class="switch"><input type="checkbox" id="chkUpscale" checked>출력을 1080×1920으로 맞추기</label>
-        <p class="hint" id="cropInfo"></p>
-      </div>
-      <div class="card">
-        <h3>③ 숏츠 MP4 만들기 <span class="chip" id="shortsChip">확인 중</span></h3>
-        <p class="hint" id="shEstimate"></p>
-        <div class="row">
-          <button class="btn primary" id="btnShortsRender">숏츠 MP4 만들기</button>
-          <button class="btn" id="btnShortsCancel" hidden>중단</button>
-          <button class="btn" id="btnShortsResave" hidden>다시 저장</button>
-        </div>
-        <div class="progress" id="shortsProgress" hidden><i></i></div>
-        <p class="hint" id="shortsStatus"></p>
-        <p class="hint">삭제 구간은 숏츠에서도 빠지고, 배경음악과 꾸미기(자막 굽기·줌·효과음·오버레이)를 설정했다면 같이 들어갑니다. 유튜브 쇼츠는 세로 영상 기준 최대 3분입니다.</p>
-      </div>
-    </div>
-  </section>
-
-  <section class="tabpanel" id="tab-thumbs" role="tabpanel" hidden>
-    <div class="toolbar">
-      <button class="btn primary" id="btnThumbs">후보 프레임 뽑기</button>
-      <button class="btn" id="btnThumbNow">현재 프레임 저장 (JPG)</button>
-      <button class="btn" id="btnThumbsZip" hidden>후보 전체 zip 저장</button>
-      <span class="hint" id="thumbsInfo">목소리가 가장 힘 있게 나오는 순간(표정이 살아 있는 구간)을 골라 12장을 보여줍니다. 썸네일 작업의 출발점으로 쓰세요.</span>
-    </div>
-    <div class="thumbs" id="thumbGrid"></div>
+    </details>
   </section>
 
   <section class="tabpanel" id="tab-ai" role="tabpanel" hidden>
-    <div class="cards">
-      <div class="card">
-        <h3>① 자막 만들기 <span class="chip" id="aiChip">내 PC에서 처리 · 무료</span></h3>
-        <p class="steps-note">음성 인식 모델이 <b>내 브라우저 안에서</b> 돌아갑니다. 서버도 API 비용도 없고, 음성이 밖으로 나가지 않습니다. 처음 한 번 모델 파일을 내려받고(이후 저장됨), 10분 영상 기준 보통 3~15분 걸립니다(기기 성능에 따라 다름). 그동안 다른 탭에서 계속 작업할 수 있습니다.</p>
-        <div class="field"><label for="aiModel">정확도</label>
-          <select id="aiModel">
-            <option value="Xenova/whisper-base">빠름 · base (약 60MB, 한국어 정확도 보통)</option>
-            <option value="Xenova/whisper-small" selected>정확 · small (약 190MB, 권장)</option>
-          </select>
-        </div>
-        <label class="switch"><input type="checkbox" id="aiGpu">GPU 가속 시도 (WebGPU · 실험 · 크롬 최신 버전)</label>
-        <div class="row"><button class="btn primary" id="btnAiRun">자막 만들기</button><button class="btn" id="btnAiCancel" hidden>중단</button></div>
-        <div class="progress" id="aiProgress" hidden><i></i></div>
-        <p class="hint" id="aiStatus">영상을 불러온 뒤 실행하세요.</p>
-      </div>
-      <div class="card">
-        <h3>② 자막 내보내기</h3>
-        <p class="steps-note"><b>편집 후 시간</b> SRT는 ①에서 만든 MP4에 그대로 맞습니다. 캡컷·유튜브 스튜디오에 올리세요. <b>원본 시간</b> SRT는 EDL로 편집 프로그램에서 작업할 때 씁니다. 인식 결과는 틀릴 수 있으니 한 번 훑어보세요.</p>
-        <div class="row"><button class="btn primary" id="btnSrtOut" disabled>SRT 저장 (편집 후 시간)</button><button class="btn" id="btnSrtSrc" disabled>SRT 저장 (원본 시간)</button><button class="btn" id="btnTxtCopy" disabled>전체 텍스트 복사</button></div>
-      </div>
-      <div class="card cand-card" style="grid-column:1/-1">
-        <h3>③ 삭제 후보 · 추임새·버벅임·반복(NG) <span class="chip" id="aiCandChip">0개</span></h3>
-        <p class="steps-note"><b>자막을 만들지 않아도</b> 영상을 열면 소리만으로 바로 찾습니다(자막을 만들면 말 내용으로 더 정확하게 다시 찾음). 쓰고 싶은 것만 켜세요. 확실한 것은 미리 체크돼 있고, 애매한 것은 비워 둡니다. ▶로 앞뒤를 붙여 들어보고, 시작·끝 시간을 고치고, ✕로 뺄 수 있습니다. 후보는 타임라인의 <b>NG 후보</b> 줄에 색으로 따로 표시됩니다(채워진 칸 = 삭제 예정, 테두리만 = 보류, 더블클릭으로 전환). <b>체크한 항목 삭제 표시</b>를 누르면 컷에 반영되고 Ctrl+Z로 되돌릴 수 있습니다.</p>
-        <p class="hint" id="aiCandNote"></p>
-        <div class="opts">
-          <label class="switch" title="어, 음, 그, 저 같은 군말"><input type="checkbox" id="aiOptFiller" checked>추임새 (어·음)</label>
-          <label class="switch" title="그 그러니까 / 저 저는 / 그래서 제가 그래서 제가 처럼 말이 꼬인 부분의 첫 시도"><input type="checkbox" id="aiOptStutter" checked>말 버벅임 (더듬기·말 꼬임)</label>
-          <label class="switch" title="같은 문장을 다시 말한 경우, 앞의 것"><input type="checkbox" id="aiOptRepeat" checked>다시 말한 NG</label>
-          <label class="switch" title="소리는 있는데 글자로 인식되지 않은 구간. 웃음·숨소리일 수도 있어 체크하지 않고 보여줍니다"><input type="checkbox" id="aiOptMumble">웅얼거림 (인식 안 된 소리)</label>
-          <label class="switch" title="삭제한 말이 자막 글자에 남지 않게 합니다"><input type="checkbox" id="aiOptStrip" checked>삭제한 말은 자막에서도 지우기</label>
-        </div>
-        <div class="row"><button class="btn sm primary" id="btnAiApply" disabled>체크한 항목 삭제 표시</button><button class="btn sm" id="btnAiCheckAll" disabled>모두 체크</button><button class="btn sm" id="btnAiUncheckAll" disabled>모두 해제</button><button class="btn sm ghost" id="btnAiRescan" title="켜 둔 종류로 다시 찾기">다시 찾기</button><span class="legend-cand"><i style="background:#E0A030"></i>추임새 <i style="background:#E5533D"></i>버벅임 <i style="background:#C2185B"></i>NG <i style="background:#8592A3"></i>웅얼·짧은 소리</span></div>
-        <div class="tbl"><table><thead><tr><th></th><th>종류</th><th>듣기</th><th>범위</th><th>내용</th><th>길이</th></tr></thead><tbody id="aiCandBody"><tr><td colspan="6" class="muted">자막을 만들면 후보가 여기에 표시됩니다.</td></tr></tbody></table></div>
-      </div>
-      <div class="card" style="grid-column:1/-1">
-        <h3>자막 편집 <span class="chip" id="capChip">0줄</span></h3>
-        <p class="steps-note">인식된 자막을 <b>줄마다 바로 고칩니다</b>. 글자를 고치면 미리보기·MP4·SRT에 즉시 반영됩니다. 시간을 클릭하면 그 줄부터 재생, <b>Enter</b>는 다음 줄로. ⇤ ⇥ 시작·끝을 재생 위치로, ✂ 나누기, ⇣ 아래 줄과 합치기. 미리보기 화면에서 자막을 더블클릭해도 고칠 수 있습니다.</p>
-        <div class="capbar">
-          <button class="btn sm primary" id="btnCapAdd" title="재생 위치에 새 자막 줄 추가">+ 현재 위치에 자막</button>
-          <button class="btn sm" id="btnCapImport">SRT 불러오기</button><input type="file" id="capFile" class="sr" tabindex="-1" accept=".srt,.vtt,text/plain">
-          <input type="text" id="capFind" placeholder="찾을 말" aria-label="찾을 말"><input type="text" id="capReplace" placeholder="바꿀 말 (비우면 삭제)" aria-label="바꿀 말"><button class="btn sm" id="btnCapReplace">모두 바꾸기</button>
-          <label class="switch small"><input type="checkbox" id="capFollow" checked>재생 위치 따라가기</label>
-        </div>
-        <div class="caplist" id="capList"></div>
-        <details class="bulk"><summary>텍스트로 한 번에 고치기 · 인식 중 실시간 결과</summary><textarea id="aiText" readonly aria-label="자막 텍스트" placeholder="자막을 만들면 여기에 표시됩니다"></textarea></details>
-      </div>
+    <h2 class="ph">자막 <span class="chip" id="aiChip">내 PC에서 처리 · 무료</span></h2>
+    <div class="row">
+      <button class="btn primary" id="btnAiRun">자동 자막 만들기</button><button class="btn" id="btnAiCancel" hidden>중단</button>
+      <button class="btn sm" id="btnCapImport">SRT 불러오기</button><input type="file" id="capFile" class="sr" tabindex="-1" accept=".srt,.vtt,text/plain">
     </div>
+    <div class="progress" id="aiProgress" hidden><i></i></div>
+    <p class="hint" id="aiStatus">영상을 불러온 뒤 실행하세요.</p>
+    <details class="sect">
+      <summary>인식 설정</summary>
+      <div class="field"><label for="aiModel">정확도</label>
+        <select id="aiModel">
+          <option value="Xenova/whisper-base">빠름 · base (약 60MB)</option>
+          <option value="Xenova/whisper-small" selected>정확 · small (약 190MB, 권장)</option>
+        </select>
+      </div>
+      <label class="switch" title="빠른 그래픽카드가 있으면 GPU로, 아니면 CPU 여러 개로 동시에 인식합니다"><input type="checkbox" id="aiGpu" checked>GPU로 빠르게 (지원되면 자동)</label>
+      <p class="hint">음성 인식은 내 브라우저 안에서만 돌아갑니다. 처음 한 번 모델을 내려받습니다.</p>
+    </details>
+
+    <h3 class="sh">자막 편집 <span class="chip" id="capChip">0줄</span></h3>
+    <div class="capbar">
+      <button class="btn sm" id="btnCapAdd" title="재생 위치에 새 자막 줄 추가">+ 자막 추가</button>
+      <button class="btn sm" id="btnCapResplit" title="말이 되는 곳에서 끊어 문장 단위로 다시 나눕니다 (고친 자막에도 적용)">문장 단위로 다시 나누기</button>
+      <select id="capLen" aria-label="한 줄 글자 수" title="한 줄 최대 글자 수"><option value="16">짧게 (숏츠)</option><option value="24" selected>보통</option><option value="32">길게</option></select>
+      <label class="switch small"><input type="checkbox" id="capFollow" checked>재생 위치 따라가기</label>
+    </div>
+    <div class="caplist" id="capList"></div>
+    <details class="sect">
+      <summary>찾아 바꾸기 · 텍스트로 한 번에 고치기</summary>
+      <div class="capbar"><input type="text" id="capFind" placeholder="찾을 말" aria-label="찾을 말"><input type="text" id="capReplace" placeholder="바꿀 말 (비우면 삭제)" aria-label="바꿀 말"><button class="btn sm" id="btnCapReplace">모두 바꾸기</button></div>
+      <textarea id="aiText" readonly aria-label="자막 텍스트" placeholder="자막을 만들면 여기에 표시됩니다"></textarea>
+    </details>
+
+    <h3 class="sh">자막 스타일</h3>
+    <label class="switch"><input type="checkbox" id="subBurn">자막을 영상에 굽기 (MP4에 새김)</label>
+    <p class="hint" id="subNote"></p>
+    <div class="field"><label for="subPreset">스타일</label><select id="subPreset"></select></div>
+    <div class="field"><span class="pair"><label for="subFont">글꼴</label><select id="subFont" title="무료 상업용 한글 글꼴 35종"></select></span><button class="btn sm ghost" id="btnFontPick" title="내 컴퓨터의 글꼴 파일">내 글꼴</button><input type="file" id="subFontFile" class="sr" tabindex="-1" accept=".ttf,.otf,.woff,.woff2,font/*"></div>
+    <div class="field"><span class="pair grow"><label for="subSize">크기</label><input type="range" id="subSize" min="25" max="150" step="1" value="55"><span class="mono small" id="subSizeVal">5.5%</span></span></div>
+    <div class="field"><span class="pair"><label for="subColor">글자</label><input type="color" id="subColor" value="#ffffff"></span><span class="pair"><label for="subStroke">외곽선</label><input type="color" id="subStroke" value="#000000"><input type="range" id="subStrokeW" min="0" max="30" step="1" value="16" title="외곽선 두께" aria-label="외곽선 두께" style="flex:0 1 80px;min-width:60px"></span></div>
+    <details class="sect">
+      <summary>위치·효과·배경</summary>
+      <div class="field"><span class="pair"><label for="subPos">위치</label><select id="subPos"><option value="bottom">아래</option><option value="center">가운데</option><option value="top">위</option><option value="custom">직접 배치 (화면에서 끌기)</option></select></span><span class="pair"><label for="subAnim">등장</label><select id="subAnim"></select></span></div>
+      <div class="field"><span class="pair"><label class="switch"><input type="checkbox" id="subBox">배경 박스</label><input type="color" id="subBoxColor" value="#000000" aria-label="박스 색"></span><label class="switch"><input type="checkbox" id="subShadow" checked>그림자</label></div>
+      <label class="switch"><input type="checkbox" id="subSample">미리보기에 샘플 자막 표시</label>
+    </details>
+    <p class="hint">미리보기에서 자막을 끌어 옮기고, 모서리로 크기를 바꾸고, 더블클릭으로 고칩니다.</p>
+
+    <details class="sect">
+      <summary>SRT 파일로 저장</summary>
+      <div class="row"><button class="btn sm primary" id="btnSrtOut" disabled>SRT (편집 후 시간)</button><button class="btn sm" id="btnSrtSrc" disabled>SRT (원본 시간)</button><button class="btn sm" id="btnTxtCopy" disabled>텍스트 복사</button></div>
+      <p class="hint">편집 후 시간 SRT는 여기서 만든 MP4에 맞고, 원본 시간 SRT는 EDL로 다른 편집 프로그램에서 쓸 때 맞습니다.</p>
+    </details>
+  </section>
+
+  <section class="tabpanel" id="tab-ng" role="tabpanel" hidden>
+    <h2 class="ph">NG 정리 <span class="chip" id="aiCandChip">0개</span></h2>
+    <p class="hint" id="aiCandNote"></p>
+    <div class="opts">
+      <label class="switch" title="어, 음 같은 군말"><input type="checkbox" id="aiOptFiller" checked>추임새</label>
+      <label class="switch" title="그 그러니까 / 저 저는 처럼 말이 꼬인 부분의 첫 시도"><input type="checkbox" id="aiOptStutter" checked>버벅임</label>
+      <label class="switch" title="같은 문장을 다시 말한 경우, 앞의 것"><input type="checkbox" id="aiOptRepeat" checked>다시 말한 NG</label>
+      <label class="switch" title="소리는 있는데 말로 인식되지 않은 구간 (숨소리일 수도 있어 체크하지 않음)"><input type="checkbox" id="aiOptMumble">웅얼거림</label>
+      <label class="switch" title="삭제한 말이 자막 글자에 남지 않게"><input type="checkbox" id="aiOptStrip" checked>자막에서도 지우기</label>
+    </div>
+    <div class="row"><button class="btn sm primary" id="btnAiApply" disabled>체크한 항목 지우기</button><button class="btn sm" id="btnAiCheckAll" disabled>모두 체크</button><button class="btn sm" id="btnAiUncheckAll" disabled>모두 해제</button><button class="btn sm ghost" id="btnAiRescan" title="켜 둔 종류로 다시 찾기">다시 찾기</button></div>
+    <div class="legend-cand"><i style="background:#E0A030"></i>추임새 <i style="background:#E5533D"></i>버벅임 <i style="background:#C2185B"></i>NG <i style="background:#8592A3"></i>웅얼·짧은 소리 · 타임라인 <b>NG 후보</b> 줄에도 표시</div>
+    <div class="tbl"><table><thead><tr><th></th><th>종류</th><th>듣기</th><th>범위</th><th>내용</th><th>길이</th></tr></thead><tbody id="aiCandBody"><tr><td colspan="6" class="muted">영상을 불러오면 후보가 여기에 표시됩니다.</td></tr></tbody></table></div>
+  </section>
+
+  <section class="tabpanel" id="tab-text" role="tabpanel" hidden>
+    <h2 class="ph">텍스트 · 이미지</h2>
+    <div class="field"><input type="text" id="ovText" placeholder="강조 문구 입력 후 Enter" style="flex:1 1 160px"><button class="btn sm primary" id="btnOvText">텍스트 추가</button></div>
+    <div class="field"><select id="ovTextStyle" aria-label="텍스트 스타일"></select><select id="ovFont" aria-label="텍스트 글꼴"></select></div>
+    <div class="row"><button class="btn sm" id="btnOvImage">이미지·로고 추가</button><input type="file" id="ovImageFile" class="sr" tabindex="-1" accept="image/png,image/jpeg,image/webp,image/gif"></div>
+    <details class="sect">
+      <summary>넣을 때 기본값 (범위·위치·크기)</summary>
+      <div class="field"><span class="pair"><label for="ovRange">범위</label><select id="ovRange"><option value="seg">현재 구간</option><option value="3s">현재 위치부터 3초</option><option value="5s">현재 위치부터 5초</option><option value="all">영상 전체 (워터마크)</option></select></span><span class="pair"><label for="ovPos">위치</label><select id="ovPos"></select></span></div>
+      <div class="field"><span class="pair grow"><label for="ovSize">크기</label><input type="range" id="ovSize" min="5" max="100" step="1" value="25"><span class="mono small" id="ovSizeVal">25%</span></span></div>
+      <div class="field"><span class="pair"><label for="ovOpacity">불투명</label><input type="range" id="ovOpacity" min="10" max="100" step="5" value="100" style="flex:0 1 90px;min-width:70px"></span><span class="pair"><label for="ovFade">페이드</label><select id="ovFade"><option value="0">없음</option><option value="0.3">0.3s</option><option value="0.6">0.6s</option></select></span></div>
+    </details>
+    <ul class="fxlist" id="ovList"></ul>
+    <p class="hint">클립을 고르면 오른쪽 속성 창에서 글자·크기·시간을 바꿀 수 있습니다. 미리보기에서 끌어 옮기세요.</p>
+  </section>
+
+  <section class="tabpanel" id="tab-bgm" role="tabpanel" hidden>
+    <h2 class="ph">배경음악 <span class="chip" id="bgmChip">없음</span></h2>
+    <div class="row">
+      <button class="btn sm primary" id="btnBgmPick">음악 파일 선택</button>
+      <button class="btn sm" id="btnBgmClear" hidden>음악 제거</button>
+      <input type="file" id="bgmInput" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.flac" class="sr" tabindex="-1">
+    </div>
+    <p class="hint" id="bgmInfo">저작권이 확인된 음원(유튜브 오디오 보관함 등)을 쓰세요.</p>
+    <div class="progress" id="bgmProgress" hidden><i></i></div>
+    <div class="field"><label for="bgmVol">음량</label><input type="range" id="bgmVol" min="0" max="60" step="1" value="18"><span class="mono small" id="bgmVolVal">18%</span></div>
+    <label class="switch"><input type="checkbox" id="bgmDuck" checked>말할 때 음악 줄이기</label>
+    <details class="sect">
+      <summary>페이드 · 반복</summary>
+      <div class="field"><label for="bgmFade">시작·끝 페이드</label><input type="range" id="bgmFade" min="0" max="5" step="0.5" value="1.5"><span class="mono small" id="bgmFadeVal">1.5 s</span></div>
+      <label class="switch"><input type="checkbox" id="bgmLoop" checked>영상이 더 길면 반복</label>
+    </details>
+    <h3 class="sh">효과음</h3>
+    <div class="field"><select id="sfxKind" aria-label="효과음 종류"></select><button class="btn sm" id="btnSfxTest">들어보기</button></div>
+    <div class="field"><span class="pair grow"><label for="sfxVol">음량</label><input type="range" id="sfxVol" min="10" max="100" step="5" value="80"><span class="mono small" id="sfxVolVal">80%</span></span></div>
+    <div class="row"><button class="btn sm primary" id="btnSfxAdd">현재 위치에 추가</button><button class="btn sm" id="btnSfxPick">내 소리 파일</button><input type="file" id="sfxFile" class="sr" tabindex="-1" accept="audio/*,.mp3,.wav,.m4a,.ogg"></div>
+    <ul class="fxlist" id="sfxList"></ul>
+  </section>
+
+  <section class="tabpanel" id="tab-decorate" role="tabpanel" hidden>
+    <h2 class="ph">효과</h2>
+    <p class="hint" id="fxSummary"></p>
+    <label class="switch" title="컷마다 화면을 살짝 번갈아 키워 점프컷을 숨깁니다"><input type="checkbox" id="fxAutoZoom">자동 줌 (점프컷 숨기기)</label>
+    <div class="field"><span class="pair grow"><label for="fxAutoScale">배율</label><input type="range" id="fxAutoScale" min="105" max="135" step="1" value="112"><span class="mono small" id="fxAutoScaleVal">1.12×</span></span></div>
+    <h3 class="sh">색 보정</h3>
+    <div class="field"><span class="pair grow"><label for="fxBright">밝기</label><input type="range" id="fxBright" min="-50" max="50" step="1" value="0" title="더블클릭: 0으로"></span></div>
+    <div class="field"><span class="pair grow"><label for="fxContrast">대비</label><input type="range" id="fxContrast" min="-50" max="50" step="1" value="0" title="더블클릭: 0으로"></span></div>
+    <div class="field"><span class="pair grow"><label for="fxSat">채도</label><input type="range" id="fxSat" min="-50" max="50" step="1" value="0" title="더블클릭: 0으로"></span></div>
+    <div class="field"><span class="muted small" id="fxAdjustVal">원본 그대로</span><button class="btn sm ghost" id="btnAdjustReset">초기화</button></div>
+    <details class="sect">
+      <summary>구간 줌 · 페이드 · 전환</summary>
+      <div class="field"><span class="pair grow"><label for="fxZoomScale">구간 줌</label><input type="range" id="fxZoomScale" min="105" max="200" step="5" value="125"><span class="mono small" id="fxZoomScaleVal">1.25×</span></span></div>
+      <div class="field"><select id="fxZoomAnchor" aria-label="줌 중심"></select><select id="fxZoomEase" aria-label="전환"><option value="0">즉시</option><option value="0.3">부드럽게 0.3s</option><option value="0.6">부드럽게 0.6s</option></select><button class="btn sm primary" id="btnZoomAdd">현재 구간에 줌</button></div>
+      <ul class="fxlist" id="zoomList"></ul>
+      <div class="field"><span class="pair"><label for="fxFadeIn">페이드 인</label><input type="number" id="fxFadeIn" min="0" max="5" step="0.5" value="0"><span class="muted small">초</span></span><span class="pair"><label for="fxFadeOut">아웃</label><input type="number" id="fxFadeOut" min="0" max="5" step="0.5" value="0"><span class="muted small">초</span></span></div>
+      <div class="field"><span class="pair"><label for="fxTransition">컷 전환</label><select id="fxTransition"><option value="none">없음</option><option value="dissolve">디졸브</option></select></span><span class="pair"><input type="number" id="fxTransDur" min="0.1" max="1" step="0.1" value="0.3" aria-label="전환 길이"><span class="muted small">초</span></span></div>
+    </details>
+  </section>
+
+  <section class="tabpanel" id="tab-shorts" role="tabpanel" hidden>
+    <h2 class="ph">숏츠 9:16 <span class="chip" id="shortsChip">확인 중</span></h2>
+    <div class="field"><span class="muted">시작</span><span class="mono" id="shIn">–</span><button class="btn sm" id="btnShInHere">현재 위치로</button></div>
+    <div class="field"><span class="muted">끝</span><span class="mono" id="shOut">–</span><button class="btn sm" id="btnShOutHere">현재 위치로</button><button class="btn sm ghost" id="btnShAll">처음 60초</button></div>
+    <p class="hint" id="shInfo"></p>
+    <div class="row"><button class="btn sm" id="btnShPreview">이 구간만 재생</button></div>
+    <h3 class="sh">세로 크롭</h3>
+    <div class="field"><label for="cropPos">위치</label><input type="range" id="cropPos" min="0" max="100" step="1" value="50"><span class="mono small" id="cropPosVal">가운데</span></div>
+    <label class="switch"><input type="checkbox" id="chkUpscale" checked>1080×1920으로 맞추기</label>
+    <p class="hint" id="cropInfo"></p>
+    <p class="hint" id="shEstimate"></p>
+    <div class="row">
+      <button class="btn primary" id="btnShortsRender">숏츠 MP4 만들기</button>
+      <button class="btn" id="btnShortsCancel" hidden>중단</button>
+      <button class="btn" id="btnShortsResave" hidden>다시 저장</button>
+    </div>
+    <div class="progress" id="shortsProgress" hidden><i></i></div>
+    <p class="hint" id="shortsStatus"></p>
   </section>
 
   <section class="tabpanel" id="tab-export" role="tabpanel" hidden>
-    <div class="cards">
-      <div class="card">
-        <h3>① MP4로 바로 렌더링 <span class="chip" id="renderChip">확인 중</span></h3>
-        <p class="steps-note"><b>캡컷 사용자는 이 길입니다.</b> 캡컷은 EDL·XML을 불러오지 못하므로, 여기서 만든 MP4를 캡컷에 넣고 자막·효과를 올리세요. 서버 업로드 없이 이 브라우저에서 만들며, 보통 영상 길이의 10~30% 시간이 걸립니다. 버튼을 누르면 <b>저장 위치를 먼저 고르고</b>(크롬·엣지), 렌더링 결과가 그 파일로 바로 저장됩니다. 저장 창이 없는 브라우저에서는 끝난 뒤 다운로드 폴더에 저장됩니다.</p>
-        <div class="field">
-          <label for="selQuality">화질</label>
-          <select id="selQuality">
-            <option value="high">고화질 · 원본 해상도 (유튜브 업로드용)</option>
-            <option value="std">표준 · 원본 해상도 (용량 절약)</option>
-            <option value="1080">1080p로 축소</option>
-            <option value="720">720p로 축소 (빠른 확인용)</option>
-          </select>
-        </div>
-        <p class="hint" id="renderEstimate"></p>
-        <div class="row">
-          <button class="btn primary" id="btnRender">MP4 만들기</button>
-          <button class="btn" id="btnCancelRender" hidden>중단</button>
-          <button class="btn" id="btnResave" hidden>다시 저장</button>
-        </div>
-        <div class="progress" id="renderProgress" hidden><i></i></div>
-        <p class="hint" id="renderStatus"></p>
-        <p class="hint">30분이 넘는 영상이나 4K는 시간이 오래 걸리고 메모리를 많이 씁니다. 1시간이 넘으면 렌더링 대신 ②의 FFmpeg 스크립트를 쓰세요.</p>
-      </div>
-
-      <div class="card">
-        <h3>② 편집 프로그램으로 가져가기</h3>
-        <p class="steps-note"><b>프리미어·다빈치</b>는 EDL, <b>파이널컷</b>은 FCPXML로 컷 타임라인을 그대로 불러옵니다. 정확한 컷본 파일이 필요하면 FFmpeg 스크립트가 가장 안정적입니다.</p>
-        <div class="field"><label for="fpsInput">타임코드 프레임레이트</label><input type="text" id="fpsInput" inputmode="decimal" style="width:7ch" value="30"><span class="hint">자동 감지값. 영상 설정과 다르면 고치세요.</span></div>
-        <div class="row">
-          <button class="btn primary" id="btnZip">컷 패키지 저장 (.zip)</button>
-          <button class="btn" id="btnCopyFfmpeg">FFmpeg 명령 복사</button>
-        </div>
-        <p class="steps-note">zip 안에는 <b>EDL</b>, <b>FCPXML</b>, <b>FFmpeg 스크립트(.sh/.bat)</b>, 챕터 텍스트, 프로젝트 파일, 사용법(README)이 들어 있습니다. 배경음악을 설정했다면 음악 파일과 믹싱 필터도 함께 들어갑니다.</p>
-        <details class="steps-note">
-          <summary>프로그램별 불러오는 법</summary>
-          <ul>
-            <li><b>캡컷</b>: ①의 MP4를 미디어로 가져오면 끝. 챕터는 ③을 설명란에 붙여넣기.</li>
-            <li><b>프리미어 프로</b>: 파일 → 가져오기 → .edl → 새 시퀀스가 생깁니다. 오프라인 클립 우클릭 → 미디어 연결 → 원본 영상 지정.</li>
-            <li><b>다빈치 리졸브</b>: 원본 영상을 미디어 풀에 먼저 넣고, 파일 → Import → Timeline → .edl (또는 .fcpxml).</li>
-            <li><b>파이널컷</b>: 파일 → 가져오기 → XML → .fcpxml. 미디어 재연결 창에서 원본 영상 지정.</li>
-            <li><b>FFmpeg</b>: 원본 영상(과 음악 파일)과 같은 폴더에서 Mac: <span class="mono">sh ffmpeg_cut.sh</span>, Windows: <span class="mono">ffmpeg_cut.bat</span> 더블클릭.</li>
-          </ul>
-        </details>
-      </div>
-
-      <div class="card">
-        <h3>③ 유튜브 챕터</h3>
-        <p class="steps-note">편집 후 시간 기준으로 환산된 타임스탬프입니다. 챕터 탭에서 제목을 고칠 수 있습니다.</p>
-        <textarea id="chText2" readonly aria-label="챕터 타임스탬프 텍스트"></textarea>
-        <div class="row"><button class="btn sm primary" id="btnCopyChapters2">복사</button></div>
-      </div>
-
-      <div class="card">
-        <h3>④ 프로젝트 파일</h3>
-        <p class="steps-note">컷·챕터·설정을 JSON으로 저장해 두면 나중에 같은 영상을 다시 열어 이어서 작업할 수 있습니다. 작업 중에는 이 브라우저에 자동 저장됩니다.</p>
-        <div class="row"><button class="btn sm primary" id="btnSaveProject2">프로젝트 저장 (.json)</button><button class="btn sm" id="btnLoadProject2">불러오기</button></div>
-      </div>
+    <h2 class="ph">내보내기 <span class="chip" id="renderChip">확인 중</span></h2>
+    <div class="field">
+      <label for="selQuality">화질</label>
+      <select id="selQuality">
+        <option value="high">고화질 · 원본 해상도</option>
+        <option value="std">표준 · 원본 해상도 (용량 절약)</option>
+        <option value="1080">1080p</option>
+        <option value="720">720p (빠른 확인용)</option>
+      </select>
     </div>
+    <p class="hint" id="renderEstimate"></p>
+    <div class="row">
+      <button class="btn primary" id="btnRender">MP4 만들기</button>
+      <button class="btn" id="btnCancelRender" hidden>중단</button>
+      <button class="btn" id="btnResave" hidden>다시 저장</button>
+    </div>
+    <div class="progress" id="renderProgress" hidden><i></i></div>
+    <p class="hint" id="renderStatus"></p>
+    <p class="hint">저장 위치를 먼저 고르면 그 파일로 바로 저장됩니다. 캡컷에서 이어 편집하려면 이 MP4를 가져가세요.</p>
+
+    <details class="sect">
+      <summary>유튜브 챕터</summary>
+      <div class="row"><button class="btn sm" id="btnChapterHere">현재 위치에 챕터 (M)</button></div>
+      <div class="tbl"><table><thead><tr><th>제목</th><th>원본</th><th>편집 후</th><th></th></tr></thead><tbody id="chBody"></tbody></table></div>
+      <textarea id="chText" readonly aria-label="챕터 타임스탬프 텍스트"></textarea>
+      <div class="row"><button class="btn sm primary" id="btnCopyChapters">복사</button><span class="hint" id="chValid"></span></div>
+      <textarea id="chText2" readonly aria-label="챕터 타임스탬프 텍스트" hidden></textarea><button class="btn sm" id="btnCopyChapters2" hidden>복사</button>
+    </details>
+    <details class="sect">
+      <summary>썸네일 후보</summary>
+      <div class="row">
+        <button class="btn sm primary" id="btnThumbs">후보 12장 뽑기</button>
+        <button class="btn sm" id="btnThumbNow">현재 프레임 저장</button>
+        <button class="btn sm" id="btnThumbsZip" hidden>전체 zip</button>
+      </div>
+      <p class="hint" id="thumbsInfo">목소리가 힘 있게 나오는 순간(표정이 살아 있는 구간)을 골라 줍니다.</p>
+      <div class="thumbs" id="thumbGrid"></div>
+    </details>
+    <details class="sect">
+      <summary>프리미어·다빈치·파이널컷 (EDL · XML · FFmpeg)</summary>
+      <div class="field"><label for="fpsInput">프레임레이트</label><input type="text" id="fpsInput" inputmode="decimal" style="width:7ch" value="30"></div>
+      <div class="row"><button class="btn sm primary" id="btnZip">컷 패키지 (.zip)</button><button class="btn sm" id="btnCopyFfmpeg">FFmpeg 명령 복사</button></div>
+      <p class="hint">zip에 EDL(프리미어·다빈치), FCPXML(파이널컷), FFmpeg 스크립트, 챕터, 프로젝트 파일, 사용법이 들어 있습니다.</p>
+    </details>
+    <details class="sect">
+      <summary>프로젝트 파일</summary>
+      <div class="row"><button class="btn sm primary" id="btnSaveProject2">프로젝트 저장 (.json)</button><button class="btn sm" id="btnLoadProject2">불러오기</button></div>
+      <p class="hint">작업 중에는 이 브라우저에 자동 저장됩니다. 다른 기기에서 이어가려면 저장해 두세요.</p>
+    </details>
   </section>
 
   <section class="tabpanel" id="tab-guide" role="tabpanel" hidden>
-    <p class="hint" style="margin-bottom:10px">인쇄해서 옆에 두고 싶다면 <a href="/manual.pdf" target="_blank" rel="noopener">회원용 사용 설명서(PDF)</a>를 여세요. 아래 내용과 같습니다.</p>
+    <h2 class="ph">가이드</h2>
+    <p class="hint"><a href="/manual.pdf" target="_blank" rel="noopener">회원용 사용 설명서(PDF)</a></p>
     <div class="guide">
       <div class="card">
-        <h3>이 도구가 하는 일 / 하지 않는 일</h3>
-        <ul>
-          <li><b>하는 일</b>: 말이 없는 구간(쉼, NG 뒤의 정적, 생각하는 시간)을 소리 크기로 찾아 1차 컷을 자동으로 만듭니다. 사람은 결과를 듣고 고치기만 하면 됩니다.</li>
-          <li><b>꾸미기 탭</b>: 자막을 영상에 굽기(글꼴·색·외곽선·박스), 자동 줌으로 점프컷 숨기기, 구간 줌, 페이드, 디졸브 전환, 효과음 5종(+내 파일), 이미지·텍스트 오버레이. 미리보기에 그대로 보이고 MP4·숏츠에 반영됩니다.</li>
-          <li><b>AI 자막·NG 탭</b>: 음성 인식을 내 PC에서 돌려 자막(SRT)을 만들고, 줄마다 바로 고칠 수 있습니다(SRT 불러오기·찾아 바꾸기 포함). "어·음" 추임새, "그 그러니까" 같은 말 버벅임, 같은 말을 다시 한 NG 구간을 골라서 삭제 후보로 보여줍니다. 무료이고 음성이 밖으로 나가지 않지만, 시간이 걸리고 인식이 틀릴 수 있어 확인 후 적용합니다.</li>
-          <li><b>미리보기 화면</b>: 자막·텍스트·이미지를 끌어서 옮기고, 모서리로 크기를 바꾸고, 더블클릭으로 글자를 고칩니다. 재생 속도(0.5~2배)·음량·전체 화면(F)도 여기서.</li>
-          <li><b>잘 맞는 영상</b>: 토킹헤드 강의, 브이로그 내레이션, 인터뷰, 화면 녹화 설명 영상.</li>
-          <li><b>안 맞는 영상</b>: 촬영 때부터 배경음악이 깔린 영상, 여러 사람이 동시에 말하는 영상, 현장음이 큰 영상. (배경음악은 여기서 나중에 까는 것을 권합니다.)</li>
-          <li><b>길이</b>: 10분 안팎이 가장 쾌적하고 30분까지 무리 없습니다. 1시간이 넘는 영상은 분석·컷 목록·EDL/FFmpeg 내보내기만 지원합니다.</li>
-        </ul>
+        <h3>순서</h3>
+        <ol>
+          <li><b>영상 열기</b> — 무음·NG 뒤 정적이 자동으로 빨갛게 잡힙니다.</li>
+          <li><b>들으며 고치기</b> — 재생하면 빨간 곳을 건너뜁니다. 어색한 곳만 <kbd>Q</kbd> <kbd>W</kbd> <kbd>X</kbd>로.</li>
+          <li><b>NG 정리 · 자막</b> — 추임새·버벅임을 지우고 자동 자막을 만듭니다.</li>
+          <li><b>내보내기</b> — MP4 또는 편집 프로그램용 파일.</li>
+        </ol>
       </div>
       <div class="card">
-        <h3>캡컷과 같은 단축키</h3>
+        <h3>단축키 (캡컷과 같음)</h3>
         <div class="kbds">
-          <kbd>J</kbd><span>뒤로 재생 · 다시 누르면 2배속 → 4배속</span>
-          <kbd>K</kbd><span>멈춤 (배속 초기화)</span>
-          <kbd>L</kbd><span>앞으로 재생 · 다시 누르면 2배속 → 4배속</span>
-          <kbd>Ctrl+B</kbd><span>재생 위치에서 구간 분할 (S도 같음)</span>
-          <kbd>Q</kbd><span>재생 위치 <b>왼쪽(앞부분)</b> 삭제</span>
-          <kbd>W</kbd><span>재생 위치 <b>오른쪽(뒷부분)</b> 삭제</span>
-          <kbd>Delete</kbd><span>현재 구간 삭제</span>
-          <kbd>Ctrl+Z</kbd><span>되돌리기 · Ctrl+Shift+Z 다시 실행</span>
-          <kbd>Space</kbd><span>재생 / 일시정지 (체크박스·슬라이더를 누른 뒤에도 동작)</span>
-          <kbd>I · O</kbd><span>범위 시작·끝 찍기 → <kbd>Delete</kbd>로 그 범위만 삭제 · <kbd>Esc</kbd> 해제</span>
-          <kbd>F</kbd><span>미리보기 전체 화면</span>
-          <kbd>← →</kbd><span>1초 이동 (Shift: 5초) · <kbd>,</kbd> <kbd>.</kbd> 1프레임</span>
+          <kbd>Space</kbd><span>재생 / 일시정지</span>
+          <kbd>J K L</kbd><span>뒤로 · 멈춤 · 앞으로 (반복하면 배속)</span>
+          <kbd>Ctrl+B · S</kbd><span>재생 위치에서 나누기 (자막·텍스트도 같이)</span>
+          <kbd>Q · W</kbd><span>재생 위치 앞 / 뒤 삭제</span>
           <kbd>X</kbd><span>현재 구간 유지 ↔ 삭제</span>
-          <kbd>M</kbd><span>현재 위치에 챕터 추가</span>
-          <kbd>[ ]</kbd><span>이전 / 다음 컷 경계로</span>
+          <kbd>Delete</kbd><span>선택한 클립 또는 현재 구간 삭제</span>
+          <kbd>I · O</kbd><span>범위 시작·끝 → <kbd>Delete</kbd>로 범위 삭제</span>
+          <kbd>Ctrl+Z</kbd><span>되돌리기 · Ctrl+Shift+Z 다시 실행</span>
+          <kbd>← →</kbd><span>1초 이동 (Shift 5초) · <kbd>,</kbd> <kbd>.</kbd> 1프레임</span>
+          <kbd>[ ]</kbd><span>이전 / 다음 컷</span>
+          <kbd>M</kbd><span>챕터 추가</span>
+          <kbd>F</kbd><span>전체 화면</span>
         </div>
       </div>
       <div class="card">
-        <h3>편집 시간을 줄이는 촬영·편집 습관 7가지</h3>
-        <ol>
-          <li><b>원고나 개요를 보고 촬영</b>하세요. NG가 줄면 컷편집이 가장 크게 줍니다. 편집은 더하는 일이 아니라 빼는 일입니다.</li>
-          <li><b>NG가 나면 2~3초 입을 다물고</b> 다시 시작하세요. 긴 정적은 자동 컷이 가장 정확하게 잡는 신호입니다.</li>
-          <li><b>박수 한 번</b>으로 표시를 남기세요. 파형에 뾰족하게 남아 타임라인에서 바로 찾을 수 있습니다.</li>
-          <li><b>1차 컷은 기계에게, 판단은 사람에게</b>. 자동 결과를 받아들이고 "삭제 구간 건너뛰기"로 들으며 어색한 곳만 고치세요.</li>
-          <li><b>자막·효과는 컷이 확정된 뒤에</b> 넣으세요. 컷이 바뀌면 자막 타이밍을 다시 맞춰야 합니다.</li>
-          <li><b>반복되는 결정은 기본값으로</b>. 프리셋·화질·음악 음량은 한 번 정하고 다시 고민하지 마세요.</li>
-          <li><b>챕터는 편집하면서</b> M키로 찍으세요. 업로드할 때 영상을 처음부터 다시 보는 일을 없앱니다.</li>
-        </ol>
+        <h3>타임라인</h3>
+        <ul>
+          <li>영상 줄: 클릭 이동 · 경계 드래그 · 더블클릭 유지↔삭제 · <kbd>Ctrl</kbd>+휠 확대</li>
+          <li>자막·텍스트·효과음·음악 줄: 끌어 옮기기 · 양끝 끌어 길이 조절 · 텍스트는 위아래로 끌어 레이어 이동</li>
+          <li>왼쪽 트랙 머리: 👁 숨기기 · 🔒 잠금 · 🔊 소리</li>
+        </ul>
       </div>
       <div class="card">
         <h3>자주 묻는 질문</h3>
         <ul>
-          <li><b>영상이 어디로 올라가나요?</b> 어디에도 올라가지 않습니다. 분석과 렌더링 모두 이 브라우저 안에서 처리되고, 파일은 내가 고른 위치(또는 다운로드 폴더)에만 남습니다.</li>
-          <li><b>어떤 브라우저가 좋나요?</b> 최신 크롬·엣지(데스크톱)에서 MP4 렌더링까지 모두 됩니다. 사파리·파이어폭스는 분석과 EDL 내보내기는 되지만 MP4 렌더링은 안 될 수 있습니다.</li>
-          <li><b>말이 중간에 잘려요.</b> 세부 설정에서 말소리 기준을 낮추고(-48 정도) 여백을 0.25초로 늘리세요. 녹음 자체가 작으면 기준을 더 낮춰야 합니다.</li>
-          <li><b>숨소리까지 다 남아요.</b> 말소리 기준을 올리고(-36 정도) 최소 무음 길이를 줄이세요.</li>
-          <li><b>프레임이 정확한가요?</b> 브라우저 렌더링과 FFmpeg 스크립트는 프레임 단위로 정확합니다. EDL·FCPXML은 프레임레이트 설정이 영상과 같아야 합니다.</li>
-          <li><b>이전 작업을 이어서 할 수 있나요?</b> 같은 영상을 다시 열면 이 브라우저에 자동 저장된 작업을 복구할지 물어봅니다. 다른 기기에서 이어가려면 프로젝트(.json)를 저장해 두세요.</li>
+          <li><b>영상이 어디로 올라가나요?</b> 어디에도 올라가지 않습니다. 모두 이 브라우저 안에서 처리됩니다.</li>
+          <li><b>말이 잘려요.</b> 컷 → 세부 설정에서 말소리 기준을 낮추고(-48) 여백을 늘리세요.</li>
+          <li><b>숨소리까지 남아요.</b> 말소리 기준을 올리세요(-36).</li>
+          <li><b>이어서 작업하려면?</b> 같은 영상을 다시 열면 자동 저장된 작업을 복구할지 물어봅니다.</li>
         </ul>
       </div>
     </div>
+  </section>
+    </div>
+
+    <section class="stage">
+      <div class="drop" id="drop" role="button" tabindex="0" aria-label="영상 파일 선택">
+        <div class="big">＋ 영상 가져오기</div>
+        <div class="hint">여기에 놓거나 클릭 · 영상은 업로드되지 않고 이 브라우저 안에서만 처리됩니다</div>
+        <input type="file" id="fileInput" accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.m4a,.mp3,.wav">
+      </div>
+      <div class="monitor" id="monitor">
+        <video id="video" playsinline preload="metadata"></video>
+        <div class="monitor-empty" id="monitorEmpty">
+          <div class="me-title">영상을 불러오면 여기서 컷 결과를 미리 봅니다</div>
+          <p>삭제 구간을 건너뛰며 재생돼서, 완성본의 흐름을 들어볼 수 있습니다.</p>
+        </div>
+        <canvas id="fxCanvas" class="fx-canvas" hidden aria-hidden="true"></canvas>
+        <div class="crop-overlay" id="cropOverlay" hidden><div class="crop-frame" id="cropFrame" title="드래그해서 크롭 위치 이동"><span>9:16</span></div></div>
+        <div class="monitor-hud"><span id="hudState">예시 데이터</span><span id="hudRes" hidden></span><span id="hudCand" class="hud-cand" hidden></span></div>
+        <button class="mini-close" id="btnMiniClose" title="작은 화면 닫기" aria-label="작은 화면 닫기">✕</button>
+      </div>
+      <div class="player">
+        <div class="tc"><span class="cur" id="tcCur">00:00.0</span><span class="muted">/</span><span id="tcDur">00:00.0</span><span class="out" title="편집 후 시간">→ <span id="tcOut">00:00.0</span></span></div>
+        <div class="tgroup">
+          <button class="btn icon ghost" id="btnPrevCut" title="이전 컷 ([)">⏮</button>
+          <button class="btn icon ghost" id="btnRev" title="뒤로 재생 · 다시 누르면 2배속 (J)">⏪</button>
+          <button class="btn primary play" id="btnPlay" title="재생/일시정지 (Space)">▶ 재생</button>
+          <button class="btn icon ghost" id="btnFwd" title="앞으로 재생 · 다시 누르면 2배속 (L)">⏩</button>
+          <button class="btn icon ghost" id="btnNextCut" title="다음 컷 (])">⏭</button>
+          <span class="speed" id="speedBadge"></span>
+        </div>
+        <div class="tgroup">
+          <select id="selRate" title="미리보기 재생 속도 (내보내기에는 영향 없음)" aria-label="재생 속도"><option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option></select>
+          <span class="vol"><button class="btn icon sm ghost" id="btnMute" title="음소거">🔊</button><input type="range" id="rngVolume" min="0" max="100" step="1" value="100" aria-label="미리보기 음량" title="미리보기 음량"></span>
+          <button class="btn icon sm ghost" id="btnFull" title="전체 화면 (F)">⛶</button>
+        </div>
+      </div>
+    </section>
+
+    <aside class="inspector" id="inspector" aria-label="속성">
+      <div id="insClip" hidden></div>
+      <div id="insProject">
+        <h2 class="ph">프로젝트</h2>
+        <div class="stats">
+          <div class="stat"><div class="k">원본 길이</div><div class="v" id="stOrig">–</div></div>
+          <div class="stat"><div class="k">편집 후 길이</div><div class="v good" id="stAfter">–</div></div>
+          <div class="stat"><div class="k">줄어드는 시간</div><div class="v" id="stSaved">–</div><div class="s" id="stSavedPct"></div></div>
+          <div class="stat"><div class="k">삭제 구간</div><div class="v" id="stCuts">–</div><div class="s" id="stCutsNote"></div></div>
+        </div>
+        <label class="switch" title="끄면 삭제 구간도 그대로 재생합니다"><input type="checkbox" id="chkSkip" checked>재생할 때 삭제 구간 건너뛰기</label>
+        <p class="hint">타임라인이나 미리보기에서 자막·텍스트 클립을 누르면 여기서 고칠 수 있습니다.</p>
+      </div>
+    </aside>
+  </main>
+
+  <section class="timeline">
+    <div class="transport">
+      <div class="tgroup">
+        <button class="btn icon sm ghost" id="btnUndo" title="되돌리기 (Ctrl+Z)" disabled>↶</button>
+        <button class="btn icon sm ghost" id="btnRedo" title="다시 실행 (Ctrl+Shift+Z)" disabled>↷</button>
+      </div>
+      <div class="tgroup">
+        <button class="btn sm ghost" id="btnSplit" title="재생 위치에서 나누기 — 영상·자막·텍스트 같이 (S · Ctrl+B)">✂ 분할</button>
+        <button class="btn sm ghost" id="btnTrimL" title="재생 위치 앞부분 삭제 (Q)">⇤ 앞 삭제</button>
+        <button class="btn sm ghost" id="btnTrimR" title="재생 위치 뒷부분 삭제 (W)">뒤 삭제 ⇥</button>
+        <button class="btn sm ghost" id="btnToggle" title="현재 구간 유지 ↔ 삭제 (X)">⇄ 유지/삭제</button>
+      </div>
+      <div class="tgroup">
+        <button class="btn sm ghost" id="btnMarkIn" title="범위 시작 (I)">⟦I</button>
+        <button class="btn sm ghost" id="btnMarkOut" title="범위 끝 (O)">O⟧</button>
+        <button class="btn sm ghost" id="btnMarkDel" title="I~O 범위 삭제 (Delete) · Esc 해제" disabled>범위 삭제</button>
+        <button class="btn sm ghost" id="btnChapter" title="현재 위치에 챕터 (M)">◆ 챕터</button>
+      </div>
+      <div class="tgroup zoom">
+        <button class="btn icon sm ghost" id="btnZoomOut" title="축소">−</button>
+        <span id="zoomLabel" class="mono">1×</span>
+        <button class="btn icon sm ghost" id="btnZoomIn" title="확대 (Ctrl+휠)">+</button>
+        <button class="btn sm ghost" id="btnZoomFit">맞춤</button>
+      </div>
+    </div>
+    <div class="tlwrap"><div class="tlheads" id="tlHeads" aria-label="트랙"></div><canvas id="tl" tabindex="0" aria-label="타임라인. 클릭해 이동, 경계를 드래그해 조정, 더블클릭으로 유지와 삭제 전환"></canvas></div>
+    <input type="range" class="scroller" id="scroller" min="0" max="0" step="0.01" value="0" aria-label="타임라인 스크롤">
   </section>
 </div>
 
@@ -751,9 +770,9 @@ td.ttl input:focus{border-color:var(--accent);background:var(--surface)}
     <p class="eyebrow">정명은 트레이너의 회원 100배 성장 프로젝트</p>
     <h2 id="onbTitle">컷편집, 3단계면 끝납니다</h2>
     <ol class="onb-steps">
-      <li><div><b>영상 올리기</b>촬영한 원본을 그대로 넣으세요. 업로드가 아니라 내 브라우저 안에서만 분석됩니다. 10분 영상이면 20~40초 걸립니다.</div></li>
-      <li><div><b>들어보며 고치기</b>무음·NG 뒤 정적이 자동으로 빨갛게 잡힙니다. 재생 버튼을 누르면 빨간 구간을 건너뛰며 들리니, 어색한 곳에서만 <kbd>Q</kbd>·<kbd>W</kbd>·<kbd>X</kbd>로 고치세요.</div></li>
-      <li><div><b>내보내기</b>MP4 만들기를 누르고 저장 위치를 고르면 렌더링이 시작됩니다. 캡컷을 쓰면 그 MP4를 캡컷에 넣고 자막만 올리면 됩니다. 캡컷 없이 끝내려면 AI 자막을 만들고 꾸미기 탭에서 자막·효과·효과음을 얹어 MP4로 내보내세요.</div></li>
+      <li><div><b>영상 가져오기</b>가운데 화면에 영상을 놓으세요. 업로드 없이 내 브라우저 안에서만 분석되고, 무음·NG 뒤 정적이 자동으로 빨갛게 잡힙니다.</div></li>
+      <li><div><b>들으며 고치기</b>재생하면 빨간 곳을 건너뜁니다. 어색한 곳만 <kbd>Q</kbd>·<kbd>W</kbd>·<kbd>X</kbd>로, 나누기는 <kbd>Ctrl</kbd>+<kbd>B</kbd>. 왼쪽 <b>NG 정리</b>에서 추임새·버벅임을 지우고, <b>자막</b>에서 자동 자막을 만드세요.</div></li>
+      <li><div><b>내보내기</b>오른쪽 위 <b>내보내기</b>에서 MP4를 만듭니다. 캡컷에서 이어 하려면 그 MP4를 가져가세요.</div></li>
     </ol>
     <div class="foot">
       <button class="btn primary" id="onbStart">시작하기</button>

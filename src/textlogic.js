@@ -42,22 +42,75 @@ export function dropSilentWords(words, env, hop, threshold) {
 }
 
 const SENT_END_RE = /[.?!…]$|[다요죠까네][.?!]?$/;
-// Group words into caption lines: break on sentence end, long gaps, length or duration limits
+// Caption lines that read naturally. Every gap between two words gets a score: a pause, a sentence ending, a comma,
+// a Korean connective ending (-고, -서, -는데, -지만, -니까, -면 …) or a particle make good places to break; breaking right
+// after a modifier ("이런 | 스틱", "가장 | 스탠다드한") is bad. A small dynamic program then picks the breaks so each line
+// stays within maxChars / maxDur, sentences end lines, and lines come out evenly sized instead of being cut mid-phrase.
+const ENDING_RE = /([다요죠까네])[.?!~]*$|[.?!…]$/;
+const CONNECT_RE = /(고|며|면|서|는데|은데|던데|지만|니까|니깐|으니|어서|아서|해서|도록|려고|면서|다가|거나|든지|더니|듯이|자마자|구요|고요|는데요|거든요)[,.]?$/;
+const PARTICLE_RE = /(은|는|이|가|을|를|에서|에게|에는|으로|로|와|과|도|만|까지|부터|처럼|보다|한테|께서|이랑|랑)[,]?$/;
+const MODIFIER_RE = /^(이|그|저|이런|그런|저런|요런|어떤|무슨|한|두|세|네|몇|그냥|좀|더|덜|아주|정말|진짜|너무|매우|제일|가장|꽤|안|못|잘|다|모든|각|여러|새|헌|첫)$/;
+export function breakScore(w, next) {
+  const t = String(w.text || '').trim(); let s = 0;
+  if (next) s += Math.min(6, Math.max(0, next.s - w.e) * 8); // a pause of 0.5 s ≈ a sentence ending
+  const gap = next ? next.s - w.e : 1;
+  // "…입니다." ends a sentence; a bare "-다/-요" without a period only when a pause follows ("연습하다 보면" goes on)
+  if (/[.?!…]$/.test(t) || (ENDING_RE.test(t) && gap >= 0.3)) s += 7;
+  else if (ENDING_RE.test(t)) s += 1;
+  else if (/,$/.test(t)) s += 3;
+  else if (CONNECT_RE.test(t)) s += 3;
+  else if (PARTICLE_RE.test(t)) s += 1.2;
+  if (MODIFIER_RE.test(normKo(t))) s -= 6;
+  if (/(는|은|ㄴ|던|던가|한|할|될|된)$/.test(normKo(t)) && !PARTICLE_RE.test(t) && !ENDING_RE.test(t)) s -= 1; // likely "…하는 | 사람"
+  return s;
+}
+const joinWords = ws => ws.reduce((acc, w) => acc + (acc && needsSpace(acc, w.text.trim()) ? ' ' : '') + w.text.trim(), '');
 export function buildCaptionLines(words, opts = {}) {
-  const maxChars = opts.maxChars ?? 24, maxDur = opts.maxDur ?? 4.5, maxGap = opts.maxGap ?? 0.8;
-  const lines = []; let cur = null;
-  const flush = () => { if (cur && cur.text.trim()) lines.push({ s: cur.s, e: cur.e, text: cur.text.trim() }); cur = null; };
-  for (const w of words) {
-    if (cur) {
-      const gap = w.s - cur.e; const nextText = cur.text + (needsSpace(cur.text, w.text) ? ' ' : '') + w.text;
-      if (gap > maxGap || nextText.length > maxChars || w.e - cur.s > maxDur) flush();
+  const maxChars = opts.maxChars ?? 24, maxDur = opts.maxDur ?? 5, maxGap = opts.maxGap ?? 0.9, target = opts.target ?? Math.round(maxChars * 0.7);
+  const ws = words.filter(w => String(w.text || '').trim()); const n = ws.length; if (!n) return [];
+  const score = ws.map((w, i) => breakScore(w, ws[i + 1]));
+  // best[i] = lowest cost to lay out words[0..i) ; line = words[j..i)
+  const best = new Float64Array(n + 1).fill(Infinity), from = new Int32Array(n + 1); best[0] = 0;
+  for (let i = 1; i <= n; i++) {
+    let chars = 0;
+    for (let j = i - 1; j >= 0; j--) {
+      chars += normKo(ws[j].text).length + (j < i - 1 ? 1 : 0);
+      const dur = ws[i - 1].e - ws[j].s;
+      if (j < i - 1 && ws[j + 1].s - ws[j].e > maxGap) break; // a long pause always ends a line
+      if (j < i - 1 && (chars > maxChars * 1.35 || dur > maxDur * 1.6)) break;
+      let c = best[j];
+      c += Math.pow(Math.max(0, chars - maxChars), 2) * 2 + Math.max(0, dur - maxDur) * 4; // too long
+      c += Math.abs(chars - target) * 0.15;                                                    // evenly sized
+      if (i < n && chars < 9 && !/[.?!…]$/.test(ws[i - 1].text.trim())) c += chars < 5 ? 5 : 2.5; // stray scraps
+      for (let k = j; k < i - 1; k++) if (score[k] >= 7) c += 5; // a sentence ending inside the line
+      if (i < n) c -= score[i - 1];                                                            // a good place to break
+      if (c < best[i]) { best[i] = c; from[i] = j; }
     }
-    if (!cur) cur = { s: w.s, e: w.e, text: w.text };
-    else { cur.text += (needsSpace(cur.text, w.text) ? ' ' : '') + w.text; cur.e = w.e; }
-    if (SENT_END_RE.test(w.text) && cur.text.length >= 6) flush();
+    if (best[i] === Infinity) { best[i] = best[i - 1] + 10; from[i] = i - 1; }
   }
-  flush();
-  return lines;
+  const lines = []; for (let i = n; i > 0; i = from[i]) { const part = ws.slice(from[i], i); lines.push({ s: part[0].s, e: part[part.length - 1].e, text: joinWords(part) }); }
+  return lines.reverse();
+}
+// Word timings for caption lines: the recognized words where a line is untouched, otherwise spread over the line by length
+export function wordsOfLines(lines, recognized = []) {
+  const out = [];
+  for (const l of lines) {
+    const inside = recognized.filter(w => w.s >= l.s - 0.05 && w.s < l.e);
+    if (!l.edited && inside.length && normKo(inside.map(w => w.text).join('')) === normKo(l.text)) { out.push(...inside); continue; }
+    const toks = String(l.text || '').trim().split(/\s+/).filter(Boolean); const total = toks.reduce((t, x) => t + normKo(x).length + 1, 0) || 1; let t = l.s;
+    for (const x of toks) { const d = (l.e - l.s) * (normKo(x).length + 1) / total; out.push({ text: x, s: t, e: t + d * 0.92 }); t += d; }
+  }
+  return out;
+}
+// Re-split existing captions (possibly hand-edited) into natural lines
+export function resplitLines(lines, recognized = [], opts = {}) { return buildCaptionLines(wordsOfLines(lines, recognized), opts).map(l => ({ ...l, edited: true })); }
+// Split one caption at time t at the most natural word boundary near t -> [first, second] (or null if it can't be split)
+export function splitLineAt(line, t, recognized = []) {
+  const ws = wordsOfLines([line], recognized); if (ws.length < 2) return null;
+  let bestK = -1, bestC = Infinity;
+  for (let k = 0; k < ws.length - 1; k++) { const cut = (ws[k].e + ws[k + 1].s) / 2; const c = Math.abs(cut - t) * 4 - breakScore(ws[k], ws[k + 1]) * 0.25; if (c < bestC) { bestC = c; bestK = k; } }
+  const a = ws.slice(0, bestK + 1), b = ws.slice(bestK + 1); const cut = Math.min(Math.max(t, line.s + 0.1), line.e - 0.1);
+  return [{ s: line.s, e: cut, text: joinWords(a), edited: true }, { s: cut, e: line.e, text: joinWords(b), edited: true }];
 }
 function needsSpace(prev, next) { return !/\s$/.test(prev) && !/^[.,!?…]/.test(next); }
 

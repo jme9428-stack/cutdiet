@@ -1,5 +1,7 @@
 // AI 자막·NG tab: extracts 16 kHz mono audio, runs Whisper in a Web Worker, builds SRT and removal candidates.
 // Captions can be corrected line by line afterwards (text, timing, split/merge/delete), imported from SRT, and find/replaced.
+import { planWindows, speechSeconds, dedupeWords } from './asrplan.js';
+import { resplitLines, splitLineAt } from './textlogic.js';
 import { wordsFromChunks, dropSilentWords, buildCaptionLines, buildSRT, findFillers, findStutters, findMumbles, findRepeats, findShortBursts, stripFromLines, parseSRT, mergeSpans, resampleInto } from './textlogic.js';
 
 const TARGET_SR = 16000;
@@ -10,9 +12,11 @@ export function initTranscribe(api) {
   const $ = id => document.getElementById(id);
   const el = { chip: $('aiChip'), model: $('aiModel'), gpu: $('aiGpu'), run: $('btnAiRun'), cancel: $('btnAiCancel'), progress: $('aiProgress'), status: $('aiStatus'), srtOut: $('btnSrtOut'), srtSrc: $('btnSrtSrc'), txtCopy: $('btnTxtCopy'), text: $('aiText'), candChip: $('aiCandChip'), apply: $('btnAiApply'), checkAll: $('btnAiCheckAll'), uncheckAll: $('btnAiUncheckAll'), candBody: $('aiCandBody'), candNote: $('aiCandNote'), rescan: $('btnAiRescan'),
     optFiller: $('aiOptFiller'), optStutter: $('aiOptStutter'), optRepeat: $('aiOptRepeat'), optMumble: $('aiOptMumble'), optStrip: $('aiOptStrip'),
-    capList: $('capList'), capChip: $('capChip'), capAdd: $('btnCapAdd'), capImport: $('btnCapImport'), capFile: $('capFile'), capFind: $('capFind'), capRepl: $('capReplace'), capReplBtn: $('btnCapReplace'), capFollow: $('capFollow') };
-  const ai = { worker: null, running: false, words: [], lines: [], cands: [], forFile: null, wordLevel: true };
-  const gpuOk = !!navigator.gpu; if (!gpuOk) { el.gpu.disabled = true; el.gpu.parentElement.title = '이 브라우저는 WebGPU를 지원하지 않습니다'; }
+    capList: $('capList'), capChip: $('capChip'), capAdd: $('btnCapAdd'), capImport: $('btnCapImport'), capFile: $('capFile'), capFind: $('capFind'), capRepl: $('capReplace'), capReplBtn: $('btnCapReplace'), capFollow: $('capFollow'), capLen: $('capLen'), capResplit: $('btnCapResplit') };
+  const ai = { workers: [], running: false, words: [], lines: [], cands: [], forFile: null, wordLevel: true };
+  // GPU is on by default where the browser has WebGPU (several times faster); the worker falls back to the CPU if it fails
+  const gpuOk = !!navigator.gpu; if (!gpuOk) { el.gpu.checked = false; el.gpu.disabled = true; el.gpu.parentElement.title = '이 브라우저는 WebGPU를 지원하지 않습니다'; }
+  else { try { const g = localStorage.getItem('cutdiet:aiGpu'); el.gpu.checked = g == null ? true : g === '1'; } catch { el.gpu.checked = true; } el.gpu.addEventListener('change', () => { try { localStorage.setItem('cutdiet:aiGpu', el.gpu.checked ? '1' : '0'); } catch {} }); }
   try { const m = localStorage.getItem('cutdiet:aiModel'); if (m) el.model.value = m; } catch {}
   el.model.addEventListener('change', () => { try { localStorage.setItem('cutdiet:aiModel', el.model.value); } catch {} });
   // which removal candidates to look for (remembered per browser)
@@ -45,7 +49,66 @@ export function initTranscribe(api) {
     return target.subarray(0, Math.max(1, filled));
   }
 
-  function stopWorker() { if (ai.worker) { ai.worker.terminate(); ai.worker = null; } }
+  function stopWorker() { for (const w of ai.workers || []) w.terminate(); ai.workers = []; }
+
+  // How many Whisper workers to run side by side: one Whisper instance doesn't get faster with more CPU threads, but
+  // separate windows can be recognized at the same time. Each worker holds its own copy of the model (~0.4 GB),
+  // so the count follows the CPU and the memory the browser reports. The GPU path uses one worker.
+  function poolSize(nWindows, device) {
+    if (device === 'webgpu') return 1;
+    try { const o = Number(localStorage.getItem('cutdiet:aiWorkers')); if (o > 0) return Math.min(o, nWindows); } catch {} // manual override
+    const cores = navigator.hardwareConcurrency || 4, mem = navigator.deviceMemory || 4;
+    return Math.max(1, Math.min(nWindows, Math.floor(cores / 4), mem >= 8 ? 3 : mem >= 4 ? 2 : 1));
+  }
+  // Hands the planned windows to a small pool of workers, one window at a time. The first worker loads (and on the very
+  // first run downloads) the model; the others start once it is in the browser cache, so nothing is fetched twice.
+  function transcribePool({ audio, model, device, windows, t0 }) {
+    const SR = 16000; const n = windows.length; const queue = windows.map((_, i) => i); const results = new Array(n);
+    let done = 0, wordLevel = true, dev = device, tT = 0, finished = false, live = 0;
+    let threads = 0; try { threads = Number(localStorage.getItem('cutdiet:aiThreads')) || 0; } catch {}
+    const speech = fmtClock(speechSeconds(windows), false);
+    stopWorker(); ai.workers = [];
+    return new Promise((resolve, reject) => {
+      const fail = err => { if (finished) return; finished = true; stopWorker(); reject(err); };
+      const showProgress = () => {
+        if (!tT) tT = performance.now(); const pct = done / n; const el2 = (performance.now() - t0) / 1000, run2 = (performance.now() - tT) / 1000; const eta = pct > 0.03 ? (run2 / pct - run2) : null;
+        setProgress(0.35 + pct * 0.65, `음성 인식 ${Math.round(pct * 100)}% (${dev === 'webgpu' ? 'GPU' : `CPU ${ai.workers.length}개 동시`} · 말소리 ${speech}) · 경과 ${fmtClock(el2, false)}${eta != null ? ` · 남은 시간 약 ${fmtClock(eta, false)}` : ''}${wordLevel ? '' : ' · 문장 단위'}`);
+      };
+      const spawn = (first) => {
+        const w = new Worker(new URL('./asr.worker.js', import.meta.url), { type: 'module' }); ai.workers.push(w); live++;
+        let cur = null;
+        const next = () => {
+          if (finished) return; if (!ai.running) { fail(new Error('canceled')); return; }
+          const i = queue.shift();
+          if (i == null) { w.terminate(); if (--live === 0 && !finished) { finished = true; resolve({ chunks: dedupeWords(results.flat()), wordLevel }); } return; }
+          const win = windows[i]; const S = win.parts[0].s, E = win.parts[win.parts.length - 1].e;
+          const slice = audio.slice(Math.round(S * SR), Math.round(E * SR)); cur = { i, S };
+          w.postMessage({ type: 'win', id: i, w: { parts: win.parts.map(q => ({ s: q.s - S, e: q.e - S })), keep: { s: win.keep.s - S, e: win.keep.e - S } }, audio: slice }, [slice.buffer]);
+        };
+        w.onmessage = e => {
+          const m = e.data;
+          if (m.type === 'progress') {
+            if (!first) return;
+            if (m.phase === 'download') setProgress(0.1 + m.pct * 0.25, `모델 내려받는 중 ${Math.round(m.pct * 100)}%${m.total ? ` (${fmtMB(m.loaded)} / ${fmtMB(m.total)}) · 처음 한 번만` : ''}`);
+            else if (m.phase === 'load') setProgress(0.1, '모델을 준비하는 중… (처음이면 내려받기에 1~3분)');
+          } else if (m.type === 'device') { dev = m.device; if (m.reason === 'error') toast('GPU에서 오류가 나서 CPU로 계속합니다', 3000); }
+          else if (m.type === 'ready') {
+            dev = m.device; if (first) { setProgress(0.35, '모델 준비 완료. 인식 시작…'); const extra = poolSize(n, dev) - 1; for (let k = 0; k < extra; k++) spawn(false); }
+            next();
+          } else if (m.type === 'win') {
+            results[m.id] = m.chunks.map(c => ({ text: c.text, timestamp: c.timestamp.map(t => (t == null ? null : t + cur.S)) }));
+            if (!m.wordLevel) wordLevel = false; done++;
+            el.text.value = results.filter(Boolean).flat().map(c => c.text).join('').slice(-4000); el.text.scrollTop = el.text.scrollHeight;
+            showProgress(); next();
+          } else if (m.type === 'error') fail(new Error(m.message));
+        };
+        w.onerror = ev => fail(new Error(ev.message || '워커 오류'));
+        w.postMessage({ type: 'init', model, device: dev, threads, language: 'korean' });
+      };
+      if (!n) { resolve({ chunks: [], wordLevel: true }); return; }
+      spawn(true);
+    });
+  }
 
   async function run() {
     if (!state.hasMedia) { toast('먼저 영상을 불러오세요'); return; }
@@ -62,28 +125,14 @@ export function initTranscribe(api) {
       const audio = useEngine ? null : cached || await extractAudio(p => setProgress(p * 0.1, `오디오 추출 ${Math.round(p * 100)}%`));
       if (!ai.running) throw new Error('canceled');
       const device = (el.gpu.checked && gpuOk) ? 'webgpu' : 'wasm'; const model = el.model.value;
-      const result = useEngine ? await state.hooks.transcribe({ model, signal: ai.abort.signal, onProgress: (frac, text) => setProgress(frac, text) }) : await new Promise((resolve, reject) => {
-        stopWorker();
-        const w = new Worker(new URL('./asr.worker.js', import.meta.url), { type: 'module' }); ai.worker = w;
-        w.onmessage = e => {
-          const m = e.data;
-          if (m.type === 'progress') {
-            if (m.phase === 'download') setProgress(0.1 + m.pct * 0.25, `모델 내려받는 중 ${Math.round(m.pct * 100)}%${m.total ? ` (${fmtMB(m.loaded)} / ${fmtMB(m.total)}) · 처음 한 번만` : ''}`);
-            else if (m.phase === 'load') setProgress(0.1, '모델을 준비하는 중… (처음이면 내려받기에 1~3분)');
-            else if (m.phase === 'ready') setProgress(0.35, '모델 준비 완료. 인식 시작…');
-            else if (m.phase === 'transcribe') { const el2 = (performance.now() - t0) / 1000; const eta = m.pct > 0.03 ? (el2 / m.pct - el2) : null; setProgress(0.35 + m.pct * 0.65, `음성 인식 ${Math.round(m.pct * 100)}% · 경과 ${fmtClock(el2, false)}${eta != null ? ` · 남은 시간 약 ${fmtClock(eta, false)}` : ''}${m.note === 'segment' ? ' · 문장 단위로 재시도' : ''}`); }
-          } else if (m.type === 'partial') { el.text.value = m.text; el.text.scrollTop = el.text.scrollHeight; }
-          else if (m.type === 'done') resolve(m);
-          else if (m.type === 'error') reject(new Error(m.message));
-        };
-        w.onerror = ev => reject(new Error(ev.message || '워커 오류'));
-        w.postMessage({ type: 'run', audio, model, device, language: 'korean', duration: state.duration }, [audio.buffer]);
-      });
+      // only the speech, in non-overlapping windows cut at pauses (asrplan.js)
+      const windows = planWindows(state.env, api.HOP, state.params.threshold, state.duration);
+      const result = useEngine ? await state.hooks.transcribe({ model, signal: ai.abort.signal, onProgress: (frac, text) => setProgress(frac, text) }) : await transcribePool({ audio, model, device, windows, t0 });
       if (!ai.running) throw new Error('canceled');
       const raw = wordsFromChunks(result.chunks, state.duration); ai.words = dropSilentWords(raw, state.env, api.HOP, state.params.threshold - 6); ai.wordLevel = result.wordLevel !== false; ai.forFile = fileKey();
       const dropped = raw.length - ai.words.length;
       if (!ai.words.length && result.text) ai.words = [{ text: result.text.trim(), s: 0, e: state.duration }];
-      ai.lines = buildCaptionLines(ai.words);
+      ai.lines = buildCaptionLines(ai.words, { maxChars: lineChars() });
       computeCands();
       renderResults(); el.text.closest('details').open = false; changed();
       const took = (performance.now() - t0) / 1000;
@@ -196,7 +245,7 @@ export function initTranscribe(api) {
     } catch (e) {
       if (alive()) { snd.raw = []; snd.error = /nofile|canceled/.test(String(e.message)) ? '이 방식으로 연 파일은 소리 분석을 할 수 없어 자막 만들기를 써야 합니다' : '소리 분석 실패: ' + String(e.message).slice(0, 80); }
     } finally {
-      if (snd.token === token) { snd.running = false; if (snd.worker) { snd.worker.terminate(); snd.worker = null; } if (!ai.words.length) { computeCands(); renderCands(); if (alive() && snd.raw && snd.raw.length) toast(`소리로 찾은 삭제 후보 ${ai.cands.length}개 · AI 자막·NG 탭 ③에서 확인`, 3000); } }
+      if (snd.token === token) { snd.running = false; if (snd.worker) { snd.worker.terminate(); snd.worker = null; } if (!ai.words.length) { computeCands(); renderCands(); if (alive() && snd.raw && snd.raw.length) toast(`소리로 찾은 삭제 후보 ${ai.cands.length}개 · 왼쪽 NG 정리에서 확인`, 3000); } }
     }
   }
   document.addEventListener('cutdiet:analyzed', () => { if (!ai.words.length) { computeCands(); renderCands(); soundScan(false); } });
@@ -245,10 +294,10 @@ export function initTranscribe(api) {
     else if (act === 'del') ai.lines.splice(i, 1);
     else if (act === 'merge') { const n = ai.lines[i + 1]; if (!n) return; ai.lines.splice(i, 2, { s: l.s, e: Math.max(l.e, n.e), text: `${l.text} ${n.text}`.trim(), edited: true }); }
     else if (act === 'split') {
-      const t = state.cur > l.s + 0.15 && state.cur < l.e - 0.15 ? state.cur : (l.s + l.e) / 2; const frac = (t - l.s) / (l.e - l.s);
-      const words = l.text.split(/\s+/); let cut = Math.max(1, Math.min(words.length - 1, Math.round(words.length * frac)));
-      const a = words.length > 1 ? words.slice(0, cut).join(' ') : l.text.slice(0, Math.max(1, Math.round(l.text.length * frac))); const bTxt = words.length > 1 ? words.slice(cut).join(' ') : l.text.slice(a.length);
-      ai.lines.splice(i, 1, { s: l.s, e: t, text: a, edited: true }, { s: t, e: l.e, text: bTxt || '…', edited: true });
+      // at the playhead (or the middle), on the most natural word boundary near it
+      const t = state.cur > l.s + 0.15 && state.cur < l.e - 0.15 ? state.cur : (l.s + l.e) / 2;
+      const two = splitLineAt(l, t, ai.words); if (!two) { toast('한 단어라서 나눌 수 없습니다'); return; }
+      ai.lines.splice(i, 1, ...two);
     }
     renderEditor(); changed();
   });
@@ -304,5 +353,20 @@ export function initTranscribe(api) {
   function replaceLines(lines) { ai.lines = lines.map(l => ({ ...l })); renderEditor(); if (api.captionsChanged) api.captionsChanged(); }
   function focusCaption(line) { const i = ai.lines.indexOf(line); if (i < 0) return; if (api.showTab) api.showTab('ai'); const inp = el.capList.querySelector(`.caprow[data-i="${i}"] input[data-f="text"]`); if (inp) { inp.scrollIntoView({ block: 'center' }); inp.focus(); inp.select(); } }
   function toggleCand(c) { if (!ai.cands.includes(c)) return; c.on = !c.on; renderCands(); }
-  return { getLines: () => ai.lines, setLines, replaceLines, refresh: renderEditor, getCands: () => ai.cands, toggleCand, focusCaption };
+  // line length: how many characters fit on one caption line (shorts need shorter lines)
+  function lineChars() { return Number(el.capLen && el.capLen.value) || 24; }
+  try { const v = localStorage.getItem('cutdiet:capLen'); if (v && el.capLen) el.capLen.value = v; } catch {}
+  if (el.capLen) el.capLen.addEventListener('change', () => { try { localStorage.setItem('cutdiet:capLen', el.capLen.value); } catch {} });
+  if (el.capResplit) el.capResplit.addEventListener('click', () => {
+    if (!ai.lines.length) { toast('먼저 자막을 만들거나 불러오세요'); return; }
+    const before = ai.lines.length; ai.lines = resplitLines(ai.lines, ai.words, { maxChars: lineChars() }); renderEditor(); changed();
+    toast(`문장 단위로 다시 나눴습니다 (${before}줄 → ${ai.lines.length}줄)`, 2200);
+  });
+  // timeline split: cut the caption under t in two at a natural word boundary
+  function splitCaptionAt(t, line) {
+    const l = line || ai.lines.find(x => t > x.s + 0.1 && t < x.e - 0.1); if (!l) return false;
+    const two = splitLineAt(l, t, ai.words); if (!two) return false;
+    ai.lines.splice(ai.lines.indexOf(l), 1, ...two); renderEditor(); changed(); return two;
+  }
+  return { getLines: () => ai.lines, setLines, splitCaptionAt, replaceLines, refresh: renderEditor, getCands: () => ai.cands, toggleCand, focusCaption };
 }

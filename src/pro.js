@@ -134,7 +134,7 @@ function boot() {
 
   // ---------- keyboard ----------
   let keymap = resolveKeymap(lsGet(LS.keys, {})); let inv = invertKeymap(keymap);
-  const actions = { ...C.actions, render: () => C.startRender('main', false), runQueue, thumbs: () => { C.showTab('thumbs'); C.pickThumbs(); }, saveProject: () => C.saveProjectFile(), help: () => toggleSheet() };
+  const actions = { ...C.actions, render: () => C.startRender('main', false), runQueue, thumbs: () => { C.showTab('export'); C.pickThumbs(); }, saveProject: () => C.saveProjectFile(), help: () => toggleSheet() };
   const defaultCombos = new Set(Object.values(DEFAULT_KEYS));
   document.addEventListener('keydown', e => {
     if (!$('keysheet').hidden) { if (e.code === 'Escape' || comboFromEvent(e) === keymap.help) { e.preventDefault(); toggleSheet(false); e.cutdietHandled = true; } return; }

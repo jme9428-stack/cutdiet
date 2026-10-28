@@ -1,10 +1,13 @@
-// Whisper on the local CPU through transformers.js + onnxruntime-node (same library and options as the browser worker, native speed).
+// Whisper on the local CPU through transformers.js + onnxruntime-node (same library, options and speech-only windows as the
+// browser worker, native speed).
 import { parentPort, workerData } from 'node:worker_threads';
 
 const post = m => parentPort.postMessage(m);
 try {
   const { audio, model, language, duration, cacheDir, dtype } = workerData;
-  const { pipeline, env, WhisperTextStreamer } = await import('@huggingface/transformers');
+  const { pipeline, env } = await import('@huggingface/transformers');
+  const { planWindows, transcribeWindows, envFromAudio } = await import('../../src/asrplan.js');
+  const { suggestThreshold, HOP } = await import('../../src/cutlogic.js');
   env.cacheDir = cacheDir; env.allowLocalModels = true; env.allowRemoteModels = true;
   post({ type: 'progress', phase: 'load', pct: 0 });
   const files = new Map();
@@ -16,15 +19,12 @@ try {
     },
   });
   post({ type: 'progress', phase: 'transcribe', pct: 0 });
-  let streamer = null;
-  try {
-    const chunkLength = asr.processor.feature_extractor.config.chunk_length; const timePrecision = chunkLength / asr.model.config.max_source_positions; let lastT = 0;
-    streamer = new WhisperTextStreamer(asr.tokenizer, { time_precision: timePrecision, skip_prompt: true, skip_special_tokens: true, on_chunk_start: t => { lastT = Math.max(lastT, t || 0); post({ type: 'progress', phase: 'transcribe', pct: duration ? Math.min(0.99, lastT / duration) : 0 }); }, callback_function: () => {}, on_finalize: () => {} });
-  } catch { streamer = null; }
-  const opts = { language: language || 'korean', task: 'transcribe', return_timestamps: 'word', chunk_length_s: 30, stride_length_s: 5, force_full_sequences: false };
-  if (streamer) opts.streamer = streamer;
-  let out;
-  try { out = await asr(new Float32Array(audio), opts); }
-  catch (err) { post({ type: 'progress', phase: 'transcribe', pct: 0, note: 'segment' }); out = await asr(new Float32Array(audio), { ...opts, return_timestamps: true, streamer: undefined }); out.wordLevel = false; }
+  const samples = new Float32Array(audio); const envDb = envFromAudio(samples, 16000, HOP);
+  const windows = planWindows(envDb, HOP, suggestThreshold(envDb), samples.length / 16000);
+  const opts = { language: language || 'korean', task: 'transcribe', return_timestamps: 'word' };
+  let wordLevel = true;
+  const run = async a => { try { return await asr(a, wordLevel ? opts : { ...opts, return_timestamps: true }); } catch (err) { if (!wordLevel) throw err; wordLevel = false; post({ type: 'progress', phase: 'transcribe', pct: 0, note: 'segment' }); return asr(a, { ...opts, return_timestamps: true }); } };
+  const chunks = await transcribeWindows(run, samples, 16000, windows, { onWindow: (i, n) => post({ type: 'progress', phase: 'transcribe', pct: Math.min(0.99, i / n) }) });
+  const out = { text: chunks.map(c => c.text).join(''), chunks, wordLevel };
   post({ type: 'done', text: out.text || '', chunks: out.chunks || [], wordLevel: out.wordLevel !== false });
 } catch (err) { post({ type: 'error', message: (err && err.message) ? err.message : String(err) }); }

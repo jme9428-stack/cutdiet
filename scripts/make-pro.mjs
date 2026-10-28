@@ -10,8 +10,11 @@ const need = (s) => { if (!html.includes(s)) throw new Error('make-pro: anchor n
 need('<title>컷다이어트</title>'); html = html.replace('<title>컷다이어트</title>', '<title>컷다이어트 Pro</title>');
 need('<span class="name">컷다이어트</span>'); html = html.replace('<span class="name">컷다이어트</span>', '<span class="name">컷다이어트 <span class="chip ok">Pro</span></span>');
 
+// Pro tools (queue · channel defaults · local engine) live in their own "Pro" tab of the feature rail
 const probar = `
-  <section class="probar">
+  <section class="tabpanel" id="tab-pro" role="tabpanel" hidden>
+   <h2 class="ph">Pro</h2>
+   <div class="probar">
     <div class="card">
       <h3><span>큐 · 자동 처리</span><span class="chip" id="queueChip">비어 있음</span></h3>
       <div class="row">
@@ -41,12 +44,12 @@ const probar = `
       <div class="row"><button class="btn sm" id="btnKeySheet" title="/">단축키 보기 (/)</button><span class="hint">탭 전환 1~9 · 큐 실행 Shift+Enter · 렌더 Ctrl+Enter · 썸네일 Shift+T</span></div>
     </div>
     <div class="card engine" id="engineCard" hidden></div>
+   </div>
   </section>
 `;
-need('<div id="notice" hidden class="notice"></div>'); html = html.replace('<div id="notice" hidden class="notice"></div>', '<div id="notice" hidden class="notice"></div>' + probar);
 
 need('<button class="tab" role="tab" data-tab="guide" aria-selected="false">가이드</button>');
-html = html.replace('<button class="tab" role="tab" data-tab="guide" aria-selected="false">가이드</button>', '<button class="tab" role="tab" data-tab="log" aria-selected="false">기록</button>\n    <button class="tab" role="tab" data-tab="keys" aria-selected="false">단축키</button>\n    <button class="tab" role="tab" data-tab="guide" aria-selected="false">가이드</button>');
+html = html.replace('<button class="tab" role="tab" data-tab="guide" aria-selected="false">가이드</button>', '<button class="tab" role="tab" data-tab="pro" aria-selected="false">Pro</button>\n      <button class="tab" role="tab" data-tab="log" aria-selected="false">기록</button>\n      <button class="tab" role="tab" data-tab="keys" aria-selected="false">단축키</button>\n      <button class="tab" role="tab" data-tab="guide" aria-selected="false">가이드</button>');
 
 const logTab = `
   <section class="tabpanel" id="tab-log" role="tabpanel" hidden>
@@ -76,7 +79,7 @@ const logTab = `
     <div class="kgrid" id="keyGrid"></div>
   </section>
 `;
-need('\n  <section class="tabpanel" id="tab-guide" role="tabpanel" hidden>'); html = html.replace('\n  <section class="tabpanel" id="tab-guide" role="tabpanel" hidden>', logTab + '\n  <section class="tabpanel" id="tab-guide" role="tabpanel" hidden>');
+need('\n  <section class="tabpanel" id="tab-guide" role="tabpanel" hidden>'); html = html.replace('\n  <section class="tabpanel" id="tab-guide" role="tabpanel" hidden>', probar + logTab + '\n  <section class="tabpanel" id="tab-guide" role="tabpanel" hidden>');
 
 const sheet = `<div class="keysheet" id="keysheet" hidden role="dialog" aria-modal="true" aria-label="단축키"><div class="onb-card"><h2>단축키</h2><div class="kgrid" id="sheetGrid"></div><div class="foot"><span class="hint">Esc 또는 / 로 닫기 · 단축키 탭에서 바꿀 수 있습니다</span></div></div></div>\n`;
 need('<div id="toast" role="status" aria-live="polite"></div>'); html = html.replace('<div id="toast" role="status" aria-live="polite"></div>', sheet + '<div id="toast" role="status" aria-live="polite"></div>');
