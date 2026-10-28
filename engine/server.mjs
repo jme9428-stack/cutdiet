@@ -107,7 +107,7 @@ async function startRender(body) {
     try { j.step = '글꼴 준비'; const fr = await ensureFonts(FONTS, log, [...BASE_FAMILIES, ...used]); ff.fonts = fr; } catch {}
     const ass = buildASS({ W: out.w, H: out.h, style: fxCopy && fxCopy.subs ? fxCopy.subs.style : null, captions: burn ? mapped.captions : [], textOverlays: mapped.textOverlays, fontMap: ff.fonts.map }); assets.ass = path.join(dir, 'subs.ass'); fs.writeFileSync(assets.ass, ass); if (!ff.libass) j.warnings.push('이 ffmpeg는 libass가 없어 자막·텍스트 굽기를 건너뜁니다'); }
   for (const s of mapped.sfx) { const p = s.kind === 'custom' ? (s.path && fs.existsSync(s.path) ? s.path : null) : sfxWav(s.kind, dir); if (p) assets.sfx.push({ path: p, outT: s.outT, volume: s.volume ?? 0.8 }); }
-  if (body.bgm && body.bgm.path && fs.existsSync(body.bgm.path)) assets.bgm = { path: body.bgm.path, volume: +body.bgm.volume || 0.18, duck: body.bgm.duck !== false, fade: +body.bgm.fade || 0, loop: body.bgm.loop !== false };
+  if (body.bgm && body.bgm.path && fs.existsSync(body.bgm.path)) assets.bgm = { path: body.bgm.path, volume: +body.bgm.volume || 0.18, duck: body.bgm.duck !== false, fade: +body.bgm.fade || 0, loop: body.bgm.loop !== false, offset: Math.max(0, +body.bgm.offset || 0) };
   fs.mkdirSync(settings.outDir, { recursive: true });
   const base = body.filename ? baseName(body.filename) : baseName(m.name) + (kind === 'shorts' ? '_shorts' : '_cut');
   req.outPath = uniquePath(settings.outDir, base, '.mp4');

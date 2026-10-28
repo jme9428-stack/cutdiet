@@ -3,6 +3,13 @@ import { pipeline, env, WhisperTextStreamer } from '@huggingface/transformers';
 
 env.allowLocalModels = false;
 env.useBrowserCache = true;
+// The ONNX runtime WASM (~6 MB) always comes from jsDelivr, never from our host: the build leaves the local copy out
+// (vite.config.js) to keep hosting traffic near zero. transformers.js sets this by default; pin it in case a future version stops.
+const ort = env.backends && env.backends.onnx;
+if (ort && ort.wasm && !ort.wasm.wasmPaths && ort.versions && ort.versions.web) {
+  const base = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ort.versions.web}/dist/`;
+  ort.wasm.wasmPaths = { mjs: base + 'ort-wasm-simd-threaded.asyncify.mjs', wasm: base + 'ort-wasm-simd-threaded.asyncify.wasm' };
+}
 
 const cache = new Map();
 let current = null;

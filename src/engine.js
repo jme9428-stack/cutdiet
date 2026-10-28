@@ -1,5 +1,6 @@
 // Pro: client for the local engine (engine/server.mjs). Active only when the page is served by the engine itself
 // (http://127.0.0.1:7797). Installs hooks on window.cutdiet.state.hooks so the main app renders/analyzes through ffmpeg.
+import { liveFx } from './fxlogic.js';
 const H = { 'x-cutdiet-engine': '1' };
 const isLocal = /^(127\.0\.0\.1|localhost)$/.test(location.hostname);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -38,10 +39,12 @@ export async function initEngine(C, { addFiles } = {}) {
   state.hooks.saveFile = async (name, data) => { const blob = data instanceof Blob ? data : new Blob([data]); let body; if (/\.(txt|srt|json|csv|edl|fcpxml|sh|bat)$/i.test(name) || (typeof data === 'string')) body = { name, text: typeof data === 'string' ? data : await blob.text() }; else { const b64 = await new Promise(res => { const rd = new FileReader(); rd.onload = () => res(String(rd.result).split(',')[1]); rd.readAsDataURL(blob); }); body = { name, base64: b64 }; } const r = await api('/save', body); toast(`출력 폴더에 저장: ${r.path.split(/[\\/]/).pop()}`, 3000); return true; };
   state.hooks.render = async ({ kind, ranges, out, crop, quality, fps, name, signal, onProgress }) => {
     const b = state.bgm; let bgm = null;
-    if (b.ready && b.file) { onProgress(0, '배경음악 전송'); bgm = { path: await uploadAsset(b.file), volume: b.volume, duck: b.duck, fade: b.fade, loop: b.loop }; }
+    const tk = state.fx.tracks || {};
+    if (b.ready && b.file && !tk.bgmMuted) { onProgress(0, '배경음악 전송'); bgm = { path: await uploadAsset(b.file), volume: b.volume, duck: b.duck, fade: b.fade, loop: b.loop, offset: C.outTime(state.segments, b.start || 0) }; }
+    const live = liveFx(state.fx);
     const fx = JSON.parse(JSON.stringify({ ...state.fx, overlays: [], sfx: [] }));
-    for (const o of state.fx.overlays) { const c = { id: o.id, type: o.type, s: o.s, e: o.e, pos: o.pos, x: o.x, y: o.y, w: o.w, opacity: o.opacity, fade: o.fade, text: o.text, style: o.style, ratio: o.ratio, name: o.name }; if (o.type === 'image') { if (o.file) c.path = await uploadAsset(o.file); else c.dataUrl = o.dataUrl; } fx.overlays.push(c); }
-    for (const s of state.fx.sfx) { const c = { id: s.id, t: s.t, kind: s.kind, volume: s.volume, name: s.name }; if (s.kind === 'custom') { if (!s.file) continue; c.path = await uploadAsset(s.file); } fx.sfx.push(c); }
+    for (const o of live.overlays) { const c = { id: o.id, type: o.type, s: o.s, e: o.e, layer: o.layer || 0, pos: o.pos, x: o.x, y: o.y, w: o.w, opacity: o.opacity, fade: o.fade, text: o.text, style: o.style, ratio: o.ratio, name: o.name }; if (o.type === 'image') { if (o.file) c.path = await uploadAsset(o.file); else c.dataUrl = o.dataUrl; } fx.overlays.push(c); }
+    for (const s of live.sfx) { const c = { id: s.id, t: s.t, kind: s.kind, volume: s.volume, name: s.name }; if (s.kind === 'custom') { if (!s.file) continue; c.path = await uploadAsset(s.file); } fx.sfx.push(c); }
     const captions = state.fx.subs.burn ? (C.captionsOf() || []).map(l => ({ s: l.s, e: l.e, text: l.text })) : [];
     const job = await api('/render', { token: state.engineMedia.token, kind, ranges, out, crop, quality, fps, filename: name, bgm, fx, captions });
     const done = await waitJob(job.id, { signal, onProgress: j => onProgress(j.progress, `엔진 렌더링(${j.meta && j.meta.encoder ? j.meta.encoder : 'ffmpeg'})`) });

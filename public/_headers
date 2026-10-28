@@ -1,0 +1,5 @@
+# Cloudflare Pages response headers (Vercel uses vercel.json for the same thing).
+# COOP/COEP make the page cross-origin isolated so speech recognition can run multithreaded WASM. Do not remove.
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: credentialless

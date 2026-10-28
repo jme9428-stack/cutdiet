@@ -127,6 +127,28 @@ kbd{font-family:var(--font-mono);font-size:11px;border:1px solid var(--line-stro
 .capbar input[type=text]{width:10ch;flex:1 1 90px;font:inherit;font-size:12.5px;padding:4px 6px;border:1px solid var(--line-strong);border-radius:7px;background:var(--surface);color:var(--fg)}
 .opts{display:flex;flex-wrap:wrap;gap:4px 14px;margin:6px 0 8px}
 .fxlist li.on{outline:2px solid var(--accent)}
+.tlwrap{display:flex;align-items:flex-start}
+.tlwrap canvas#tl{flex:1 1 auto;min-width:0;border-top-left-radius:0;border-bottom-left-radius:0}
+.tlheads{position:relative;flex:0 0 118px;background:var(--surface-2);border:1px solid var(--line);border-right:0;border-radius:8px 0 0 8px;overflow:hidden}
+.th{position:absolute;left:0;right:0;display:flex;align-items:center;gap:4px;padding:0 4px 0 6px;font-size:11px;color:var(--fg);border-bottom:1px solid var(--line);box-sizing:border-box;white-space:nowrap}
+.th-ic{width:12px;text-align:center;color:var(--muted);font-weight:700}
+.th-name{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis}
+.th.dim .th-name{opacity:.45;text-decoration:line-through}
+.th-main{background:var(--surface)}
+.th-btns{display:inline-flex;gap:1px}
+.th-btn{border:0;background:none;padding:1px 2px;cursor:pointer;font-size:11px;line-height:1;border-radius:4px;opacity:.85}
+.th-btn:hover{background:var(--line);opacity:1}
+.th-count{font-family:var(--font-mono);font-size:10px;color:var(--muted)}
+.hud-cand{color:#fff!important;font-weight:600}
+.monitor-slot{min-width:0}
+.mini-close{display:none}
+.monitor.mini{position:fixed;right:16px;bottom:16px;width:min(400px,46vw);height:auto;z-index:60;box-shadow:0 12px 32px rgba(0,0,0,.45);border:2px solid var(--line-strong);min-height:0}
+.monitor.mini .mini-close{display:block;position:absolute;right:6px;top:6px;z-index:7;width:24px;height:24px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;cursor:pointer;font-size:12px}
+.monitor.mini .monitor-empty{display:none}
+.legend-cand{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:var(--muted);margin-left:6px;flex-wrap:wrap}
+.legend-cand i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-left:4px}
+#aiCandBody tr.on td{background:var(--remove-soft)}
+#aiCandBody .captime input{width:8.5ch}
 details.bulk summary{cursor:pointer;font-size:12.5px;color:var(--muted);margin-top:8px}
 .crop-overlay{position:absolute;inset:0;pointer-events:none}
 .fxlist{margin:6px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px;font-size:12.5px}
@@ -242,6 +264,7 @@ td.ttl input:focus{border-color:var(--accent);background:var(--surface)}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
 @media (max-width:600px){
+  .tlheads{flex-basis:76px}.th-name{font-size:10px}.monitor.mini{width:55vw}
   .stat .v{font-size:16px}
   .zoom{margin-left:0}
   canvas#tl{height:120px}
@@ -319,7 +342,8 @@ td.ttl input:focus{border-color:var(--accent);background:var(--surface)}
       </div>
       <canvas id="fxCanvas" class="fx-canvas" hidden aria-hidden="true"></canvas>
       <div class="crop-overlay" id="cropOverlay" hidden><div class="crop-frame" id="cropFrame" title="드래그해서 크롭 위치 이동"><span>9:16</span></div></div>
-      <div class="monitor-hud"><span id="hudState">예시 데이터</span><span id="hudRes" hidden></span></div>
+      <div class="monitor-hud"><span id="hudState">예시 데이터</span><span id="hudRes" hidden></span><span id="hudCand" class="hud-cand" hidden></span></div>
+      <button class="mini-close" id="btnMiniClose" title="작은 화면 닫기 (위로 스크롤하면 원래 자리로)" aria-label="작은 화면 닫기">✕</button>
     </div>
 
     <aside class="panel">
@@ -400,13 +424,14 @@ td.ttl input:focus{border-color:var(--accent);background:var(--surface)}
         <button class="btn sm" id="btnZoomFit">전체</button>
       </div>
     </div>
-    <canvas id="tl" tabindex="0" aria-label="타임라인. 클릭해 이동, 경계를 드래그해 조정, 더블클릭으로 유지와 삭제 전환"></canvas>
+    <div class="tlwrap"><div class="tlheads" id="tlHeads" aria-label="트랙"></div><canvas id="tl" tabindex="0" aria-label="타임라인. 클릭해 이동, 경계를 드래그해 조정, 더블클릭으로 유지와 삭제 전환"></canvas></div>
     <input type="range" class="scroller" id="scroller" min="0" max="0" step="0.01" value="0" aria-label="타임라인 스크롤">
     <div class="legend">
       <span><i class="sw" style="background:var(--keep)"></i>유지</span>
       <span><i class="sw" style="background:var(--remove)"></i>삭제</span>
       <span><i class="sw" style="background:var(--play)"></i>재생 위치</span>
-      <span>클릭 이동 · 경계 드래그 · 더블클릭 유지↔삭제 · <kbd>Ctrl</kbd>+휠 확대</span>
+      <span>영상 줄: 클릭 이동 · 경계 드래그 · 더블클릭 유지↔삭제 · <kbd>Ctrl</kbd>+휠 확대</span>
+      <span>자막·텍스트·효과음·음악 줄: 클립을 끌어 옮기기 · 양끝 끌어 길이 조절 · 텍스트·이미지는 위아래로 끌어 레이어 이동 · 선택 후 <kbd>Delete</kbd> · 왼쪽 👁 숨기기 🔒 잠금 🔊 소리</span>
       <span><kbd>Space</kbd> 재생/정지 <kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> 뒤로·멈춤·앞으로(2배속) <kbd>Q</kbd>앞 삭제 <kbd>W</kbd>뒤 삭제 <kbd>Ctrl</kbd>+<kbd>B</kbd> 분할 <kbd>X</kbd> 전환 <kbd>I</kbd><kbd>O</kbd> 범위 → <kbd>Delete</kbd> <kbd>M</kbd> 챕터 <kbd>F</kbd> 전체 화면 <kbd>Ctrl</kbd>+<kbd>Z</kbd> 되돌리기</span>
     </div>
   </section>
@@ -603,6 +628,20 @@ td.ttl input:focus{border-color:var(--accent);background:var(--surface)}
         <p class="steps-note"><b>편집 후 시간</b> SRT는 ①에서 만든 MP4에 그대로 맞습니다. 캡컷·유튜브 스튜디오에 올리세요. <b>원본 시간</b> SRT는 EDL로 편집 프로그램에서 작업할 때 씁니다. 인식 결과는 틀릴 수 있으니 한 번 훑어보세요.</p>
         <div class="row"><button class="btn primary" id="btnSrtOut" disabled>SRT 저장 (편집 후 시간)</button><button class="btn" id="btnSrtSrc" disabled>SRT 저장 (원본 시간)</button><button class="btn" id="btnTxtCopy" disabled>전체 텍스트 복사</button></div>
       </div>
+      <div class="card cand-card" style="grid-column:1/-1">
+        <h3>③ 삭제 후보 · 추임새·버벅임·반복(NG) <span class="chip" id="aiCandChip">0개</span></h3>
+        <p class="steps-note">쓰고 싶은 것만 켜세요. 확실한 것은 미리 체크돼 있고, 애매한 것은 비워 둡니다. ▶로 앞뒤를 붙여 들어보고, 시작·끝 시간을 고치고, ✕로 뺄 수 있습니다. 후보는 타임라인의 <b>NG 후보</b> 줄에 색으로 따로 표시됩니다(채워진 칸 = 삭제 예정, 테두리만 = 보류, 더블클릭으로 전환). <b>체크한 항목 삭제 표시</b>를 누르면 컷에 반영되고 Ctrl+Z로 되돌릴 수 있습니다.</p>
+        <p class="hint" id="aiCandNote"></p>
+        <div class="opts">
+          <label class="switch" title="어, 음, 그, 저 같은 군말"><input type="checkbox" id="aiOptFiller" checked>추임새 (어·음)</label>
+          <label class="switch" title="그 그러니까 / 저 저는 / 그래서 제가 그래서 제가 처럼 말이 꼬인 부분의 첫 시도"><input type="checkbox" id="aiOptStutter" checked>말 버벅임 (더듬기·말 꼬임)</label>
+          <label class="switch" title="같은 문장을 다시 말한 경우, 앞의 것"><input type="checkbox" id="aiOptRepeat" checked>다시 말한 NG</label>
+          <label class="switch" title="소리는 있는데 글자로 인식되지 않은 구간. 웃음·숨소리일 수도 있어 체크하지 않고 보여줍니다"><input type="checkbox" id="aiOptMumble">웅얼거림 (인식 안 된 소리)</label>
+          <label class="switch" title="삭제한 말이 자막 글자에 남지 않게 합니다"><input type="checkbox" id="aiOptStrip" checked>삭제한 말은 자막에서도 지우기</label>
+        </div>
+        <div class="row"><button class="btn sm primary" id="btnAiApply" disabled>체크한 항목 삭제 표시</button><button class="btn sm" id="btnAiCheckAll" disabled>모두 체크</button><button class="btn sm" id="btnAiUncheckAll" disabled>모두 해제</button><button class="btn sm ghost" id="btnAiRescan" title="켜 둔 종류로 다시 찾기">다시 찾기</button><span class="legend-cand"><i style="background:#E0A030"></i>추임새 <i style="background:#E5533D"></i>버벅임 <i style="background:#C2185B"></i>NG <i style="background:#8592A3"></i>웅얼·짧은 소리</span></div>
+        <div class="tbl"><table><thead><tr><th></th><th>종류</th><th>듣기</th><th>범위</th><th>내용</th><th>길이</th></tr></thead><tbody id="aiCandBody"><tr><td colspan="6" class="muted">자막을 만들면 후보가 여기에 표시됩니다.</td></tr></tbody></table></div>
+      </div>
       <div class="card" style="grid-column:1/-1">
         <h3>자막 편집 <span class="chip" id="capChip">0줄</span></h3>
         <p class="steps-note">인식된 자막을 <b>줄마다 바로 고칩니다</b>. 글자를 고치면 미리보기·MP4·SRT에 즉시 반영됩니다. 시간을 클릭하면 그 줄부터 재생, <b>Enter</b>는 다음 줄로. ⇤ ⇥ 시작·끝을 재생 위치로, ✂ 나누기, ⇣ 아래 줄과 합치기. 미리보기 화면에서 자막을 더블클릭해도 고칠 수 있습니다.</p>
@@ -614,19 +653,6 @@ td.ttl input:focus{border-color:var(--accent);background:var(--surface)}
         </div>
         <div class="caplist" id="capList"></div>
         <details class="bulk"><summary>텍스트로 한 번에 고치기 · 인식 중 실시간 결과</summary><textarea id="aiText" readonly aria-label="자막 텍스트" placeholder="자막을 만들면 여기에 표시됩니다"></textarea></details>
-      </div>
-      <div class="card">
-        <h3>③ 삭제 후보 · 추임새·버벅임·반복(NG) <span class="chip" id="aiCandChip">0개</span></h3>
-        <p class="steps-note">쓰고 싶은 것만 켜세요. 확실한 것은 미리 체크돼 있고, 애매한 것은 비워 둡니다. <b>체크한 항목 삭제 표시</b>를 누르면 타임라인에 반영되고 Ctrl+Z로 되돌릴 수 있습니다.</p>
-        <div class="opts">
-          <label class="switch" title="어, 음, 그, 저 같은 군말"><input type="checkbox" id="aiOptFiller" checked>추임새 (어·음)</label>
-          <label class="switch" title="그 그러니까 / 저 저는 / 그래서 제가 그래서 제가 처럼 말이 꼬인 부분의 첫 시도"><input type="checkbox" id="aiOptStutter" checked>말 버벅임 (더듬기·말 꼬임)</label>
-          <label class="switch" title="같은 문장을 다시 말한 경우, 앞의 것"><input type="checkbox" id="aiOptRepeat" checked>다시 말한 NG</label>
-          <label class="switch" title="소리는 있는데 글자로 인식되지 않은 구간. 웃음·숨소리일 수도 있어 체크하지 않고 보여줍니다"><input type="checkbox" id="aiOptMumble">웅얼거림 (인식 안 된 소리)</label>
-          <label class="switch" title="삭제한 말이 자막 글자에 남지 않게 합니다"><input type="checkbox" id="aiOptStrip" checked>삭제한 말은 자막에서도 지우기</label>
-        </div>
-        <div class="row"><button class="btn sm primary" id="btnAiApply" disabled>체크한 항목 삭제 표시</button><button class="btn sm" id="btnAiCheckAll" disabled>모두 체크</button><button class="btn sm" id="btnAiUncheckAll" disabled>모두 해제</button></div>
-        <div class="tbl"><table><thead><tr><th></th><th>종류</th><th>시간</th><th>내용</th><th>길이</th></tr></thead><tbody id="aiCandBody"><tr><td colspan="5" class="muted">자막을 만들면 후보가 여기에 표시됩니다.</td></tr></tbody></table></div>
       </div>
     </div>
   </section>

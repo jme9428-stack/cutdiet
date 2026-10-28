@@ -49,8 +49,8 @@ export function buildASS({ W, H, style, captions = [], textOverlays = [], fontMa
   const head = ['[Script Info]', 'ScriptType: v4.00+', `PlayResX: ${W}`, `PlayResY: ${H}`, 'WrapStyle: 0', 'ScaledBorderAndShadow: yes', 'YCbCr Matrix: TV.709', '',
     '[V4+ Styles]', 'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding'];
   const styles = [styleLine('Cap', style || { size: 0.055 }, W, H, { fontMap })];
-  const events = []; const capTags = captionTags(style, W, H);
-  for (const c of captions) if (c.e - c.s >= 0.05 && c.text) events.push(`Dialogue: 0,${assTime(c.s)},${assTime(c.e)},Cap,,0,0,0,,${capTags}${assText(c.text)}`);
+  const events = []; const capTags = captionTags(style, W, H); const capLayer = 2 + Math.max(0, ...textOverlays.map(o => o.layer || 0)); // captions above every text layer
+  for (const c of captions) if (c.e - c.s >= 0.05 && c.text) events.push(`Dialogue: ${capLayer},${assTime(c.s)},${assTime(c.e)},Cap,,0,0,0,,${capTags}${assText(c.text)}`);
   textOverlays.forEach((o, i) => {
     if (!(o.e - o.s >= 0.05) || !o.text) return;
     const name = `Ov${i + 1}`; const st = o.style || { size: 0.06 };
@@ -58,7 +58,7 @@ export function buildASS({ W, H, style, captions = [], textOverlays = [], fontMa
     const { an, x, y } = overlayAnchor(o.pos, W, H, o);
     const fadeMs = Math.round(Math.max(0, o.fade || 0) * 1000); const alpha = Math.round((1 - Math.max(0, Math.min(1, o.opacity ?? 1))) * 255).toString(16).toUpperCase().padStart(2, '0');
     const tags = `{\\an${an}\\pos(${x},${y})${fadeMs ? `\\fad(${fadeMs},${fadeMs})` : ''}${alpha !== '00' ? `\\alpha&H${alpha}&` : ''}}`;
-    events.push(`Dialogue: 1,${assTime(o.s)},${assTime(o.e)},${name},,0,0,0,,${tags}${assText(o.text)}`);
+    events.push(`Dialogue: ${1 + (o.layer || 0)},${assTime(o.s)},${assTime(o.e)},${name},,0,0,0,,${tags}${assText(o.text)}`);
   });
   return [...head, ...styles, '', '[Events]', 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text', ...events, ''].join('\n');
 }

@@ -48,12 +48,16 @@ assert.equal(mapped.captions.length, 2); assert.equal(mapped.captions[1].s, 3); 
 assert.ok(qualityFor('high', 1920, 1080, 30).bitrate === 10e6 && qualityFor('720', 1280, 720, 30).bitrate < 3e6);
 assert.equal(scriptFlag('6.1.1'), '-filter_complex_script'); assert.equal(scriptFlag('9.0.2-full_build-www.gyan.dev'), '-/filter_complex'); assert.equal(scriptFlag('n7.1'), '-/filter_complex'); assert.equal(scriptFlag(''), '-filter_complex_script');
 { const eqPlan = buildArgs({ ...req, fx: { ...req.fx, adjust: { brightness: 10, contrast: 20, saturation: -10 } } }, { images: [], sfx: [] }, {}); assert.ok(eqPlan.graph.includes('eq=brightness=0.04:contrast=1.2:saturation=0.9'), eqPlan.graph.split('\n')[0]); }
+// music offset + original sound muted on the video track
+{ const g = buildArgs({ ...req, fx: { ...req.fx, tracks: { origMuted: true } } }, { images: [], sfx: [], bgm: { path: 'bgm.mp3', volume: 0.2, duck: true, fade: 1, loop: true, offset: 3 } }, {});
+  assert.ok(g.graph.includes('adelay=3000:all=1') && g.graph.includes('anullsrc') && !g.graph.includes('sidechaincompress'), g.graph); }
+assert.deepEqual(mapOverlaysAndCaptions({ ranges: [{ s: 0, e: 10 }], duration: 10, out: { w: 100, h: 100 }, fx: { overlays: [{ type: 'image', path: 'b.png', s: 0, e: 1, layer: 2 }, { type: 'image', path: 'a.png', s: 0, e: 1, layer: 0 }], sfx: [] } }).images.map(i => i.path), ['a.png', 'b.png']);
 console.log('graph builder ok');
 
 // ---- ASS ----
 assert.equal(assTime(3725.5), '1:02:05.50'); assert.equal(assText('a {b}\nc'), 'a ｛b｝\\Nc');
 const ass = buildASS({ W: 1920, H: 1080, style: SUB_PRESETS.variety, captions: [{ s: 0, e: 2, text: '안녕하세요' }], textOverlays: [{ s: 1, e: 3, text: '구독', style: SUB_PRESETS.box, pos: 'tr', sizeFrac: 0.05, opacity: 0.5, fade: 0.3 }] });
-assert.ok(ass.includes('PlayResX: 1920') && ass.includes('Style: Cap,Black Han Sans,70,&H004DE1FF,') && ass.includes('Dialogue: 0,0:00:00.00,0:00:02.00,Cap,,0,0,0,,안녕하세요'), ass);
+assert.ok(ass.includes('PlayResX: 1920') && ass.includes('Style: Cap,Black Han Sans,70,&H004DE1FF,') && ass.includes('Dialogue: 2,0:00:00.00,0:00:02.00,Cap,,0,0,0,,안녕하세요'), ass);
 assert.ok(ass.includes('Style: Ov1,Noto Sans KR,54,') && ass.includes('\\an9\\pos(1862,58)\\fad(300,300)\\alpha&H80&') && ass.includes(',3,') /* opaque box */, ass);
 const boxLine = styleLine('B', SUB_PRESETS.box, 1920, 1080); assert.ok(/,3,\d+,0,2,96,96,76,1$/.test(boxLine), boxLine);
 // dragged caption position + entrance animation + catalog->file font names

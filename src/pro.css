@@ -7,6 +7,7 @@ body.pro .top{padding-block:2px 8px}
 body.pro .panel,body.pro .card,body.pro .timeline{padding:10px 12px}
 body.pro .bench{grid-template-columns:minmax(0,1.2fr) minmax(300px,1fr)}
 body.pro .monitor{max-height:360px;aspect-ratio:auto;height:360px}
+body.pro .monitor.mini{height:auto;max-height:none;aspect-ratio:16/9}
 body.pro canvas#tl{height:180px}
 body.pro .timeline{position:sticky;top:0;z-index:5;box-shadow:0 6px 18px rgba(0,0,0,.08)}
 body.pro .tabs{position:sticky;top:0;z-index:4;background:var(--bg)}

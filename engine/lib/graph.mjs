@@ -82,7 +82,9 @@ export function buildArgs(req, assets, { fontsDir, hasLibass, ffVersion } = {}) 
   // ---- audio ----
   const AF = 'aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo';
   let voice = null;
-  if (req.hasAudio) {
+  // 영상 track muted on the timeline: keep the music/effects, drop the original sound
+  const voiceOn = req.hasAudio && !(req.fx && req.fx.tracks && req.fx.tracks.origMuted);
+  if (voiceOn) {
     const n = ranges.length; const labels = ranges.map((_, i) => `[c${i}]`);
     lines.push(`[0:a]${AF},asplit=${n}${ranges.map((_, i) => `[a${i}]`).join('')}`);
     ranges.forEach((r, i) => lines.push(`[a${i}]atrim=${f3(r.s)}:${f3(r.e)},asetpts=PTS-STARTPTS[c${i}]`));
@@ -92,10 +94,11 @@ export function buildArgs(req, assets, { fontsDir, hasLibass, ffVersion } = {}) 
   const bgm = assets.bgm;
   if (bgm) {
     inputs.push(...(bgm.loop ? ['-stream_loop', '-1'] : []), '-i', bgm.path); const F = bgm.fade || 0;
-    const bg = [AF, `volume=${f3(bgm.volume)}`]; if (F > 0) bg.push(`afade=t=in:st=0:d=${f3(F)}`, `afade=t=out:st=${f3(Math.max(0, total - F))}:d=${f3(F)}`); bg.push(`atrim=0:${f3(total)}`, 'asetpts=PTS-STARTPTS');
+    const off = Math.max(0, Math.min(total - 0.05, bgm.offset || 0)); const len = total - off; // music dragged to start later on the timeline
+    const bg = [AF, `volume=${f3(bgm.volume)}`]; if (F > 0) bg.push(`afade=t=in:st=0:d=${f3(F)}`, `afade=t=out:st=${f3(Math.max(0, len - F))}:d=${f3(F)}`); bg.push(`atrim=0:${f3(len)}`, 'asetpts=PTS-STARTPTS'); if (off > 0) bg.push(`adelay=${Math.round(off * 1000)}:all=1`, `apad=whole_len=${Math.round(total * 48000)}`);
     lines.push(`[${idx}:a]${bg.join(',')}[bg]`); idx++;
     const amix = 'amix=inputs=2:duration=first:dropout_transition=0:normalize=0';
-    if (bgm.duck && req.hasAudio) { lines.push(`${voice}asplit=2[vA][vB]`, `[bg][vB]sidechaincompress=threshold=0.02:ratio=8:attack=40:release=400[bgd]`, `[vA][bgd]${amix}[m1]`); }
+    if (bgm.duck && voiceOn) { lines.push(`${voice}asplit=2[vA][vB]`, `[bg][vB]sidechaincompress=threshold=0.02:ratio=8:attack=40:release=400[bgd]`, `[vA][bgd]${amix}[m1]`); }
     else lines.push(`${voice}[bg]${amix}[m1]`);
     mix = '[m1]';
   }
@@ -120,9 +123,10 @@ export function mapOverlaysAndCaptions(req) {
   const textOverlays = [], images = [];
   for (const o of (req.fx && req.fx.overlays) || []) {
     const s = ot(o.s), e = ot(o.e); if (e - s < 0.05) continue;
-    if (o.type === 'text') textOverlays.push({ s, e, text: o.text, style: o.style, pos: o.pos, x: o.x, y: o.y, sizeFrac: o.w || 0.06, opacity: o.opacity, fade: o.fade });
-    else if (o.type === 'image' && o.path) images.push({ path: o.path, s, e, opacity: o.opacity ?? 1, box: overlayBoxPx(o, req.out.w, req.out.h), fade: o.fade });
+    if (o.type === 'text') textOverlays.push({ s, e, layer: o.layer || 0, text: o.text, style: o.style, pos: o.pos, x: o.x, y: o.y, sizeFrac: o.w || 0.06, opacity: o.opacity, fade: o.fade });
+    else if (o.type === 'image' && o.path) images.push({ path: o.path, layer: o.layer || 0, s, e, opacity: o.opacity ?? 1, box: overlayBoxPx(o, req.out.w, req.out.h), fade: o.fade });
   }
   const sfx = ((req.fx && req.fx.sfx) || []).map(s => ({ ...s, outT: ot(s.t), inKept: segs.some(g => g.keep && s.t >= g.s && s.t < g.e) })).filter(s => s.inKept);
+  images.sort((x, y) => x.layer - y.layer); // bottom layer is composited first
   return { captions, textOverlays, images, sfx, total };
 }

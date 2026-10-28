@@ -55,8 +55,21 @@ export const SFX_KINDS = { ding: '띵 (알림)', pop: '뿅 (등장)', whoosh: '�
 export const POS_LABELS = { tl: '왼쪽 위', tc: '가운데 위', tr: '오른쪽 위', ml: '왼쪽 중간', mc: '정중앙', mr: '오른쪽 중간', bl: '왼쪽 아래', bc: '가운데 아래', br: '오른쪽 아래' };
 
 export function defaultFx() {
-  return { subs: { burn: false, preset: 'outline', style: { ...SUB_PRESETS.outline } }, zooms: [], autoZoom: { on: false, scale: 1.12 }, fade: { in: 0, out: 0 }, transition: { type: 'none', dur: 0.3 }, adjust: { brightness: 0, contrast: 0, saturation: 0 }, overlays: [], sfx: [] };
+  return { subs: { burn: false, preset: 'outline', style: { ...SUB_PRESETS.outline } }, zooms: [], autoZoom: { on: false, scale: 1.12 }, fade: { in: 0, out: 0 }, transition: { type: 'none', dur: 0.3 }, adjust: { brightness: 0, contrast: 0, saturation: 0 }, overlays: [], sfx: [], tracks: defaultTracks() };
 }
+// Timeline track switches. hidden/locked hold lane keys: 'cap', 'ov0', 'ov1'…, 'main', 'sfx', 'bgm'
+export function defaultTracks() { return { hidden: [], locked: [], origMuted: false, sfxMuted: false, bgmMuted: false }; }
+// fx as it should be drawn/mixed: hidden overlay layers and muted effects left out
+export function liveFx(fx) {
+  const t = fx.tracks; if (!t || (!t.hidden.length && !t.sfxMuted)) return fx;
+  return { ...fx, overlays: fx.overlays.filter(o => !t.hidden.includes('ov' + (o.layer || 0))), sfx: t.sfxMuted ? [] : fx.sfx };
+}
+// First layer (row) where [s, e) does not overlap another overlay — new clips stack upward like CapCut
+export function freeLayer(overlays, s, e, skipId) {
+  for (let L = 0; L < 50; L++) if (!overlays.some(o => o.id !== skipId && (o.layer || 0) === L && o.s < e && o.e > s)) return L;
+  return 0;
+}
+export const layerCount = overlays => Math.max(1, ...overlays.map(o => (o.layer || 0) + 1));
 export function fxActive(fx, hasCaptions) {
   return !!(fx.zooms.length || (fx.autoZoom && fx.autoZoom.on) || fx.fade.in > 0 || fx.fade.out > 0 || (fx.transition && fx.transition.type === 'dissolve') || fx.overlays.length || (fx.subs.burn && hasCaptions) || adjustActive(fx.adjust));
 }
@@ -105,7 +118,8 @@ export function dissolveAlpha(transition, outT, rangeStartOut, rangeIndex) {
   const p = (outT - rangeStartOut) / (transition.dur || 0.3);
   return p >= 1 ? 0 : 1 - Math.max(0, p);
 }
-export function activeOverlays(overlays, srcT) { return overlays.filter(o => srcT >= o.s && srcT < o.e); }
+// active at srcT, bottom layer first (higher layers are drawn on top)
+export function activeOverlays(overlays, srcT) { return overlays.filter(o => srcT >= o.s && srcT < o.e).sort((a, b) => (a.layer || 0) - (b.layer || 0)); }
 export function overlayAlpha(o, srcT) {
   let a = o.opacity ?? 1; const f = o.fade || 0;
   if (f > 0) a *= Math.max(0, Math.min(1, (srcT - o.s) / f, (o.e - srcT) / f));
@@ -160,8 +174,8 @@ export function mixSfxInto(chans, sr, srcStart, sfxList, getBuf) {
 export function hexA(hex, a) { const h = String(hex || '#000000').replace('#', ''); const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16); return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${Math.max(0, Math.min(1, a))})`; }
 // Serialize fx for the project file (image pixels only when a small data URL is available)
 export function fxToJSON(fx) {
-  return { subs: { burn: fx.subs.burn, preset: fx.subs.preset, style: { ...fx.subs.style } }, zooms: fx.zooms.map(z => ({ ...z })), autoZoom: { ...fx.autoZoom }, fade: { ...fx.fade }, transition: { ...fx.transition }, adjust: { ...(fx.adjust || {}) },
-    overlays: fx.overlays.map(o => ({ id: o.id, type: o.type, s: o.s, e: o.e, pos: o.pos, x: o.x, y: o.y, w: o.w, opacity: o.opacity, fade: o.fade, text: o.text, style: o.style ? { ...o.style } : undefined, ratio: o.ratio, name: o.name, dataUrl: o.dataUrl && o.dataUrl.length < 1.5e6 ? o.dataUrl : undefined })),
+  return { subs: { burn: fx.subs.burn, preset: fx.subs.preset, style: { ...fx.subs.style } }, zooms: fx.zooms.map(z => ({ ...z })), autoZoom: { ...fx.autoZoom }, fade: { ...fx.fade }, transition: { ...fx.transition }, adjust: { ...(fx.adjust || {}) }, tracks: JSON.parse(JSON.stringify(fx.tracks || defaultTracks())),
+    overlays: fx.overlays.map(o => ({ id: o.id, type: o.type, s: o.s, e: o.e, layer: o.layer || 0, pos: o.pos, x: o.x, y: o.y, w: o.w, opacity: o.opacity, fade: o.fade, text: o.text, style: o.style ? { ...o.style } : undefined, ratio: o.ratio, name: o.name, dataUrl: o.dataUrl && o.dataUrl.length < 1.5e6 ? o.dataUrl : undefined })),
     sfx: fx.sfx.map(s => ({ id: s.id, t: s.t, kind: s.kind, volume: s.volume, name: s.name })) };
 }
 export function fxFromJSON(j) {
@@ -172,7 +186,8 @@ export function fxFromJSON(j) {
   if (j.fade) fx.fade = { in: +j.fade.in || 0, out: +j.fade.out || 0 };
   if (j.transition) fx.transition = { type: j.transition.type === 'dissolve' ? 'dissolve' : 'none', dur: +j.transition.dur || 0.3 };
   if (j.adjust) for (const k of ['brightness', 'contrast', 'saturation']) fx.adjust[k] = Math.max(-50, Math.min(50, +j.adjust[k] || 0));
-  if (Array.isArray(j.overlays)) fx.overlays = j.overlays.filter(o => o && o.e > o.s && (o.type === 'text' || o.dataUrl)).map(o => ({ id: o.id || String(Math.random()).slice(2), type: o.type, s: +o.s, e: +o.e, pos: o.pos || 'tr', x: o.x == null ? undefined : +o.x, y: o.y == null ? undefined : +o.y, w: +o.w || 0.25, opacity: o.opacity ?? 1, fade: +o.fade || 0, text: o.text || '', style: o.type === 'text' ? { ...SUB_PRESETS.outline, ...(o.style || {}) } : undefined, ratio: +o.ratio || 1, name: o.name || '', dataUrl: o.dataUrl, bitmap: null }));
+  if (j.tracks) { const t = j.tracks; fx.tracks = { hidden: Array.isArray(t.hidden) ? t.hidden.filter(x => typeof x === 'string') : [], locked: Array.isArray(t.locked) ? t.locked.filter(x => typeof x === 'string') : [], origMuted: !!t.origMuted, sfxMuted: !!t.sfxMuted, bgmMuted: !!t.bgmMuted }; }
+  if (Array.isArray(j.overlays)) fx.overlays = j.overlays.filter(o => o && o.e > o.s && (o.type === 'text' || o.dataUrl)).map(o => ({ id: o.id || String(Math.random()).slice(2), type: o.type, s: +o.s, e: +o.e, layer: Math.max(0, Math.round(+o.layer || 0)), pos: o.pos || 'tr', x: o.x == null ? undefined : +o.x, y: o.y == null ? undefined : +o.y, w: +o.w || 0.25, opacity: o.opacity ?? 1, fade: +o.fade || 0, text: o.text || '', style: o.type === 'text' ? { ...SUB_PRESETS.outline, ...(o.style || {}) } : undefined, ratio: +o.ratio || 1, name: o.name || '', dataUrl: o.dataUrl, bitmap: null }));
   if (Array.isArray(j.sfx)) fx.sfx = j.sfx.filter(s => s && isFinite(+s.t) && s.kind && s.kind !== 'custom').map(s => ({ id: s.id || String(Math.random()).slice(2), t: +s.t, kind: s.kind, volume: s.volume ?? 0.8, name: s.name || '' }));
   return fx;
 }

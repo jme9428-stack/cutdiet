@@ -1,14 +1,14 @@
 // AI 자막·NG tab: extracts 16 kHz mono audio, runs Whisper in a Web Worker, builds SRT and removal candidates.
 // Captions can be corrected line by line afterwards (text, timing, split/merge/delete), imported from SRT, and find/replaced.
-import { wordsFromChunks, dropSilentWords, buildCaptionLines, buildSRT, findFillers, findStutters, findMumbles, findRepeats, stripFromLines, parseSRT, mergeSpans, resampleInto } from './textlogic.js';
+import { wordsFromChunks, dropSilentWords, buildCaptionLines, buildSRT, findFillers, findStutters, findMumbles, findRepeats, findShortBursts, stripFromLines, parseSRT, mergeSpans, resampleInto } from './textlogic.js';
 
 const TARGET_SR = 16000;
-const KIND_CHIP = { filler: '<span class="chip">추임새</span>', stutter: '<span class="chip warn">버벅임</span>', mumble: '<span class="chip">웅얼거림</span>' };
+const KIND_CHIP = { filler: '<span class="chip">추임새</span>', stutter: '<span class="chip warn">버벅임</span>', mumble: '<span class="chip">웅얼거림</span>', short: '<span class="chip">짧은 소리</span>' };
 
 export function initTranscribe(api) {
   const { state, toast, saveFile, copyText, outTime, fmtClock, baseName, seek, markSpans, heavyReason, escapeHtml } = api;
   const $ = id => document.getElementById(id);
-  const el = { chip: $('aiChip'), model: $('aiModel'), gpu: $('aiGpu'), run: $('btnAiRun'), cancel: $('btnAiCancel'), progress: $('aiProgress'), status: $('aiStatus'), srtOut: $('btnSrtOut'), srtSrc: $('btnSrtSrc'), txtCopy: $('btnTxtCopy'), text: $('aiText'), candChip: $('aiCandChip'), apply: $('btnAiApply'), checkAll: $('btnAiCheckAll'), uncheckAll: $('btnAiUncheckAll'), candBody: $('aiCandBody'),
+  const el = { chip: $('aiChip'), model: $('aiModel'), gpu: $('aiGpu'), run: $('btnAiRun'), cancel: $('btnAiCancel'), progress: $('aiProgress'), status: $('aiStatus'), srtOut: $('btnSrtOut'), srtSrc: $('btnSrtSrc'), txtCopy: $('btnTxtCopy'), text: $('aiText'), candChip: $('aiCandChip'), apply: $('btnAiApply'), checkAll: $('btnAiCheckAll'), uncheckAll: $('btnAiUncheckAll'), candBody: $('aiCandBody'), candNote: $('aiCandNote'), rescan: $('btnAiRescan'),
     optFiller: $('aiOptFiller'), optStutter: $('aiOptStutter'), optRepeat: $('aiOptRepeat'), optMumble: $('aiOptMumble'), optStrip: $('aiOptStrip'),
     capList: $('capList'), capChip: $('capChip'), capAdd: $('btnCapAdd'), capImport: $('btnCapImport'), capFile: $('capFile'), capFind: $('capFind'), capRepl: $('capReplace'), capReplBtn: $('btnCapReplace'), capFollow: $('capFollow') };
   const ai = { worker: null, running: false, words: [], lines: [], cands: [], forFile: null, wordLevel: true };
@@ -105,19 +105,23 @@ export function initTranscribe(api) {
   el.run.addEventListener('click', run);
   el.cancel.addEventListener('click', () => { ai.running = false; stopWorker(); if (ai.abort) ai.abort.abort(); el.status.textContent = '중단했습니다'; el.progress.hidden = true; el.run.disabled = false; el.cancel.hidden = true; });
 
-  // ---- removal candidates (each kind can be turned off) ----
+  // ---- removal candidates (each kind can be turned off; rows are editable; shown on the timeline's "NG 후보" lane) ----
   function computeCands() {
     const w = ai.words; const list = [];
-    if (ai.wordLevel) {
+    if (w.length && ai.wordLevel) {
       if (el.optFiller.checked) list.push(...findFillers(w));
       if (el.optStutter.checked) list.push(...findStutters(w));
       if (el.optMumble.checked) list.push(...findMumbles(w, state.env, api.HOP, state.params.threshold));
     }
-    if (el.optRepeat.checked) list.push(...findRepeats(w));
+    if (w.length && el.optRepeat.checked) list.push(...findRepeats(w));
+    // before 자막 만들기: what the loudness analysis alone can tell — short sounds standing alone between pauses
+    if (!w.length && !state.isDemo && state.hasMedia && (el.optFiller.checked || el.optMumble.checked)) list.push(...findShortBursts(state.segments));
     list.sort((a, b) => a.s - b.s || (b.e - b.s) - (a.e - a.s));
     // the same words can be both a filler and a stutter ("어 어"): keep the first one found for a span
-    ai.cands = list.filter((c, i) => !list.some((d, j) => j < i && d.kind !== 'repeat' && c.kind !== 'repeat' && d.s <= c.s + 0.01 && d.e >= c.e - 0.01));
+    ai.cands = list.filter((c, i) => !list.some((d, j) => j < i && d.kind !== 'repeat' && c.kind !== 'repeat' && d.s <= c.s + 0.01 && d.e >= c.e - 0.01)).map(c => ({ ...c, on: !!c.confident }));
+    candsChanged();
   }
+  const candsChanged = () => { if (api.candsChanged) api.candsChanged(); };
   function renderResults() {
     el.text.readOnly = false; el.text.placeholder = '자막을 만들면 여기에 표시됩니다. 줄을 직접 고칠 수 있습니다 (시간은 그대로, 글자만).';
     el.text.value = ai.lines.map(l => `[${fmtClock(l.s)}] ${l.text}`).join('\n');
@@ -125,22 +129,44 @@ export function initTranscribe(api) {
     renderCands(); renderEditor();
   }
   function renderCands() {
-    el.candChip.textContent = `${ai.cands.length}개`;
-    if (!ai.cands.length) { el.candBody.innerHTML = `<tr><td colspan="5" class="muted">${ai.lines.length ? (ai.words.length ? '선택한 종류의 삭제 후보를 찾지 못했습니다.' : 'SRT로 불러온 자막은 단어 시간이 없어 후보를 찾지 않습니다. 자막 만들기를 실행하세요.') : '자막을 만들면 후보가 여기에 표시됩니다.'}</td></tr>`; el.apply.disabled = el.checkAll.disabled = el.uncheckAll.disabled = true; return; }
-    el.candBody.innerHTML = ai.cands.map((c, i) => `<tr data-i="${i}"><td><input type="checkbox" id="aiCand${i}" ${c.confident ? 'checked' : ''} aria-label="선택"></td><td>${KIND_CHIP[c.kind] || `<span class="chip warn">반복·NG${c.sim ? ` ${Math.round(c.sim * 100)}%` : ''}</span>`}</td><td class="mono"><button class="link mono" data-act="seek">${fmtClock(c.s)}</button></td><td style="white-space:normal;min-width:200px">${escapeHtml(c.text)}${c.pair ? `<div class="hint">→ ${c.kind === 'repeat' ? '다시 한 말' : '이어진 말'}: ${escapeHtml(c.pair)}</div>` : ''}</td><td class="mono">${(c.e - c.s).toFixed(1)}s</td></tr>`).join('');
+    const on = ai.cands.filter(c => c.on).length;
+    el.candChip.textContent = ai.cands.length ? `${on}/${ai.cands.length}개 선택` : '0개';
+    const audioOnly = !ai.words.length;
+    el.candNote.innerHTML = !state.hasMedia || state.isDemo ? '영상을 불러오면 후보를 찾습니다.'
+      : audioOnly ? '지금 목록은 <b>소리만으로</b> 찾은 짧은 소리입니다. 추임새·말 버벅임·다시 말한 NG는 말의 내용을 알아야 찾을 수 있어서 <b>자막 만들기</b>를 먼저 실행해야 합니다. <button class="btn sm primary" id="btnAiRun2">자막 만들고 후보 찾기</button>'
+      : '자막(단어 시간)으로 찾은 후보입니다. 타임라인의 <b>NG 후보</b> 줄에도 같은 색으로 표시됩니다.';
+    const b2 = document.getElementById('btnAiRun2'); if (b2) b2.addEventListener('click', run);
+    if (!ai.cands.length) { el.candBody.innerHTML = `<tr><td colspan="6" class="muted">${audioOnly ? (state.hasMedia && !state.isDemo ? '짧게 끊긴 소리를 찾지 못했습니다. 위 버튼으로 자막을 만들면 추임새·버벅임·NG를 찾습니다.' : '자막을 만들면 후보가 여기에 표시됩니다.') : '선택한 종류의 삭제 후보를 찾지 못했습니다.'}</td></tr>`; el.apply.disabled = el.checkAll.disabled = el.uncheckAll.disabled = true; candsChanged(); return; }
+    el.candBody.innerHTML = ai.cands.map((c, i) => `<tr data-i="${i}" class="cand-${c.kind}${c.on ? ' on' : ''}"><td><input type="checkbox" data-act="toggle" ${c.on ? 'checked' : ''} aria-label="삭제할 후보로 선택"></td><td>${KIND_CHIP[c.kind] || `<span class="chip warn">반복·NG${c.sim ? ` ${Math.round(c.sim * 100)}%` : ''}</span>`}</td><td class="mono"><button class="btn sm ghost" data-act="play" title="앞뒤를 조금 붙여 들어보기">▶ ${fmtClock(c.s)}</button></td><td class="captime"><input class="mono" data-f="s" value="${fmtClock(c.s)}" aria-label="시작"><span class="muted">–</span><input class="mono" data-f="e" value="${fmtClock(c.e)}" aria-label="끝"></td><td style="white-space:normal;min-width:160px">${escapeHtml(c.text)}${c.pair ? `<div class="hint">→ ${c.kind === 'repeat' ? '다시 한 말' : '이어진 말'}: ${escapeHtml(c.pair)}</div>` : ''}</td><td class="mono">${(c.e - c.s).toFixed(1)}s <button class="btn sm ghost" data-act="drop" title="이 후보 빼기 (삭제 안 함)">✕</button></td></tr>`).join('');
     el.apply.disabled = el.checkAll.disabled = el.uncheckAll.disabled = false;
+    candsChanged();
   }
-  el.candBody.addEventListener('click', e => { const b = e.target.closest('button[data-act="seek"]'); const tr = e.target.closest('tr[data-i]'); if (b && tr) seek(Math.max(0, ai.cands[Number(tr.dataset.i)].s - 0.4)); });
-  el.checkAll.addEventListener('click', () => el.candBody.querySelectorAll('input[type=checkbox]').forEach(c => { c.checked = true; }));
-  el.uncheckAll.addEventListener('click', () => el.candBody.querySelectorAll('input[type=checkbox]').forEach(c => { c.checked = false; }));
+  el.candBody.addEventListener('click', e => {
+    const tr = e.target.closest('tr[data-i]'); if (!tr) return; const c = ai.cands[Number(tr.dataset.i)]; if (!c) return;
+    const b = e.target.closest('[data-act]'); if (!b) return;
+    if (b.dataset.act === 'toggle') { c.on = b.checked; tr.classList.toggle('on', c.on); el.candChip.textContent = `${ai.cands.filter(x => x.on).length}/${ai.cands.length}개 선택`; candsChanged(); }
+    else if (b.dataset.act === 'play') { if (api.previewSpan) api.previewSpan(c.s, c.e); else seek(Math.max(0, c.s - 0.4)); }
+    else if (b.dataset.act === 'drop') { ai.cands.splice(ai.cands.indexOf(c), 1); renderCands(); }
+  });
+  el.candBody.addEventListener('change', e => {
+    const inp = e.target.closest('input[data-f]'); if (!inp) return; const c = ai.cands[Number(inp.closest('tr').dataset.i)]; if (!c) return;
+    const v = parseClock(inp.value); if (!isFinite(v)) { inp.value = fmtClock(c[inp.dataset.f]); toast('시간은 분:초 형식으로 입력하세요 (예: 1:23.5)'); return; }
+    c[inp.dataset.f] = Math.max(0, Math.min(state.duration || v, v)); if (c.e <= c.s) c.e = c.s + 0.05; c.edited = true; renderCands();
+  });
+  const setAll = v => { for (const c of ai.cands) c.on = v; renderCands(); };
+  el.checkAll.addEventListener('click', () => setAll(true));
+  el.uncheckAll.addEventListener('click', () => setAll(false));
+  el.rescan.addEventListener('click', () => { computeCands(); renderCands(); toast(ai.cands.length ? `후보 ${ai.cands.length}개` : '후보를 찾지 못했습니다', 1500); });
   el.apply.addEventListener('click', () => {
-    const picked = []; el.candBody.querySelectorAll('tr[data-i]').forEach(tr => { if (tr.querySelector('input').checked) picked.push(ai.cands[Number(tr.dataset.i)]); });
+    const picked = ai.cands.filter(c => c.on);
     if (!picked.length) { toast('체크한 항목이 없습니다'); return; }
     const spans = mergeSpans(picked, 0.04); markSpans(spans, false);
-    if (el.optStrip.checked) { ai.lines = stripFromLines(ai.lines, picked); renderEditor(); changed(); }
+    if (el.optStrip.checked && ai.lines.length) { ai.lines = stripFromLines(ai.lines, picked); renderEditor(); changed(); }
     ai.cands = ai.cands.filter(c => !picked.includes(c)); renderCands();
     toast(`${picked.length}개 구간을 삭제 표시했습니다 (Ctrl+Z로 되돌리기)`, 3000);
   });
+  // after the loudness analysis of a new video: show the audio-only candidates right away
+  document.addEventListener('cutdiet:analyzed', () => { if (!ai.words.length) { computeCands(); renderCands(); } });
 
   function staleWarn() { const key = fileKey(); if (ai.forFile && key && ai.forFile !== key) toast('이 자막은 다른 영상에서 만든 것입니다', 3000); }
   el.srtOut.addEventListener('click', async () => { staleWarn(); const srt = buildSRT(ai.lines, t => outTime(state.segments, t)); if (!srt.trim()) { toast('편집 후 남는 자막이 없습니다'); return; } await saveFile(`${baseName(state.file ? state.file.name : 'video')}_cut.srt`, srt); });
@@ -206,7 +232,7 @@ export function initTranscribe(api) {
     try {
       const lines = parseSRT(await f.text()); if (!lines.length) { toast('자막 줄을 찾지 못했습니다 (SRT·VTT 파일인지 확인하세요)'); return; }
       if (ai.lines.length && !confirm(`지금 자막 ${ai.lines.length}줄을 "${f.name}"(${lines.length}줄)로 바꿀까요?`)) return;
-      ai.lines = lines.map(l => ({ ...l, edited: true })); ai.words = []; ai.cands = []; ai.forFile = fileKey(); renderResults(); changed();
+      ai.lines = lines.map(l => ({ ...l, edited: true })); ai.words = []; computeCands(); ai.forFile = fileKey(); renderResults(); changed();
       toast(`${lines.length}줄을 불러왔습니다. 원본 영상 시간 기준 SRT여야 맞습니다`, 3500);
     } catch { toast('자막 파일을 읽지 못했습니다'); }
   });
@@ -234,12 +260,16 @@ export function initTranscribe(api) {
 
   // reset when a new file is opened (a restored project brings its captions back through setLines)
   let lastKey = null;
-  setInterval(() => { const key = fileKey(); if (key !== lastKey) { lastKey = key; if (ai.running) { ai.running = false; stopWorker(); el.run.disabled = false; el.cancel.hidden = true; } ai.words = []; ai.lines = []; ai.cands = []; el.text.value = ''; el.progress.hidden = true; el.status.textContent = state.hasMedia ? '준비됨. "자막 만들기"를 누르세요.' : '영상을 불러온 뒤 실행하세요.'; renderResults(); } }, 500);
+  setInterval(() => { const key = fileKey(); if (key !== lastKey) { lastKey = key; if (ai.running) { ai.running = false; stopWorker(); el.run.disabled = false; el.cancel.hidden = true; } ai.words = []; ai.lines = []; ai.cands = []; if (!state.analyzing) computeCands(); el.text.value = ''; el.progress.hidden = true; el.status.textContent = state.hasMedia ? '준비됨. "자막 만들기"를 누르세요.' : '영상을 불러온 뒤 실행하세요.'; renderResults(); } }, 500);
   function setLines(lines) {
-    lastKey = fileKey(); ai.words = []; ai.cands = []; ai.forFile = lastKey;
+    lastKey = fileKey(); ai.words = []; computeCands(); ai.forFile = lastKey;
     ai.lines = (lines || []).map(l => ({ s: Number(l.s), e: Number(l.e), text: String(l.text || ''), edited: !!l.edited })).filter(l => l.e > l.s && l.text).sort((a, b) => a.s - b.s);
     renderResults(); if (api.captionsChanged) api.captionsChanged();
   }
   renderEditor();
-  return { getLines: () => ai.lines, setLines, refresh: renderEditor };
+  // undo/redo of timeline clip moves restores caption timing without touching the recognized words
+  function replaceLines(lines) { ai.lines = lines.map(l => ({ ...l })); renderEditor(); if (api.captionsChanged) api.captionsChanged(); }
+  function focusCaption(line) { const i = ai.lines.indexOf(line); if (i < 0) return; if (api.showTab) api.showTab('ai'); const inp = el.capList.querySelector(`.caprow[data-i="${i}"] input[data-f="text"]`); if (inp) { inp.scrollIntoView({ block: 'center' }); inp.focus(); inp.select(); } }
+  function toggleCand(c) { if (!ai.cands.includes(c)) return; c.on = !c.on; renderCands(); }
+  return { getLines: () => ai.lines, setLines, replaceLines, refresh: renderEditor, getCands: () => ai.cands, toggleCand, focusCaption };
 }

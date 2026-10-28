@@ -182,6 +182,17 @@ export function parseSRT(text) {
   return out.sort((x, y) => x.s - y.s);
 }
 
+// Without a transcript: short sounds standing alone between two removed pauses ("어…", "음…", a cut-off word)
+export function findShortBursts(segments, opts = {}) {
+  const minLen = opts.minLen ?? 0.12, maxLen = opts.maxLen ?? 0.75, minGap = opts.minGap ?? 0.3; const out = [];
+  for (let i = 1; i < segments.length - 1; i++) {
+    const g = segments[i], a = segments[i - 1], b = segments[i + 1]; const d = g.e - g.s;
+    if (!g.keep || a.keep || b.keep || d < minLen || d > maxLen || a.e - a.s < minGap || b.e - b.s < minGap) continue;
+    out.push({ kind: 'short', s: g.s, e: g.e, text: '(짧게 끊긴 소리 · 어/음 추정)', confident: false });
+  }
+  return out;
+}
+
 // Merge overlapping/adjacent candidate spans with padding
 export function mergeSpans(cands, pad = 0.04) {
   const spans = cands.map(c => ({ s: Math.max(0, c.s - pad), e: c.e + pad })).sort((a, b) => a.s - b.s); const out = [];

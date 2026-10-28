@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as A from '../src/cutlogic.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { normKo, similarity, wordsFromChunks, dropSilentWords, buildCaptionLines, buildSentences, buildSRT, srtTime, findFillers, findRepeats, findStutters, findMumbles, stripFromLines, parseSRT, mergeSpans, resampleInto } from '../src/textlogic.js';
+import { normKo, similarity, wordsFromChunks, dropSilentWords, buildCaptionLines, buildSentences, buildSRT, srtTime, findFillers, findRepeats, findStutters, findMumbles, findShortBursts, stripFromLines, parseSRT, mergeSpans, resampleInto } from '../src/textlogic.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const main = fs.readFileSync(path.join(root, 'src/main.js'), 'utf8');
@@ -79,6 +79,20 @@ assert.equal(dropSilentWords([{ text: 'x', s: 5, e: 5.2 }], null, 0.02, -45).len
   assert.equal(parseSRT('WEBVTT\n\n01:02:03.500 --> 01:02:04.000\nx')[0].s, 3723.5);
   assert.deepEqual(parseSRT(buildSRT([{ s: 0.5, e: 1.25, text: '하나' }, { s: 2, e: 3, text: '둘' }])), [{ s: 0.5, e: 1.25, text: '하나' }, { s: 2, e: 3, text: '둘' }]);
 }
+// audio-only: a short sound standing alone between two removed pauses
+{
+  const segs = [{ s: 0, e: 3, keep: true }, { s: 3, e: 4, keep: false }, { s: 4, e: 4.4, keep: true }, { s: 4.4, e: 5.2, keep: false }, { s: 5.2, e: 9, keep: true }, { s: 9, e: 9.1, keep: false }, { s: 9.1, e: 9.5, keep: true }, { s: 9.5, e: 11, keep: false }];
+  const sb = findShortBursts(segs); assert.equal(sb.length, 1); assert.deepEqual([sb[0].s, sb[0].e, sb[0].kind, sb[0].confident], [4, 4.4, 'short', false]);
+}
+// music dragged to start later: nothing mixed before the offset, fade-in counts from the music start
+{
+  const sr = 1000; const bgm = { data: new Float32Array(5000).fill(0.5), sr, duration: 5, volume: 1, loop: false, fade: 0, duck: false, offset: 1 };
+  const ch = [new Float32Array(2000)]; A.mixBgmInto(ch, sr, 0, 0, bgm, null, A.HOP, -40, 10, { g: 1 });
+  assert.equal(ch[0][500], 0); assert.ok(Math.abs(ch[0][1500] - 0.5) < 1e-6);
+}
+for (const id of ['tlHeads', 'hudCand', 'btnMiniClose', 'aiCandNote', 'btnAiRescan']) assert.ok(html.includes(`id="${id}"`), 'missing ' + id);
+// the candidates card sits right under ② and before the caption editor
+assert.ok(html.indexOf('② 자막 내보내기') < html.indexOf('③ 삭제 후보') && html.indexOf('③ 삭제 후보') < html.indexOf('자막 편집 <span'));
 for (const id of ['capList', 'capChip', 'btnCapAdd', 'btnCapImport', 'capFile', 'capFind', 'capReplace', 'btnCapReplace', 'capFollow', 'aiOptFiller', 'aiOptStutter', 'aiOptRepeat', 'aiOptMumble', 'aiOptStrip']) assert.ok(html.includes(`id="${id}"`), 'missing ' + id);
 console.log('text logic ok');
 console.log('ALL SITE TESTS PASSED');

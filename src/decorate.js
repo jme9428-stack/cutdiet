@@ -1,7 +1,7 @@
 // 꾸미기 layer: subtitle burn-in styles, zoom/fade/dissolve, color adjust, sound effects, image/text overlays.
 // The same compositor draws the live preview (over the <video>) and the rendered frames.
 // On the preview, captions and overlays can be dragged, resized (corner handle) and edited in place (double-click).
-import { SUB_PRESETS, FONT_CATALOG, fontInfo, CAPTION_ANIMS, SFX_KINDS, POS_LABELS, fxActive, zoomAt, zoomSourceRect, fadeAlpha, dissolveAlpha, activeOverlays, overlayAlpha, overlayBox, wrapCaption, captionAnim, customXY, adjustFilter, adjustActive, synthSfx, hexA } from './fxlogic.js';
+import { SUB_PRESETS, FONT_CATALOG, fontInfo, CAPTION_ANIMS, SFX_KINDS, POS_LABELS, liveFx, freeLayer, fxActive, zoomAt, zoomSourceRect, fadeAlpha, dissolveAlpha, activeOverlays, overlayAlpha, overlayBox, wrapCaption, captionAnim, customXY, adjustFilter, adjustActive, synthSfx, hexA } from './fxlogic.js';
 
 function roundRect(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
 export function fontSpec(style, px) { return `${style.weight || 700} ${px}px "${style.font || 'Noto Sans KR'}", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif`; }
@@ -185,12 +185,12 @@ export function initDecorate(api) {
   fillFontSelects();
   ovEls.size.addEventListener('input', () => { ovEls.sizeVal.textContent = `${ovEls.size.value}%`; });
   const rangeFor = () => { const v = ovEls.range.value; if (v === 'all') return { s: 0, e: state.duration }; if (v === 'seg') return curRange(); if (v === '5s') return { s: state.cur, e: Math.min(state.duration, state.cur + 5) }; return { s: state.cur, e: Math.min(state.duration, state.cur + 3) }; };
-  function addOverlay(o) { if (!state.duration) { toast('먼저 영상을 불러오세요'); return; } const r = rangeFor(); Object.assign(o, { id: uid(), s: r.s, e: r.e, pos: ovEls.pos.value, opacity: Number(ovEls.opacity.value) / 100, fade: Number(ovEls.fade.value) || 0 }); fx().overlays.push(o); fx().overlays.sort((a, b) => a.s - b.s); select({ kind: 'ov', id: o.id }); refresh(); toast(`${o.type === 'image' ? '이미지' : '텍스트'} 추가 (${fmtClock(r.s)}–${fmtClock(r.e)}) · 화면에서 끌어 옮기고 모서리로 크기 조절`, 2600); }
+  function addOverlay(o) { if (!state.duration) { toast('먼저 영상을 불러오세요'); return; } const r = rangeFor(); Object.assign(o, { id: uid(), s: r.s, e: r.e, layer: freeLayer(fx().overlays, r.s, r.e), pos: ovEls.pos.value, opacity: Number(ovEls.opacity.value) / 100, fade: Number(ovEls.fade.value) || 0 }); fx().overlays.push(o); fx().overlays.sort((a, b) => a.s - b.s); select({ kind: 'ov', id: o.id }); refresh(); toast(`${o.type === 'image' ? '이미지' : '텍스트'} 추가 (${fmtClock(r.s)}–${fmtClock(r.e)}) · 화면에서 끌어 옮기고 모서리로 크기 조절`, 2600); }
   ovEls.imgPick.addEventListener('click', () => ovEls.imgFile.click());
   ovEls.imgFile.addEventListener('change', async () => { const f = ovEls.imgFile.files && ovEls.imgFile.files[0]; ovEls.imgFile.value = ''; if (!f) return; try { const bitmap = await createImageBitmap(f); let dataUrl; if (f.size < 1.2e6) dataUrl = await new Promise(res => { const rd = new FileReader(); rd.onload = () => res(rd.result); rd.onerror = () => res(undefined); rd.readAsDataURL(f); }); addOverlay({ type: 'image', bitmap, dataUrl, file: f, ratio: bitmap.width / bitmap.height, w: Number(ovEls.size.value) / 100, name: f.name }); if (!dataUrl) toast('1.2MB가 넘는 이미지는 프로젝트 파일에 저장되지 않습니다 (이번 세션에서는 사용 가능)', 4000); } catch { toast('이미지를 읽지 못했습니다'); } });
   ovEls.textAdd.addEventListener('click', () => { const t = ovEls.text.value.trim(); if (!t) { toast('텍스트를 입력하세요'); ovEls.text.focus(); return; } const style = { ...SUB_PRESETS[ovEls.textStyle.value] }; if (ovEls.font.value) { style.font = ovEls.font.value; const info = fontInfo(style.font); if (info) style.weight = info.w; } ensureFont(style.font, t).then(redraw); addOverlay({ type: 'text', text: t, w: Number(ovEls.size.value) / 100 * 0.3, style, name: t.slice(0, 20) }); ovEls.text.value = ''; });
   ovEls.text.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); ovEls.textAdd.click(); } });
-  ovEls.list.addEventListener('click', e => { const b = e.target.closest('button[data-act]'); if (!b) return; const i = Number(b.dataset.i); const o = fx().overlays[i]; if (!o) return; if (b.dataset.act === 'del') { fx().overlays.splice(i, 1); if (sel && sel.id === o.id) select(null); refresh(); } else if (b.dataset.act === 'seek') { seek(o.s + 0.01); select({ kind: 'ov', id: o.id }); } else if (b.dataset.act === 'start') { o.s = Math.min(state.cur, o.e - 0.1); refresh(); } else if (b.dataset.act === 'end') { o.e = Math.max(state.cur, o.s + 0.1); refresh(); } else if (b.dataset.act === 'edit') { const t = prompt('텍스트 수정', o.text); if (t != null && t.trim()) { o.text = t.trim(); o.name = o.text.slice(0, 20); ensureFont(o.style && o.style.font, o.text).then(redraw); refresh(); } } });
+  ovEls.list.addEventListener('click', e => { const b = e.target.closest('button[data-act]'); if (!b) return; const i = Number(b.dataset.i); const o = fx().overlays[i]; if (!o) return; if (b.dataset.act === 'del') { fx().overlays.splice(i, 1); if (sel && sel.id === o.id) select(null); const used = [...new Set(fx().overlays.map(x => x.layer || 0))].sort((a, b) => a - b); for (const x of fx().overlays) x.layer = used.indexOf(x.layer || 0); refresh(); } else if (b.dataset.act === 'seek') { seek(o.s + 0.01); select({ kind: 'ov', id: o.id }); } else if (b.dataset.act === 'start') { o.s = Math.min(state.cur, o.e - 0.1); refresh(); } else if (b.dataset.act === 'end') { o.e = Math.max(state.cur, o.s + 0.1); refresh(); } else if (b.dataset.act === 'edit') { const t = prompt('텍스트 수정', o.text); if (t != null && t.trim()) { o.text = t.trim(); o.name = o.text.slice(0, 20); ensureFont(o.style && o.style.font, o.text).then(redraw); refresh(); } } });
   ovEls.list.addEventListener('change', e => { const s = e.target.closest('select[data-i]'); if (!s) return; const o = fx().overlays[Number(s.dataset.i)]; if (!o) return; if (s.value === 'custom') { if (!isFinite(o.x)) { o.x = 0.5; o.y = 0.5; } } o.pos = s.value; refresh(); });
 
   function renderLists() {
@@ -206,7 +206,7 @@ export function initDecorate(api) {
   const cv = $('fxCanvas'); const cctx = cv.getContext('2d'); let lastSfxCur = -1; let lastComp = null; let view = null; // view: canvas px <-> CSS px
   const SAMPLE = [{ s: 0, e: Infinity, text: '자막 미리보기 · 끌어서 옮기세요' }];
   function previewTick(playing) {
-    const f = fx(); const caps = captionsOf() || []; const showSample = subEls.sample.checked && !$('tab-decorate').hidden;
+    const f = liveFx(fx()); const caps = captionsOf() || []; const showSample = subEls.sample.checked && !$('tab-decorate').hidden;
     const active = state.hasMedia && state.videoPlayable && (fxActive(f, caps.length > 0) || showSample || f.sfx.length);
     if (!active) { if (!cv.hidden) { cv.hidden = true; lastComp = null; layoutSel(); } return; }
     const M = els.monitor.getBoundingClientRect(); const sw = state.width || els.video.videoWidth, sh = state.height || els.video.videoHeight; if (!sw || !sh) { cv.hidden = true; return; }
@@ -235,7 +235,7 @@ export function initDecorate(api) {
   let sel = null; // {kind: 'cap'} | {kind: 'ov', id}
   let drag = null;
   const boxOf = s => { if (!s || !lastComp) return null; return lastComp.boxes.find(b => s.kind === 'cap' ? b.kind === 'cap' : (b.kind === 'ov' && b.o.id === s.id)) || null; };
-  function select(s) { sel = s; layoutSel(); if (ovEls.list) renderLists(); }
+  function select(s, fromTimeline) { sel = s; layoutSel(); if (ovEls.list) renderLists(); if (!fromTimeline && api.selectionChanged) api.selectionChanged(s && s.kind === 'ov' ? ovById(s.id) || null : null); }
   function layoutSel() {
     const b = boxOf(sel); if (!b || !view || cv.hidden) { selBox.hidden = true; return; }
     const pad = 4; Object.assign(selBox.style, { left: (view.left + b.x * view.k - pad) + 'px', top: (view.top + b.y * view.k - pad) + 'px', width: (b.w * view.k + pad * 2) + 'px', height: (b.h * view.k + pad * 2) + 'px' }); selBox.hidden = false;
@@ -308,5 +308,5 @@ export function initDecorate(api) {
   // restore image bitmaps after a project load
   async function rehydrate() { for (const o of fx().overlays) if (o.type === 'image' && !o.bitmap && o.dataUrl) { try { const blob = await (await fetch(o.dataUrl)).blob(); o.bitmap = await createImageBitmap(blob); } catch {} } styleToUI(); fxToUI(); renderLists(); preloadFonts(fx(), (captionsOf() || []).map(l => l.text)).then(redraw); }
   styleToUI(); fxToUI(); renderLists(); ensureFont(fx().subs.style.font);
-  return { previewTick, getSfxBuf, renderLists, rehydrate, syncUI: () => { styleToUI(); fxToUI(); renderLists(); } };
+  return { previewTick, getSfxBuf, renderLists, rehydrate, syncUI: () => { styleToUI(); fxToUI(); renderLists(); }, selectOverlay: id => select(id ? { kind: 'ov', id } : null, true) };
 }

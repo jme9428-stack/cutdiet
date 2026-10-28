@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SUB_PRESETS, FONT_CATALOG, SUB_FONTS, fontInfo, adjustActive, adjustFilter, adjustEq, captionAnim, customXY, defaultFx, fxActive, zoomAt, zoomSourceRect, fadeAlpha, dissolveAlpha, activeOverlays, overlayAlpha, overlayBox, wrapCaption, captionAt, synthSfx, mixSfxInto, hexA, fxToJSON, fxFromJSON } from '../src/fxlogic.js';
+import { liveFx, freeLayer, layerCount, defaultTracks, SUB_PRESETS, FONT_CATALOG, SUB_FONTS, fontInfo, adjustActive, adjustFilter, adjustEq, captionAnim, customXY, defaultFx, fxActive, zoomAt, zoomSourceRect, fadeAlpha, dissolveAlpha, activeOverlays, overlayAlpha, overlayBox, wrapCaption, captionAt, synthSfx, mixSfxInto, hexA, fxToJSON, fxFromJSON } from '../src/fxlogic.js';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const dec = fs.readFileSync(path.join(root, 'src/decorate.js'), 'utf8');
@@ -69,4 +69,15 @@ const back2 = fxFromJSON(JSON.parse(JSON.stringify(fxToJSON(fx2))));
 assert.equal(back2.adjust.contrast, 20); assert.equal(back2.overlays[0].style.font, 'Gaegu'); assert.equal(back2.overlays[0].x, 0.4); assert.equal(back2.overlays[0].pos, 'custom');
 assert.deepEqual([back2.subs.style.pos, back2.subs.style.x, back2.subs.style.anim, back2.subs.style.font], ['custom', 0.3, 'pop', 'Jalnan']);
 assert.equal(fxFromJSON({ adjust: { brightness: 999 } }).adjust.brightness, 50);
+// layers: overlapping clips stack upward; drawing order bottom layer first; hidden layers / muted effects drop out
+{
+  const ovs = [{ id: 'a', s: 0, e: 5, layer: 0 }, { id: 'b', s: 4, e: 8, layer: 1 }];
+  assert.equal(freeLayer(ovs, 1, 2), 1); assert.equal(freeLayer(ovs, 4.5, 5), 2); assert.equal(freeLayer(ovs, 6, 7), 0); assert.equal(freeLayer(ovs, 4.5, 5, 'b'), 1); assert.equal(layerCount([]), 1); assert.equal(layerCount(ovs), 2);
+  assert.deepEqual(activeOverlays([{ id: 'top', s: 0, e: 9, layer: 2 }, { id: 'low', s: 0, e: 9, layer: 0 }], 1).map(o => o.id), ['low', 'top']);
+  const f = defaultFx(); f.overlays = ovs.map(o => ({ ...o, type: 'text', text: 'x' })); f.sfx = [{ id: 's', t: 1, kind: 'ding' }];
+  assert.equal(liveFx(f), f, 'nothing hidden: same object');
+  f.tracks.hidden = ['ov1']; f.tracks.sfxMuted = true; const L = liveFx(f); assert.deepEqual(L.overlays.map(o => o.id), ['a']); assert.equal(L.sfx.length, 0); assert.equal(f.overlays.length, 2, 'original untouched');
+  const back = fxFromJSON(JSON.parse(JSON.stringify(fxToJSON(f)))); assert.deepEqual(back.tracks.hidden, ['ov1']); assert.equal(back.tracks.sfxMuted, true); assert.equal(back.overlays[1].layer, 1);
+  assert.deepEqual(fxFromJSON({}).tracks, defaultTracks()); assert.deepEqual(fxFromJSON({ tracks: { hidden: 'x', locked: [1, 'cap'] } }).tracks.locked, ['cap']);
+}
 console.log('ALL FX TESTS PASSED');

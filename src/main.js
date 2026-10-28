@@ -1,6 +1,6 @@
 import { initTranscribe } from './transcribe.js';
 import { initDecorate, makeCompositor, preloadFonts } from './decorate.js';
-import { defaultFx, fxActive, fxToJSON, fxFromJSON, mixSfxInto } from './fxlogic.js';
+import { defaultFx, defaultTracks, fxActive, fxToJSON, fxFromJSON, mixSfxInto, liveFx, layerCount } from './fxlogic.js';
 import { HOP, clamp, PRESETS, detectSegments, suggestThreshold, keepRanges, intersectRanges, rangesDuration, keptDuration, applySpan, countRemoveRuns, outTime, sourceTimeAtOutput, segIndexAt, fmtClock, ytStamp, tcFromSeconds, buildEDL, buildFCPXML, buildFFmpeg, chapterLines, validateChapters, pickThumbnailTimes, mixBgmInto, buildZip, assembleBlob, accumulateEnergy, energyToDb, demoEnvelope } from './cutlogic.js';
 const LS_PREFIX = 'cutdiet:v1:';
 const HEAVY_LIMIT = 3600; // seconds: above this only light features
@@ -29,8 +29,8 @@ const state = {
   engineMedia: null, hooks: {}, outDirHandle: null,
 };
 const $ = s => document.querySelector(s);
-let decor = null; let captionsOf = () => [];
-const ids = ['drop','fileInput','filebar','fileName','fileMeta','btnOtherFile','notice','video','monitor','monitorEmpty','hudState','hudRes','engineChip','cropOverlay','cropFrame',
+let decor = null; let captionsOf = () => []; let trApi = null;
+const ids = ['drop','fileInput','filebar','fileName','fileMeta','btnOtherFile','notice','video','monitor','monitorEmpty','hudState','hudRes','hudCand','tlHeads','btnMiniClose','engineChip','cropOverlay','cropFrame',
   'presetNote','adv','advSummary','rngThreshold','rngMinSilence','rngPad','valThreshold','valMinSilence','valPad','btnAuto','btnReanalyze','dirtyHint',
   'stOrig','stAfter','stSaved','stSavedPct','stCuts','stCutsNote',
   'btnPlay','btnRev','btnFwd','btnPrevCut','btnNextCut','speedBadge','selRate','btnMute','rngVolume','btnFull','btnMarkIn','btnMarkOut','btnMarkDel','tcCur','tcDur','tcOut','chkSkip','btnToggle','btnSplit','btnTrimL','btnTrimR','btnChapter','btnUndo','btnRedo','btnZoomIn','btnZoomOut','btnZoomFit','zoomLabel','tl','scroller',
@@ -296,12 +296,22 @@ els.btnReanalyze.addEventListener('click', () => { if (!state.env) return; pushU
 
 // ===================== UNDO =====================
 const undo = { stack: [], redo: [] };
-function snapshot() { return JSON.stringify({ segments: state.segments, chapters: state.chapters, dirty: state.dirty }); }
+function snapshot() {
+  return { json: JSON.stringify({ segments: state.segments, chapters: state.chapters, dirty: state.dirty }),
+    clips: { ov: state.fx.overlays.map(o => ({ ref: o, s: o.s, e: o.e, layer: o.layer || 0 })), sfx: state.fx.sfx.map(x => ({ ref: x, t: x.t })), caps: (captionsOf() || []).map(l => ({ ref: l, s: l.s, e: l.e })), bgmStart: state.bgm.start || 0 } };
+}
+// put clips back where they were; ones deleted on the timeline since then come back, everything added later stays
+function restoreClips(c) {
+  const back = (list, entries, fields) => { for (const en of entries) { const { ref, ...f } = en; Object.assign(ref, f); if (!list.includes(ref) && ref._tlDeleted) { delete ref._tlDeleted; list.push(ref); } } };
+  back(state.fx.overlays, c.ov); back(state.fx.sfx, c.sfx); state.fx.overlays.sort((x, y) => x.s - y.s); state.fx.sfx.sort((x, y) => x.t - y.t);
+  const lines = captionsOf() || []; back(lines, c.caps); lines.sort((x, y) => x.s - y.s); if (trApi) trApi.refresh();
+  state.bgm.start = c.bgmStart; if (decor) { decor.renderLists(); decor.previewTick(false); }
+}
 function updateUndoButtons() { els.btnUndo.disabled = !undo.stack.length; els.btnRedo.disabled = !undo.redo.length; }
 function pushUndo() { undo.stack.push(snapshot()); if (undo.stack.length > 60) undo.stack.shift(); undo.redo.length = 0; updateUndoButtons(); state.activity.manualEdits++; }
 function popUndoSilently() { undo.stack.pop(); updateUndoButtons(); }
 function undoReset() { undo.stack.length = 0; undo.redo.length = 0; updateUndoButtons(); }
-function restoreSnapshot(s) { const o = JSON.parse(s); state.segments = o.segments; state.chapters = o.chapters; state.dirty = !!o.dirty; els.btnReanalyze.hidden = !(state.dirty && state.env); els.dirtyHint.hidden = !state.dirty; refreshAll(); }
+function restoreSnapshot(snap) { const o = JSON.parse(typeof snap === 'string' ? snap : snap.json); if (snap.clips) restoreClips(snap.clips); state.segments = o.segments; state.chapters = o.chapters; state.dirty = !!o.dirty; els.btnReanalyze.hidden = !(state.dirty && state.env); els.dirtyHint.hidden = !state.dirty; refreshAll(); }
 function doUndo() { if (!undo.stack.length) { toast('되돌릴 작업이 없습니다', 1200); return; } undo.redo.push(snapshot()); restoreSnapshot(undo.stack.pop()); updateUndoButtons(); toast('되돌렸습니다', 1000); }
 function doRedo() { if (!undo.redo.length) { toast('다시 실행할 작업이 없습니다', 1200); return; } undo.stack.push(snapshot()); restoreSnapshot(undo.redo.pop()); updateUndoButtons(); toast('다시 실행했습니다', 1000); }
 els.btnUndo.addEventListener('click', doUndo); els.btnRedo.addEventListener('click', doRedo);
@@ -441,10 +451,11 @@ els.btnPrevCut.addEventListener('click', () => jumpCut(-1)); els.btnNextCut.addE
 els.chkSkip.addEventListener('change', () => { state.skip = els.chkSkip.checked; });
 // playback speed / volume / fullscreen (preview only; exports are unaffected)
 els.selRate.addEventListener('change', () => { state.rate = Number(els.selRate.value) || 1; if (state.shuttle.dir !== -1) { els.video.playbackRate = state.rate; state.shuttle.speed = 1; updateTimeUI(); } els.selRate.blur(); });
-function setVolume(v, muted) { const vid = els.video; vid.volume = clamp(v, 0, 1); vid.muted = !!muted; els.rngVolume.value = Math.round(vid.volume * 100); els.btnMute.textContent = vid.muted || vid.volume === 0 ? '🔇' : vid.volume < 0.5 ? '🔉' : '🔊'; lsSet('cutdiet:volume', JSON.stringify({ v: vid.volume, m: vid.muted })); }
+let userMuted = false;
+function setVolume(v, muted) { const vid = els.video; userMuted = !!muted; vid.volume = clamp(v, 0, 1); vid.muted = userMuted || !!(state.fx.tracks && state.fx.tracks.origMuted); els.rngVolume.value = Math.round(vid.volume * 100); els.btnMute.textContent = userMuted || vid.volume === 0 ? '🔇' : vid.volume < 0.5 ? '🔉' : '🔊'; lsSet('cutdiet:volume', JSON.stringify({ v: vid.volume, m: userMuted })); }
 try { const sv = JSON.parse(lsGet('cutdiet:volume') || 'null'); if (sv) setVolume(Number(sv.v ?? 1), !!sv.m); } catch {}
 els.rngVolume.addEventListener('input', () => setVolume(Number(els.rngVolume.value) / 100, false));
-els.btnMute.addEventListener('click', () => setVolume(els.video.volume || 1, !els.video.muted));
+els.btnMute.addEventListener('click', () => setVolume(els.video.volume || 1, !userMuted));
 function toggleFullscreen() { const m = els.monitor; if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); else if (m.requestFullscreen) m.requestFullscreen().catch(() => toast('전체 화면으로 전환하지 못했습니다')); }
 els.btnFull.addEventListener('click', toggleFullscreen);
 document.addEventListener('fullscreenchange', () => { setTimeout(() => { layoutCrop(); if (decor) decor.previewTick(false); }, 60); });
@@ -456,16 +467,17 @@ els.video.addEventListener('seeked', () => { state.cur = els.video.currentTime; 
 
 function speechAt(t) { if (!state.env) return false; const i = (t / HOP) | 0; return i < state.env.length && state.env[i] > state.params.threshold; }
 function syncBgmPreview(playing) {
-  const b = state.bgm; if (!b.ready || !b.url) { if (!bgmAudio.paused) bgmAudio.pause(); return; }
+  const b = state.bgm; if (!b.ready || !b.url || (state.fx.tracks && state.fx.tracks.bgmMuted)) { if (!bgmAudio.paused) bgmAudio.pause(); return; }
   if (!playing) { if (!bgmAudio.paused) bgmAudio.pause(); return; }
   const outT = outTime(state.segments, state.cur); const total = keptDuration(state.segments);
-  let want = b.loop ? outT % b.duration : outT;
+  const mt = outT - outTime(state.segments, b.start || 0); if (mt < 0) { if (!bgmAudio.paused) bgmAudio.pause(); return; }
+  let want = b.loop ? mt % b.duration : mt;
   if (!b.loop && want >= b.duration - 0.05) { if (!bgmAudio.paused) bgmAudio.pause(); return; }
   if (Math.abs(bgmAudio.currentTime - want) > 0.35) { try { bgmAudio.currentTime = want; } catch {} }
   const rate = els.video.playbackRate || 1; if (bgmAudio.playbackRate !== rate) { try { bgmAudio.playbackRate = rate; } catch {} }
   if (bgmAudio.paused) bgmAudio.play().catch(() => {});
   const target = (b.duck && speechAt(state.cur)) ? 0.3 : 1; bgmGain += (target - bgmGain) * (target < bgmGain ? 0.35 : 0.08);
-  let fade = 1; if (b.fade > 0) { if (outT < b.fade) fade = outT / b.fade; const rem = total - outT; if (rem < b.fade) fade = Math.min(fade, Math.max(0, rem / b.fade)); }
+  let fade = 1; if (b.fade > 0) { if (mt < b.fade) fade = mt / b.fade; const rem = total - outT; if (rem < b.fade) fade = Math.min(fade, Math.max(0, rem / b.fade)); }
   bgmAudio.volume = clamp(b.volume * bgmGain * fade, 0, 1);
 }
 
@@ -532,7 +544,7 @@ document.addEventListener('keydown', e => {
     case 'KeyS': splitAt(state.cur); break;
     case 'KeyQ': trimDelete('left'); break;
     case 'KeyW': trimDelete('right'); break;
-    case 'Delete': case 'Backspace': e.preventDefault(); deleteCurrent(); break;
+    case 'Delete': case 'Backspace': e.preventDefault(); if (!deleteSelectedClip()) deleteCurrent(); break;
     case 'KeyM': addChapterAt(state.cur); break;
     case 'KeyI': setMark('in', state.cur); break;
     case 'KeyO': setMark('out', state.cur); break;
@@ -546,21 +558,63 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// ===================== TIMELINE =====================
-const RULER = 18, MARKS = 18;
-function timelineGeometry() {
-  const W = els.tl.clientWidth || 600, H = els.tl.clientHeight || 140; const dur = Math.max(state.duration, 1e-3);
-  const vis = dur / state.zoom; state.scroll = clamp(state.scroll, 0, Math.max(0, dur - vis));
-  return { W, H, dur, vis, t0: state.scroll, pps: W / vis };
+// ===================== TIMELINE (multi-track) =====================
+// Lanes, top to bottom like CapCut: ruler · 자막 · 텍스트/이미지 layers (top layer first) · NG 후보 · 영상(파형·컷) · 효과음 · 음악 · 챕터
+// Clips on the 자막/텍스트·이미지/효과음/음악 lanes can be dragged (move) and trimmed at their edges; overlays move between layers.
+const RULER = 18, MARKS = 16;
+const LANE_H = { cap: 24, ov: 22, cand: 14, sfx: 20, bgm: 24 };
+const CLIP_COLORS = { cap: '#C65A3C', text: '#7D55C7', image: '#2A8A96', sfx: '#3C7FD0', bgm: '#1E6A9E' };
+const CAND_COLORS = { filler: '#E0A030', stutter: '#E5533D', repeat: '#C2185B', mumble: '#8592A3', short: '#8592A3' };
+const candList = () => (trApi && trApi.getCands ? trApi.getCands() : []);
+const tracks = () => state.fx.tracks || (state.fx.tracks = defaultTracks());
+const isLocked = key => tracks().locked.includes(key);
+function laneLayout() {
+  const rows = layerCount(state.fx.overlays); const L = []; let y = RULER;
+  const add = (key, kind, h, extra) => { L.push({ key, kind, y, h, ...extra }); y += h; };
+  add('cap', 'cap', LANE_H.cap);
+  for (let r = rows - 1; r >= 0; r--) add('ov' + r, 'ov', LANE_H.ov, { layer: r });
+  if (candList().length) add('cand', 'cand', LANE_H.cand);
+  add('main', 'main', window.innerWidth < 720 ? 70 : 92);
+  add('sfx', 'sfx', LANE_H.sfx); add('bgm', 'bgm', LANE_H.bgm); add('marks', 'marks', MARKS);
+  return { L, H: y, lane: k => L.find(l => l.key === k) };
 }
+function timelineGeometry() {
+  const lay = laneLayout(); if (els.tl.style.height !== lay.H + 'px') els.tl.style.height = lay.H + 'px';
+  const W = els.tl.clientWidth || 600, H = lay.H; const dur = Math.max(state.duration, 1e-3);
+  const vis = dur / state.zoom; state.scroll = clamp(state.scroll, 0, Math.max(0, dur - vis));
+  return { W, H, dur, vis, t0: state.scroll, pps: W / vis, lay };
+}
+function bgmSpan() {
+  const b = state.bgm; if (!b.ready) return null; const start = clamp(b.start || 0, 0, state.duration);
+  const off = outTime(state.segments, start); const total = keptDuration(state.segments);
+  const endOut = b.loop ? total : Math.min(total, off + b.duration);
+  return { s: start, e: Math.max(start + 0.05, sourceTimeAtOutput(state.segments, endOut)) };
+}
+// clips on a lane: [{kind, ref, s, e, label, color}]
+function laneClips(l) {
+  if (l.kind === 'cap') return (captionsOf() || []).map(line => ({ kind: 'cap', ref: line, s: line.s, e: line.e, label: line.text, color: CLIP_COLORS.cap }));
+  if (l.kind === 'ov') return state.fx.overlays.filter(o => (o.layer || 0) === l.layer).map(o => ({ kind: 'ov', ref: o, s: o.s, e: o.e, label: (o.type === 'image' ? '🖼 ' : 'T ') + (o.name || o.text || ''), color: o.type === 'image' ? CLIP_COLORS.image : CLIP_COLORS.text }));
+  if (l.kind === 'sfx') return state.fx.sfx.map(s => { const b = decor && decor.getSfxBuf(s); const d = b && b.data ? b.data.length / (b.sr || 48000) : 0.4; return { kind: 'sfx', ref: s, s: s.t, e: s.t + Math.max(0.15, d), label: s.name || s.kind, color: CLIP_COLORS.sfx }; });
+  if (l.kind === 'bgm') { const sp = bgmSpan(); return sp ? [{ kind: 'bgm', ref: state.bgm, s: sp.s, e: sp.e, label: '♫ ' + (state.bgm.name || '배경음악'), color: CLIP_COLORS.bgm }] : []; }
+  if (l.kind === 'cand') return candList().map(c => ({ kind: 'cand', ref: c, s: c.s, e: c.e, label: '', color: CAND_COLORS[c.kind] || CAND_COLORS.repeat }));
+  return [];
+}
+function laneDimmed(l) { const t = tracks(); return (l.kind === 'cap' && !state.fx.subs.burn) || (l.kind === 'ov' && t.hidden.includes(l.key)) || (l.kind === 'sfx' && t.sfxMuted) || (l.kind === 'bgm' && t.bgmMuted); }
 function niceStep(vis) { const target = vis / 7; return [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600].find(s => s >= target) || 7200; }
+function roundRectPath(ctx, x, y, w, h, r) { r = Math.min(r, w / 2, h / 2); ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
 function drawTimeline() {
-  const cv = els.tl; const dpr = window.devicePixelRatio || 1; const { W, H, dur, vis, t0, pps } = timelineGeometry();
+  const cv = els.tl; const dpr = window.devicePixelRatio || 1; const { W, H, dur, vis, t0, pps, lay } = timelineGeometry();
   if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
   const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
-  const C = { keep: cssVar('--keep'), keepSoft: cssVar('--keep-soft'), remove: cssVar('--remove'), removeSoft: cssVar('--remove-soft'), line: cssVar('--line-strong'), fg: cssVar('--fg'), muted: cssVar('--muted'), play: cssVar('--play'), accent: cssVar('--accent') };
-  const top = RULER, bottom = H - MARKS, h = bottom - top;
-  if (!state.duration) { ctx.fillStyle = C.muted; ctx.font = '12px ' + cssVar('--font-body'); ctx.textAlign = 'center'; ctx.fillText('영상을 불러오면 파형과 컷 구간이 여기 표시됩니다', W / 2, H / 2 + 4); return; }
+  const C = { keep: cssVar('--keep'), keepSoft: cssVar('--keep-soft'), remove: cssVar('--remove'), removeSoft: cssVar('--remove-soft'), line: cssVar('--line'), lineStrong: cssVar('--line-strong'), fg: cssVar('--fg'), muted: cssVar('--muted'), play: cssVar('--play'), accent: cssVar('--accent'), surface: cssVar('--surface') };
+  renderTrackHeads(lay);
+  const main = lay.lane('main'); const top = main.y, bottom = main.y + main.h, h = main.h; const marks = lay.lane('marks');
+  if (!state.duration) { ctx.fillStyle = C.muted; ctx.font = '12px ' + cssVar('--font-body'); ctx.textAlign = 'center'; ctx.fillText('영상을 불러오면 파형과 컷 구간, 자막·텍스트·효과음·음악 트랙이 여기 표시됩니다', W / 2, top + h / 2 + 4); return; }
+  // lane backgrounds + separators
+  for (const l of lay.L) { if (l.kind === 'main' || l.kind === 'marks') continue; ctx.fillStyle = C.surface; ctx.globalAlpha = l.kind === 'cand' ? 0.35 : 0.55; ctx.fillRect(0, l.y, W, l.h); ctx.globalAlpha = 1; ctx.fillStyle = C.line; ctx.fillRect(0, l.y + l.h - 1, W, 1); }
+  // removed stretches are shaded across every clip lane too, so you see what will be cut under each caption/effect
+  for (const g of state.segments) { if (g.keep) continue; const x0 = (g.s - t0) * pps, x1 = (g.e - t0) * pps; if (x1 < 0 || x0 > W) continue; ctx.fillStyle = C.removeSoft; ctx.globalAlpha = 0.45; ctx.fillRect(Math.max(0, x0), RULER, Math.min(W, x1) - Math.max(0, x0), top - RULER); ctx.fillRect(Math.max(0, x0), bottom, Math.min(W, x1) - Math.max(0, x0), marks.y - bottom); ctx.globalAlpha = 1; }
+  // ---- main track: keep/remove, waveform ----
   for (const g of state.segments) {
     const x0 = (g.s - t0) * pps, x1 = (g.e - t0) * pps; if (x1 < 0 || x0 > W) continue;
     ctx.fillStyle = g.keep ? C.keepSoft : C.removeSoft; ctx.fillRect(Math.max(0, x0), top, Math.min(W, x1) - Math.max(0, x0), h);
@@ -573,57 +627,182 @@ function drawTimeline() {
   // shorts range band
   if (state.shorts.out > state.shorts.in && !$('#tab-shorts').hidden) { const x0 = (state.shorts.in - t0) * pps, x1 = (state.shorts.out - t0) * pps; ctx.fillStyle = '#FFD166'; ctx.globalAlpha = .18; ctx.fillRect(x0, top, x1 - x0, h); ctx.globalAlpha = 1; ctx.fillRect(x0, top, 2, h); ctx.fillRect(x1 - 2, top, 2, h); }
   if (state.env) {
-    const env = state.env; let si = 0; const segs = state.segments;
+    const env = state.env; let si = 0; const segs = state.segments; const muted = tracks().origMuted;
     for (let x = 0; x < W; x++) {
       const ta = t0 + x / pps, tb = t0 + (x + 1) / pps; const i0 = Math.floor(ta / HOP), i1 = Math.max(i0 + 1, Math.ceil(tb / HOP));
       let m = -100; for (let i = Math.max(0, i0); i < i1 && i < env.length; i++) if (env[i] > m) m = env[i];
       if (m <= -99) continue;
       const a = clamp((m + 72) / 62, 0, 1); const bh = Math.max(1, a * (h - 6));
       while (si < segs.length - 1 && segs[si].e <= ta) si++;
-      ctx.fillStyle = (segs[si] ? segs[si].keep : true) ? C.keep : C.remove; ctx.globalAlpha = 0.9; ctx.fillRect(x, bottom - 3 - bh, 1, bh); ctx.globalAlpha = 1;
+      ctx.fillStyle = (segs[si] ? segs[si].keep : true) ? C.keep : C.remove; ctx.globalAlpha = muted ? 0.3 : 0.9; ctx.fillRect(x, bottom - 3 - bh, 1, bh); ctx.globalAlpha = 1;
     }
     const ty = bottom - 3 - clamp((state.params.threshold + 72) / 62, 0, 1) * (h - 6);
     ctx.setLineDash([3, 4]); ctx.strokeStyle = C.muted; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, ty + .5); ctx.lineTo(W, ty + .5); ctx.stroke(); ctx.setLineDash([]);
   }
-  ctx.strokeStyle = C.line; ctx.lineWidth = 1;
+  ctx.strokeStyle = C.lineStrong; ctx.lineWidth = 1;
   for (let i = 1; i < state.segments.length; i++) { const x = Math.round((state.segments[i].s - t0) * pps) + .5; if (x < 0 || x > W) continue; ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke(); }
-  const step = niceStep(vis); ctx.font = '10px ' + cssVar('--font-mono'); ctx.fillStyle = C.muted; ctx.textAlign = 'left'; ctx.strokeStyle = C.line;
-  ctx.beginPath(); ctx.moveTo(0, top + .5); ctx.lineTo(W, top + .5); ctx.stroke();
-  for (let t = Math.ceil(t0 / step) * step; t <= t0 + vis + 1e-9; t += step) { const x = Math.round((t - t0) * pps) + .5; ctx.beginPath(); ctx.moveTo(x, top - 5); ctx.lineTo(x, top); ctx.stroke(); ctx.fillText(fmtClock(t, step < 1), x + 3, 11); }
-  // decoration marks: zoom ranges (accent bar at top), overlays (second bar), sound effects (dots on the marks row)
   for (const z of state.fx.zooms) { const x0 = (z.s - t0) * pps, x1 = (z.e - t0) * pps; if (x1 < 0 || x0 > W) continue; ctx.fillStyle = C.accent; ctx.globalAlpha = .8; ctx.fillRect(Math.max(0, x0), top + 2, Math.min(W, x1) - Math.max(0, x0), 3); ctx.globalAlpha = 1; }
-  for (const o of state.fx.overlays) { const x0 = (o.s - t0) * pps, x1 = (o.e - t0) * pps; if (x1 < 0 || x0 > W) continue; ctx.fillStyle = C.play; ctx.globalAlpha = .8; ctx.fillRect(Math.max(0, x0), top + 7, Math.min(W, x1) - Math.max(0, x0), 3); ctx.globalAlpha = 1; }
-  for (const s of state.fx.sfx) { const x = (s.t - t0) * pps; if (x < -4 || x > W + 4) continue; ctx.fillStyle = C.remove; ctx.beginPath(); ctx.arc(x, bottom + 7, 3.5, 0, Math.PI * 2); ctx.fill(); }
-  ctx.font = '10px ' + cssVar('--font-body');
-  for (const c of state.chapters) { const x = (c.t - t0) * pps; if (x < -40 || x > W + 10) continue; ctx.fillStyle = C.accent; ctx.beginPath(); ctx.moveTo(x, bottom + 2); ctx.lineTo(x + 6, bottom + 7); ctx.lineTo(x, bottom + 12); ctx.closePath(); ctx.fill(); ctx.fillStyle = C.fg; ctx.fillText((c.title || '').slice(0, 14), x + 9, bottom + 12); }
-  if (state.hoverT != null) { const x = Math.round((state.hoverT - t0) * pps) + .5; ctx.strokeStyle = C.muted; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke(); ctx.setLineDash([]); ctx.font = '10px ' + cssVar('--font-mono'); ctx.fillStyle = C.fg; ctx.textAlign = x > W - 60 ? 'right' : 'left'; ctx.fillText(fmtClock(state.hoverT), x + (x > W - 60 ? -4 : 4), top + 11); ctx.textAlign = 'left'; }
+  // ---- clip lanes ----
+  ctx.font = '10.5px ' + cssVar('--font-body'); ctx.textBaseline = 'middle';
+  for (const l of lay.L) {
+    if (l.kind === 'main' || l.kind === 'marks') continue;
+    const clips = laneClips(l); const dim = laneDimmed(l);
+    if (!clips.length && l.kind !== 'cand') { ctx.fillStyle = C.muted; ctx.globalAlpha = 0.7; ctx.textAlign = 'left'; ctx.fillText({ cap: '자막 없음 · AI 자막·NG 탭에서 만들거나 SRT 불러오기', ov: '텍스트·이미지 없음 · 꾸미기 탭 ④에서 추가', sfx: '효과음 없음 · 꾸미기 탭 ③', bgm: '음악 없음 · 배경음악 탭에서 넣으면 여기서 위치를 옮길 수 있습니다' }[l.kind], 8, l.y + l.h / 2); ctx.globalAlpha = 1; continue; }
+    for (const c of clips) {
+      const x0 = (c.s - t0) * pps, x1 = (c.e - t0) * pps; if (x1 < -2 || x0 > W + 2) continue;
+      const x = Math.max(-4, x0), w = Math.max(3, Math.min(W + 4, x1) - x); const y = l.y + 2, hh = l.h - 4;
+      const sel = state.selClip && state.selClip.ref === c.ref;
+      if (l.kind === 'cand') { ctx.globalAlpha = c.ref.on ? 0.9 : 1; ctx.fillStyle = c.color; ctx.strokeStyle = c.color; roundRectPath(ctx, x, y, w, hh, 3); if (c.ref.on) ctx.fill(); else { ctx.lineWidth = 1.5; ctx.stroke(); } ctx.globalAlpha = 1; continue; }
+      ctx.globalAlpha = dim ? 0.35 : 0.95; ctx.fillStyle = c.color; roundRectPath(ctx, x, y, w, hh, 4); ctx.fill(); ctx.globalAlpha = 1;
+      if (sel) { ctx.strokeStyle = '#FFD166'; ctx.lineWidth = 2; roundRectPath(ctx, x + 1, y + 1, w - 2, hh - 2, 4); ctx.stroke(); }
+      if (w > 18) { ctx.save(); ctx.beginPath(); ctx.rect(x + 3, y, w - 6, hh); ctx.clip(); ctx.fillStyle = '#fff'; ctx.globalAlpha = dim ? 0.6 : 1; ctx.textAlign = 'left'; ctx.fillText(c.label, Math.max(x, 0) + 5, y + hh / 2 + 0.5); ctx.restore(); }
+    }
+  }
+  ctx.textBaseline = 'alphabetic';
+  // ruler
+  const step = niceStep(vis); ctx.font = '10px ' + cssVar('--font-mono'); ctx.fillStyle = C.muted; ctx.textAlign = 'left'; ctx.strokeStyle = C.lineStrong;
+  ctx.beginPath(); ctx.moveTo(0, RULER + .5); ctx.lineTo(W, RULER + .5); ctx.stroke();
+  for (let t = Math.ceil(t0 / step) * step; t <= t0 + vis + 1e-9; t += step) { const x = Math.round((t - t0) * pps) + .5; ctx.beginPath(); ctx.moveTo(x, RULER - 5); ctx.lineTo(x, RULER); ctx.stroke(); ctx.fillText(fmtClock(t, step < 1), x + 3, 11); }
+  // chapters
+  ctx.font = '10px ' + cssVar('--font-body'); const my = marks.y;
+  for (const c of state.chapters) { const x = (c.t - t0) * pps; if (x < -40 || x > W + 10) continue; ctx.fillStyle = C.accent; ctx.beginPath(); ctx.moveTo(x, my + 2); ctx.lineTo(x + 6, my + 7); ctx.lineTo(x, my + 12); ctx.closePath(); ctx.fill(); ctx.fillStyle = C.fg; ctx.fillText((c.title || '').slice(0, 14), x + 9, my + 12); }
+  if (state.hoverT != null) { const x = Math.round((state.hoverT - t0) * pps) + .5; ctx.strokeStyle = C.muted; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(x, RULER); ctx.lineTo(x, my); ctx.stroke(); ctx.setLineDash([]); ctx.font = '10px ' + cssVar('--font-mono'); ctx.fillStyle = C.fg; ctx.textAlign = x > W - 60 ? 'right' : 'left'; ctx.fillText(fmtClock(state.hoverT), x + (x > W - 60 ? -4 : 4), RULER + 11); ctx.textAlign = 'left'; }
   const px = (state.cur - t0) * pps;
-  if (px >= -1 && px <= W + 1) { ctx.fillStyle = C.play; ctx.fillRect(Math.round(px) - 1, 0, 2, bottom); ctx.beginPath(); ctx.moveTo(px - 6, 0); ctx.lineTo(px + 6, 0); ctx.lineTo(px, 7); ctx.closePath(); ctx.fill(); }
+  if (px >= -1 && px <= W + 1) { ctx.fillStyle = C.play; ctx.fillRect(Math.round(px) - 1, 0, 2, my); ctx.beginPath(); ctx.moveTo(px - 6, 0); ctx.lineTo(px + 6, 0); ctx.lineTo(px, 7); ctx.closePath(); ctx.fill(); }
   els.scroller.max = String(Math.max(0, dur - vis)); els.scroller.value = String(t0); els.scroller.disabled = state.zoom <= 1.0001;
   els.zoomLabel.textContent = state.zoom < 10 ? state.zoom.toFixed(1).replace(/\.0$/, '') + '×' : Math.round(state.zoom) + '×';
+  updateCandHud();
+}
+// ---- track headers (DOM column left of the canvas): eye / lock / speaker ----
+const HEAD_INFO = { cap: ['T', '자막'], ov: ['▣', '레이어'], cand: ['!', 'NG 후보'], main: ['▶', '영상'], sfx: ['♪', '효과음'], bgm: ['♫', '음악'] };
+let headSig = '';
+function headButtons(l) {
+  const t = tracks(); const lock = `<button class="th-btn" data-act="lock" data-key="${l.key}" aria-pressed="${isLocked(l.key)}" title="${isLocked(l.key) ? '잠금 풀기' : '잠그기 (실수로 옮기지 않게)'}">${isLocked(l.key) ? '🔒' : '🔓'}</button>`;
+  if (l.kind === 'cap') return `<button class="th-btn" data-act="eye" data-key="cap" aria-pressed="${!state.fx.subs.burn}" title="${state.fx.subs.burn ? '자막을 영상에서 숨기기 (굽기 끄기)' : '자막을 영상에 보이기 (굽기 켜기)'}">${state.fx.subs.burn ? '👁' : '🚫'}</button>` + lock;
+  if (l.kind === 'ov') { const hid = t.hidden.includes(l.key); return `<button class="th-btn" data-act="eye" data-key="${l.key}" aria-pressed="${hid}" title="${hid ? '이 레이어 보이기' : '이 레이어 숨기기'}">${hid ? '🚫' : '👁'}</button>` + lock; }
+  if (l.kind === 'main') return `<button class="th-btn" data-act="mute" data-key="orig" aria-pressed="${t.origMuted}" title="${t.origMuted ? '원본 소리 켜기' : '원본 소리 끄기 (음악·효과음만 남김)'}">${t.origMuted ? '🔇' : '🔊'}</button>` + lock;
+  if (l.kind === 'sfx') return `<button class="th-btn" data-act="mute" data-key="sfx" aria-pressed="${t.sfxMuted}" title="${t.sfxMuted ? '효과음 켜기' : '효과음 모두 끄기'}">${t.sfxMuted ? '🔇' : '🔊'}</button>` + lock;
+  if (l.kind === 'bgm') return `<button class="th-btn" data-act="mute" data-key="bgm" aria-pressed="${t.bgmMuted}" title="${t.bgmMuted ? '음악 켜기' : '음악 끄기'}">${t.bgmMuted ? '🔇' : '🔊'}</button>` + lock;
+  if (l.kind === 'cand') return `<span class="th-count">${candList().filter(c => c.on).length}/${candList().length}</span>`;
+  return '';
+}
+function renderTrackHeads(lay) {
+  const box = els.tlHeads; if (!box) return;
+  const sig = JSON.stringify([lay.L.map(l => l.key + l.y + ':' + l.h), tracks(), state.fx.subs.burn, candList().length, candList().filter(c => c.on).length, state.duration > 0]);
+  if (sig === headSig) return; headSig = sig;
+  box.style.height = lay.H + 'px';
+  box.innerHTML = lay.L.filter(l => HEAD_INFO[l.kind]).map(l => { const [ic, name] = HEAD_INFO[l.kind]; const label = l.kind === 'ov' ? `${name} ${l.layer + 1}` : name; const tip = l.kind === 'ov' ? `텍스트·이미지 레이어 ${l.layer + 1} (숫자가 클수록 위에 그려짐)` : name;
+    return `<div class="th th-${l.kind}${laneDimmed(l) ? ' dim' : ''}" style="top:${l.y}px;height:${l.h}px" title="${tip}"><span class="th-ic">${ic}</span><span class="th-name">${label}</span><span class="th-btns">${state.duration ? headButtons(l) : ''}</span></div>`; }).join('');
+}
+function toggleTrack(act, key) {
+  const t = tracks();
+  if (act === 'lock') { t.locked = t.locked.includes(key) ? t.locked.filter(k => k !== key) : [...t.locked, key]; toast(t.locked.includes(key) ? '트랙을 잠갔습니다' : '잠금을 풀었습니다', 1000); }
+  else if (act === 'eye' && key === 'cap') { state.fx.subs.burn = !state.fx.subs.burn; if (decor) decor.syncUI(); toast(state.fx.subs.burn ? '자막을 영상에 굽습니다' : '자막을 영상에서 숨겼습니다 (SRT는 그대로)', 1600); }
+  else if (act === 'eye') { t.hidden = t.hidden.includes(key) ? t.hidden.filter(k => k !== key) : [...t.hidden, key]; toast(t.hidden.includes(key) ? '이 레이어를 숨겼습니다 (미리보기·내보내기 모두)' : '레이어를 다시 보입니다', 1600); }
+  else if (act === 'mute') { const k = key + 'Muted'; t[k] = !t[k]; if (key === 'orig') setVolume(els.video.volume, userMuted); if (key === 'bgm') syncBgmPreview(isPlaying()); toast(t[k] ? { orig: '원본 소리를 껐습니다 (내보내기에도 적용)', sfx: '효과음을 껐습니다', bgm: '음악을 껐습니다' }[key] : '소리를 다시 켰습니다', 1600); }
+  headSig = ''; autosave(); drawTimeline(); if (decor) { decor.renderLists(); decor.previewTick(false); }
+}
+if (els.tlHeads) els.tlHeads.addEventListener('click', e => { const b = e.target.closest('button[data-act]'); if (b) toggleTrack(b.dataset.act, b.dataset.key); });
+function updateCandHud() {
+  const hud = els.hudCand; if (!hud) return; const t = state.cur;
+  const c = candList().find(c => t >= c.s && t < c.e);
+  const txt = c ? `NG 후보 · ${{ filler: '추임새', stutter: '버벅임', repeat: '다시 말한 NG', mumble: '웅얼거림', short: '짧은 소리' }[c.kind] || ''}${c.on ? ' (삭제 예정)' : ''}` : '';
+  if (hud.textContent !== txt) { hud.textContent = txt; hud.hidden = !txt; if (c) hud.style.background = CAND_COLORS[c.kind] || ''; }
 }
 function followPlayhead() { const { vis, t0 } = timelineGeometry(); if (state.cur < t0 || state.cur > t0 + vis) state.scroll = clamp(state.cur - vis * 0.15, 0, Math.max(0, state.duration - vis)); }
 function zoomAt(t, factor) { const { W, dur } = timelineGeometry(); const oldVis = dur / state.zoom; const x = (t - state.scroll) * (W / oldVis); state.zoom = clamp(state.zoom * factor, 1, 400); const newVis = dur / state.zoom; state.scroll = t - x / (W / newVis); drawTimeline(); }
 els.btnZoomIn.addEventListener('click', () => zoomAt(state.cur, 1.6)); els.btnZoomOut.addEventListener('click', () => zoomAt(state.cur, 1 / 1.6)); els.btnZoomFit.addEventListener('click', () => { state.zoom = 1; state.scroll = 0; drawTimeline(); });
 els.scroller.addEventListener('input', () => { state.scroll = Number(els.scroller.value); drawTimeline(); });
-function eventTime(e) { const r = els.tl.getBoundingClientRect(); const { t0, pps } = timelineGeometry(); const x = clamp(e.clientX - r.left, 0, r.width); return { x, t: clamp(t0 + x / pps, 0, state.duration) }; }
+function eventTime(e) { const r = els.tl.getBoundingClientRect(); const { t0, pps } = timelineGeometry(); const x = clamp(e.clientX - r.left, 0, r.width); return { x, y: e.clientY - r.top, t: clamp(t0 + x / pps, 0, state.duration) }; }
+function laneAt(y) { const lay = laneLayout(); return lay.L.find(l => y >= l.y && y < l.y + l.h) || null; }
 function boundaryNear(x) { const { t0, pps } = timelineGeometry(); for (let i = 1; i < state.segments.length; i++) { const bx = (state.segments[i].s - t0) * pps; if (Math.abs(bx - x) <= 6) return i; } return null; }
+function clipAt(l, x) { if (!l) return null; const { t0, pps } = timelineGeometry(); const cs = laneClips(l); for (let i = cs.length - 1; i >= 0; i--) { const c = cs[i]; const x0 = (c.s - t0) * pps, x1 = Math.max(x0 + 3, (c.e - t0) * pps); if (x >= x0 - 3 && x <= x1 + 3) return { ...c, x0, x1 }; } return null; }
+function selectClip(c) { state.selClip = c ? { kind: c.kind, ref: c.ref } : null; if (decor && decor.selectOverlay) decor.selectOverlay(c && c.kind === 'ov' ? c.ref.id : null); drawTimeline(); }
+// move/trim a clip; times are source seconds. Captions may not overlap their neighbours (one caption at a time on screen).
+function setClipTime(c, s, e, layer) {
+  const r = c.ref;
+  if (c.kind === 'cap') { const lines = captionsOf() || []; const others = lines.filter(l => l !== r); const prev = others.filter(l => l.e <= r.s + 0.001).pop(), next = others.find(l => l.s >= r.e - 0.001); const lo = prev ? prev.e : 0, hi = next ? next.s : state.duration; const len = e - s; if (s < lo) { s = lo; if (c.mode === 'move') e = s + len; } if (e > hi) { e = hi; if (c.mode === 'move') s = Math.max(lo, e - len); } r.s = s; r.e = Math.max(s + 0.1, e); r.edited = true; }
+  else if (c.kind === 'ov') { r.s = s; r.e = Math.max(s + 0.1, e); if (layer != null) r.layer = layer; }
+  else if (c.kind === 'sfx') r.t = s;
+  else if (c.kind === 'bgm') r.start = s;
+}
 let pointer = null;
 els.tl.addEventListener('pointerdown', e => {
   if (!state.duration) return; els.tl.setPointerCapture(e.pointerId); els.tl.focus({ preventScroll: true });
-  const { x, t } = eventTime(e); const b = boundaryNear(x);
-  if (b != null) { pushUndo(); pointer = { mode: 'boundary', idx: b }; } else { pointer = { mode: 'scrub' }; seek(t); }
+  const { x, y, t } = eventTime(e); const l = y < RULER ? null : laneAt(y);
+  if (l && l.kind === 'main') {
+    selectClip(null); const b = isLocked('main') ? null : boundaryNear(x);
+    if (b != null) { pushUndo(); pointer = { mode: 'boundary', idx: b }; } else { pointer = { mode: 'scrub' }; seek(t); } return;
+  }
+  if (l && l.kind === 'cand') { const c = clipAt(l, x); if (c) { pointer = { mode: 'none' }; seek(Math.max(0, c.s - 0.3)); return; } }
+  if (l && ['cap', 'ov', 'sfx', 'bgm'].includes(l.kind)) {
+    const c = clipAt(l, x);
+    if (c) {
+      selectClip(c);
+      if (isLocked(l.key)) { toast('잠긴 트랙입니다. 왼쪽 자물쇠를 누르면 편집할 수 있습니다', 2000); pointer = { mode: 'none' }; return; }
+      const edge = c.kind === 'cap' || c.kind === 'ov' ? (Math.abs(x - c.x0) <= 6 && c.x1 - c.x0 > 14 ? 'trimL' : Math.abs(x - c.x1) <= 6 && c.x1 - c.x0 > 14 ? 'trimR' : 'move') : 'move';
+      pushUndo(); pointer = { mode: 'clip', clip: { ...c, mode: edge }, tStart: t, yStart: y, orig: { s: c.s, e: c.e }, moved: false }; return;
+    }
+    selectClip(null);
+  }
+  pointer = { mode: 'scrub' }; seek(t);
 });
 els.tl.addEventListener('pointermove', e => {
-  if (!state.duration) return; const { x, t } = eventTime(e);
+  if (!state.duration) return; const { x, y, t } = eventTime(e);
   if (pointer && pointer.mode === 'boundary') { setBoundary(pointer.idx, t); state.hoverT = null; drawTimeline(); return; }
   if (pointer && pointer.mode === 'scrub') { seek(t); return; }
-  state.hoverT = t; els.tl.classList.toggle('resize', boundaryNear(x) != null); drawTimeline();
+  if (pointer && pointer.mode === 'clip') {
+    const p = pointer, c = p.clip; const { pps } = timelineGeometry(); let dt = t - p.tStart; if (!p.moved && Math.abs(dt) * pps < 3 && Math.abs(y - p.yStart) < 5) return; p.moved = true; if (Math.abs(dt) * pps < 3) dt = 0;
+    const snap = v => Math.abs(v - state.cur) * pps < 7 ? state.cur : v; const len = p.orig.e - p.orig.s;
+    let s = p.orig.s, en = p.orig.e;
+    if (c.mode === 'move') { s = snap(clamp(p.orig.s + dt, 0, Math.max(0, state.duration - len))); const se = snap(s + len); if (se !== s + len) s = se - len; en = s + len; }
+    else if (c.mode === 'trimL') s = snap(clamp(p.orig.s + dt, 0, p.orig.e - 0.1));
+    else en = snap(clamp(p.orig.e + dt, p.orig.s + 0.1, state.duration));
+    let layer = null;
+    if (c.kind === 'ov' && c.mode === 'move') { const l = laneAt(y); if (l && l.kind === 'ov') layer = l.layer; else if (l && l.kind === 'cap') layer = layerCount(state.fx.overlays); }
+    setClipTime(c, s, en, layer); state.hoverT = null; drawTimeline(); if (decor) decor.previewTick(false); return;
+  }
+  state.hoverT = t; const l = y < RULER ? null : laneAt(y);
+  let cur = '';
+  if (l && l.kind === 'main' && !isLocked('main') && boundaryNear(x) != null) cur = 'col-resize';
+  else if (l && ['cap', 'ov', 'sfx', 'bgm', 'cand'].includes(l.kind)) { const c = clipAt(l, x); if (c) cur = l.kind === 'cand' ? 'pointer' : isLocked(l.key) ? 'not-allowed' : (c.kind === 'cap' || c.kind === 'ov') && c.x1 - c.x0 > 14 && (Math.abs(x - c.x0) <= 6 || Math.abs(x - c.x1) <= 6) ? 'ew-resize' : 'grab'; }
+  els.tl.style.cursor = cur; drawTimeline();
 });
-function endPointer() { if (pointer && pointer.mode === 'boundary') { markDirty(); refreshAll(); } pointer = null; }
+function endPointer() {
+  const p = pointer; pointer = null; if (!p) return;
+  if (p.mode === 'boundary') { markDirty(); refreshAll(); return; }
+  if (p.mode !== 'clip') return;
+  if (!p.moved) { popUndoSilently(); return; }
+  const k = p.clip.kind;
+  if (k === 'cap') { (captionsOf() || []).sort((a, b) => a.s - b.s); if (trApi) trApi.refresh(); }
+  if (k === 'ov') { const o = p.clip.ref; if (state.fx.overlays.some(x => x !== o && (x.layer || 0) === (o.layer || 0) && x.s < o.e && x.e > o.s)) o.layer = layerCount(state.fx.overlays); state.fx.overlays.sort((a, b) => a.s - b.s); compactLayers(); if (decor) decor.renderLists(); toast(`${fmtClock(o.s)}–${fmtClock(o.e)} · 레이어 ${(o.layer || 0) + 1}`, 1200); }
+  if (k === 'sfx') state.fx.sfx.sort((a, b) => a.t - b.t);
+  if (k === 'bgm') { syncBgmPreview(isPlaying()); toast(`음악이 ${fmtClock(state.bgm.start)}(편집 후 ${fmtClock(outTime(state.segments, state.bgm.start))})부터 나옵니다`, 2000); }
+  autosave(); drawTimeline(); if (decor) decor.previewTick(false);
+}
+// drop empty layer rows left behind after moving clips up/down
+function compactLayers() { const used = [...new Set(state.fx.overlays.map(o => o.layer || 0))].sort((a, b) => a - b); const map = new Map(used.map((L, i) => [L, i])); for (const o of state.fx.overlays) o.layer = map.get(o.layer || 0); }
 els.tl.addEventListener('pointerup', endPointer); els.tl.addEventListener('pointercancel', endPointer);
-els.tl.addEventListener('pointerleave', () => { state.hoverT = null; drawTimeline(); });
-els.tl.addEventListener('dblclick', e => { if (!state.duration) return; const { x, t } = eventTime(e); if (boundaryNear(x) != null) return; toggleSegmentAt(t); });
+els.tl.addEventListener('pointerleave', () => { state.hoverT = null; els.tl.style.cursor = ''; drawTimeline(); });
+els.tl.addEventListener('dblclick', e => {
+  if (!state.duration) return; const { x, y, t } = eventTime(e); const l = y < RULER ? null : laneAt(y);
+  if (l && l.kind === 'main') { if (boundaryNear(x) != null) return; toggleSegmentAt(t); return; }
+  const c = clipAt(l, x); if (!c) return;
+  if (c.kind === 'cand' && trApi) trApi.toggleCand(c.ref);
+  else if (c.kind === 'cap' && trApi) trApi.focusCaption(c.ref);
+  else if (c.kind === 'ov' && c.ref.type === 'text') { const v = prompt('텍스트 수정', c.ref.text); if (v != null && v.trim()) { c.ref.text = v.trim(); c.ref.name = c.ref.text.slice(0, 20); autosave(); if (decor) { decor.renderLists(); decor.previewTick(false); } drawTimeline(); } }
+  else if (c.kind === 'sfx' || c.kind === 'bgm') showTab(c.kind === 'sfx' ? 'decorate' : 'bgm');
+});
+function deleteSelectedClip() {
+  const c = state.selClip; if (!c) return false;
+  const lane = c.kind === 'ov' ? 'ov' + (c.ref.layer || 0) : c.kind; if (isLocked(lane)) { toast('잠긴 트랙입니다'); return true; }
+  pushUndo(); c.ref._tlDeleted = true;
+  if (c.kind === 'cap') { const lines = captionsOf() || []; const i = lines.indexOf(c.ref); if (i >= 0) lines.splice(i, 1); if (trApi) trApi.refresh(); }
+  else if (c.kind === 'ov') { const i = state.fx.overlays.indexOf(c.ref); if (i >= 0) state.fx.overlays.splice(i, 1); compactLayers(); if (decor) decor.renderLists(); }
+  else if (c.kind === 'sfx') { const i = state.fx.sfx.indexOf(c.ref); if (i >= 0) state.fx.sfx.splice(i, 1); if (decor) decor.renderLists(); }
+  else if (c.kind === 'bgm') { popUndoSilently(); toast('음악은 배경음악 탭에서 지울 수 있습니다'); return true; }
+  state.selClip = null; autosave(); drawTimeline(); if (decor) decor.previewTick(false); toast('클립을 지웠습니다 (Ctrl+Z로 되돌리기)', 1500); return true;
+}
 els.tl.addEventListener('wheel', e => {
   if (!state.duration) return; e.preventDefault(); const { vis, W } = timelineGeometry(); const { t } = eventTime(e);
   if (e.ctrlKey || e.metaKey) zoomAt(t, e.deltaY < 0 ? 1.25 : 0.8); else { state.scroll += (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) * (vis / W) * 1.5; drawTimeline(); }
@@ -631,6 +810,21 @@ els.tl.addEventListener('wheel', e => {
 window.addEventListener('resize', () => { drawTimeline(); layoutCrop(); });
 if (window.matchMedia) { try { window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', drawTimeline); } catch {} }
 new MutationObserver(drawTimeline).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+// play a candidate with a little context before and after (stops by itself)
+function previewSpan(s, e) { if (!requirePlayable()) return; seek(Math.max(0, s - 0.8)); state.previewStop = Math.min(state.duration, e + 0.5); els.video.playbackRate = state.rate; els.video.play().catch(() => {}); }
+
+// ===================== MINI PLAYER =====================
+// When the video scrolls out of view (working in the tabs below), it docks in the corner so you can watch while editing.
+const monitorSlot = document.createElement('div'); monitorSlot.className = 'monitor-slot'; els.monitor.parentNode.insertBefore(monitorSlot, els.monitor); monitorSlot.appendChild(els.monitor);
+let miniClosed = false;
+function setMini(on) {
+  if (on === els.monitor.classList.contains('mini')) return;
+  if (on) { monitorSlot.style.height = monitorSlot.offsetHeight + 'px'; els.monitor.classList.add('mini'); } else { els.monitor.classList.remove('mini'); monitorSlot.style.height = ''; }
+  setTimeout(() => { layoutCrop(); if (decor) decor.previewTick(false); }, 30);
+}
+if ('IntersectionObserver' in window) new IntersectionObserver(([en]) => { const out = en.intersectionRatio < 0.3; if (!out) miniClosed = false; setMini(out && !miniClosed && state.hasMedia && state.videoPlayable && !document.fullscreenElement); }, { threshold: [0, 0.3, 0.6] }).observe(monitorSlot);
+els.btnMiniClose.addEventListener('click', e => { e.stopPropagation(); miniClosed = true; setMini(false); });
 
 // ===================== TABS =====================
 document.querySelectorAll('.tab').forEach(btn => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
@@ -835,7 +1029,7 @@ async function renderMp4({ ranges, out, crop, forceTransform, signal, onProgress
     write: async chunk => { if (direct) { await direct.write({ type: 'write', position: chunk.position, data: chunk.data }); written = Math.max(written, chunk.position + chunk.data.byteLength); } else parts.push({ pos: chunk.position, blob: new Blob([chunk.data]) }); },
   }), { chunked: true });
   const output = new mb.Output({ format: new mb.Mp4OutputFormat(), target });
-  const captions = captionsOf() || []; const useFx = fxActive(state.fx, captions.length > 0);
+  const captions = captionsOf() || []; const fxR = liveFx(state.fx); const useFx = fxActive(fxR, captions.length > 0);
   const useTransform = !useFx && (forceTransform || !!crop || out.w !== state.width || out.h !== state.height);
   const vCodec = await mb.getFirstEncodableVideoCodec(['avc', 'hevc', 'av1', 'vp9'], { width: out.w, height: out.h, bitrate: out.bitrate });
   if (!vCodec) throw new Error('이 해상도로 인코딩할 수 있는 코덱이 없습니다');
@@ -848,11 +1042,12 @@ async function renderMp4({ ranges, out, crop, forceTransform, signal, onProgress
   if (useFx) {
     await preloadFonts(state.fx, state.fx.subs.burn ? captions.map(l => l.text) : []);
     fxCanvas = new OffscreenCanvas(out.w, out.h); fxCtx = fxCanvas.getContext('2d');
-    comp = makeCompositor({ W: out.w, H: out.h, crop: crop || { left: 0, top: 0, width: state.width, height: state.height }, fx: state.fx, captions: state.fx.subs.burn ? captions : null, ranges, total });
+    comp = makeCompositor({ W: out.w, H: out.h, crop: crop || { left: 0, top: 0, width: state.width, height: state.height }, fx: fxR, captions: state.fx.subs.burn ? captions : null, ranges, total });
   }
-  const bgm = state.bgm.ready ? state.bgm : null;
+  const tk = state.fx.tracks || {}; const origMuted = !!tk.origMuted;
+  const bgm = state.bgm.ready && !tk.bgmMuted ? { ...state.bgm, offset: outTime(state.segments, state.bgm.start || 0) } : null;
   let aSource = null, aSr = 48000, aCh = 2;
-  if (aTrack || bgm || state.fx.sfx.length) {
+  if (aTrack || bgm || fxR.sfx.length) {
     if (aTrack) { aCh = await aTrack.getNumberOfChannels(); aSr = await aTrack.getSampleRate(); }
     const aCodec = await mb.getFirstEncodableAudioCodec(['aac', 'opus'], { numberOfChannels: aCh, sampleRate: aSr, bitrate: 192000 });
     if (aCodec) { aSource = new mb.AudioBufferSource({ codec: aCodec, bitrate: 192000 }); output.addAudioTrack(aSource); }
@@ -896,10 +1091,11 @@ async function renderMp4({ ranges, out, crop, forceTransform, signal, onProgress
           const sliced = sliceAudio(wb, r.s, r.e); if (!sliced) continue;
           const srcStart = Math.max(wb.timestamp, r.s); const outStart = cursor + (srcStart - r.s);
           while (outStart > vProgress + 4 && !signal.aborted) await sleep(40);
-          if (bgm || state.fx.sfx.length) {
+          if (bgm || fxR.sfx.length || origMuted) {
             const chans = []; for (let c = 0; c < sliced.buffer.numberOfChannels; c++) chans.push(sliced.buffer.getChannelData(c));
+            if (origMuted) for (const ch of chans) ch.fill(0);
             if (bgm) mixBgmInto(chans, sliced.buffer.sampleRate, outStart, srcStart, bgm, state.env, HOP, thr, total, duckState);
-            if (state.fx.sfx.length && decor) mixSfxInto(chans, sliced.buffer.sampleRate, srcStart, state.fx.sfx, s => decor.getSfxBuf(s, sliced.buffer.sampleRate));
+            if (fxR.sfx.length && decor) mixSfxInto(chans, sliced.buffer.sampleRate, srcStart, fxR.sfx, s => decor.getSfxBuf(s, sliced.buffer.sampleRate));
           }
           await aSource.add(sliced.buffer);
         }
@@ -913,7 +1109,7 @@ async function renderMp4({ ranges, out, crop, forceTransform, signal, onProgress
         const buf = new AudioBuffer({ length: len, sampleRate: aSr, numberOfChannels: aCh });
         const chans = []; for (let c = 0; c < aCh; c++) chans.push(buf.getChannelData(c));
         if (bgm) mixBgmInto(chans, aSr, outT, 0, { ...bgm, duck: false }, null, HOP, thr, total, duckState);
-        if (state.fx.sfx.length && decor) mixSfxInto(chans, aSr, sourceTimeAtOutput(state.segments, outT), state.fx.sfx, s => decor.getSfxBuf(s, aSr));
+        if (fxR.sfx.length && decor) mixSfxInto(chans, aSr, sourceTimeAtOutput(state.segments, outT), fxR.sfx, s => decor.getSfxBuf(s, aSr));
         while (outT > vProgress + 4 && !signal.aborted) await sleep(40);
         await aSource.add(buf);
       }
@@ -1031,7 +1227,7 @@ function projectData() {
   const b = state.bgm, sh = state.shorts;
   return { app: 'cutdiet', version: 2, savedAt: new Date().toISOString(), file: state.file ? { name: state.file.name, size: state.file.size } : null, duration: state.duration, fps: state.fps, preset: state.preset, params: { ...state.params }, dirty: state.dirty,
     segments: state.segments.map(g => [Math.round(g.s * 1000) / 1000, Math.round(g.e * 1000) / 1000, g.keep ? 1 : 0]), chapters: state.chapters.map(c => [Math.round(c.t * 1000) / 1000, c.title]),
-    bgm: { name: b.name || '', volume: b.volume, duck: b.duck, fade: b.fade, loop: b.loop }, shorts: { in: sh.in, out: sh.out, pos: sh.pos, upscale: sh.upscale }, fx: fxToJSON(state.fx),
+    bgm: { name: b.name || '', volume: b.volume, duck: b.duck, fade: b.fade, loop: b.loop, start: b.start || 0 }, shorts: { in: sh.in, out: sh.out, pos: sh.pos, upscale: sh.upscale }, fx: fxToJSON(state.fx),
     captions: (captionsOf() || []).map(l => [Math.round(l.s * 1000) / 1000, Math.round(l.e * 1000) / 1000, l.text, l.edited ? 1 : 0]) };
 }
 function applyProject(p) {
@@ -1043,10 +1239,10 @@ function applyProject(p) {
   state.chapters = (p.chapters || []).map(([t, title]) => ({ t: Number(t), title: String(title || '') }));
   if (p.params) state.params = { ...state.params, ...p.params };
   state.preset = p.preset || 'custom';
-  if (p.bgm) { const b = state.bgm; b.volume = Number(p.bgm.volume) || b.volume; b.duck = p.bgm.duck !== false; b.fade = Number(p.bgm.fade ?? b.fade); b.loop = p.bgm.loop !== false; els.bgmVol.value = Math.round(b.volume * 100); els.bgmDuck.checked = b.duck; els.bgmFade.value = b.fade; els.bgmLoop.checked = b.loop; els.bgmVolVal.textContent = `${els.bgmVol.value}%`; els.bgmFadeVal.textContent = `${b.fade.toFixed(1)} s`; if (p.bgm.name && !b.ready) els.bgmInfo.textContent = `이전 작업의 음악 "${p.bgm.name}"은 파일을 다시 선택해야 합니다 (브라우저에는 음악 파일이 저장되지 않습니다).`; }
+  if (p.bgm) { const b = state.bgm; b.volume = Number(p.bgm.volume) || b.volume; b.duck = p.bgm.duck !== false; b.fade = Number(p.bgm.fade ?? b.fade); b.loop = p.bgm.loop !== false; b.start = Math.max(0, Number(p.bgm.start) || 0); els.bgmVol.value = Math.round(b.volume * 100); els.bgmDuck.checked = b.duck; els.bgmFade.value = b.fade; els.bgmLoop.checked = b.loop; els.bgmVolVal.textContent = `${els.bgmVol.value}%`; els.bgmFadeVal.textContent = `${b.fade.toFixed(1)} s`; if (p.bgm.name && !b.ready) els.bgmInfo.textContent = `이전 작업의 음악 "${p.bgm.name}"은 파일을 다시 선택해야 합니다 (브라우저에는 음악 파일이 저장되지 않습니다).`; }
   if (p.shorts) { Object.assign(state.shorts, { in: Number(p.shorts.in) || 0, out: Number(p.shorts.out) || 0, pos: clamp(Number(p.shorts.pos ?? 0.5), 0, 1), upscale: p.shorts.upscale !== false }); els.cropPos.value = Math.round(state.shorts.pos * 100); els.chkUpscale.checked = state.shorts.upscale; }
   if (Array.isArray(p.captions) && tr && tr.setLines) tr.setLines(p.captions.filter(Array.isArray).map(([s, e, text, ed]) => ({ s, e, text, edited: !!ed })));
-  if (p.fx) { state.fx = fxFromJSON(p.fx); if (decor) decor.rehydrate(); }
+  if (p.fx) { state.fx = fxFromJSON(p.fx); if (decor) decor.rehydrate(); setVolume(els.video.volume, userMuted); }
   state.dirty = p.dirty !== false; syncSliders(); if (state.dirty) markDirty(); else { els.btnReanalyze.hidden = true; els.dirtyHint.hidden = true; }
   state.cur = 0; state.zoom = 1; state.scroll = 0; refreshAll();
 }
@@ -1083,10 +1279,11 @@ bootDemo();
 // ===================== AI (in-browser transcription) =====================
 function markSpans(spans, keep = false) { if (!spans.length) return 0; pushUndo(); state.activity.aiApplied += spans.length; let segs = state.segments; for (const sp of spans) segs = applySpan(segs, clamp(sp.s, 0, state.duration), clamp(sp.e, 0, state.duration), keep); state.segments = segs; markDirty(); refreshAll(); return spans.length; }
 const tr = initTranscribe({ state, HOP, toast, saveFile, copyText, outTime, keptDuration, fmtClock, baseName, seek, sleep, nextFrame, markSpans, heavyReason, escapeHtml, accumulateEnergy, autosave,
-  play: () => { if (els.video.paused) togglePlay(); }, captionsChanged: () => { if (decor) { decor.renderLists(); decor.previewTick(false); } } });
+  play: () => { if (els.video.paused) togglePlay(); }, previewSpan, showTab, candsChanged: () => drawTimeline(), captionsChanged: () => { if (decor) { decor.renderLists(); decor.previewTick(false); } } });
 if (tr && tr.getLines) captionsOf = tr.getLines;
+trApi = tr;
 
-decor = initDecorate({ state, els, toast, fmtClock, seek, refreshAll, autosave, keepRanges, keptDuration, outTime, segIndexAt, escapeHtml, captionsOf: () => captionsOf(), captionsChanged: () => tr && tr.refresh && tr.refresh() });
+decor = initDecorate({ state, els, toast, fmtClock, seek, refreshAll, autosave, keepRanges, keptDuration, outTime, segIndexAt, escapeHtml, captionsOf: () => captionsOf(), captionsChanged: () => { if (tr && tr.refresh) tr.refresh(); drawTimeline(); }, selectionChanged: o => { state.selClip = o ? { kind: 'ov', ref: o } : (state.selClip && state.selClip.kind === 'ov' ? null : state.selClip); drawTimeline(); } });
 window.addEventListener('resize', () => decor && decor.previewTick(false));
 
 // Public API used by the Pro layer (src/pro.js)

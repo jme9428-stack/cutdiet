@@ -221,20 +221,22 @@ export function pickThumbnailTimes(env, hop, segs, count = 12) {
 }
 
 // Mix mono bgm into channel arrays in place. bgm: {data, sr, duration, volume, duck, fade, loop}
+// bgm.offset: output second where the music starts (dragged on the music track); before it nothing is mixed
 export function mixBgmInto(chans, sr, outStart, srcStart, bgm, env, hop, threshold, total, duckState) {
   const n = chans[0].length; const duckRatio = 0.3;
   const atk = 1 - Math.exp(-1 / (0.04 * sr)), rel = 1 - Math.exp(-1 / (0.35 * sr));
-  let g = duckState.g; const d = bgm.data, bsr = bgm.sr, bdur = bgm.duration;
+  let g = duckState.g; const d = bgm.data, bsr = bgm.sr, bdur = bgm.duration; const off = bgm.offset || 0;
   for (let j = 0; j < n; j++) {
     const outT = outStart + j / sr;
     let target = 1;
     if (bgm.duck && env) { const idx = (srcStart + j / sr) / hop | 0; if (idx < env.length && env[idx] > threshold) target = duckRatio; }
     g += (target - g) * (target < g ? atk : rel);
-    let bt = outT; if (bgm.loop) bt = outT % bdur; else if (bt >= bdur) continue;
+    const mt = outT - off; if (mt < 0) continue;
+    let bt = mt; if (bgm.loop) bt = mt % bdur; else if (bt >= bdur) continue;
     const pos = bt * bsr; const i = pos | 0; if (i + 1 >= d.length) continue;
     let s = d[i] + (d[i + 1] - d[i]) * (pos - i);
     let fade = 1;
-    if (bgm.fade > 0) { if (outT < bgm.fade) fade = outT / bgm.fade; const rem = total - outT; if (rem < bgm.fade) fade = Math.min(fade, Math.max(0, rem / bgm.fade)); }
+    if (bgm.fade > 0) { if (mt < bgm.fade) fade = mt / bgm.fade; const rem = total - outT; if (rem < bgm.fade) fade = Math.min(fade, Math.max(0, rem / bgm.fade)); }
     s *= bgm.volume * g * fade;
     for (let c = 0; c < chans.length; c++) { const v = chans[c][j] + s; chans[c][j] = v > 1 ? 1 : v < -1 ? -1 : v; }
   }
