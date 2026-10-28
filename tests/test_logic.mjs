@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as A from '../src/cutlogic.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { normKo, similarity, wordsFromChunks, dropSilentWords, buildCaptionLines, buildSentences, buildSRT, srtTime, findFillers, findRepeats, findStutters, findMumbles, findShortBursts, stripFromLines, parseSRT, breakScore, resplitLines, splitLineAt, wordsOfLines, mergeSpans, resampleInto } from '../src/textlogic.js';
+import { captionWidth, finishLines, normKo, similarity, wordsFromChunks, dropSilentWords, buildCaptionLines, buildSentences, buildSRT, srtTime, findFillers, findRepeats, findStutters, findMumbles, findShortBursts, stripFromLines, parseSRT, breakScore, resplitLines, splitLineAt, wordsOfLines, mergeSpans, resampleInto } from '../src/textlogic.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const main = fs.readFileSync(path.join(root, 'src/main.js'), 'utf8');
@@ -96,17 +96,31 @@ assert.equal(dropSilentWords([{ text: 'x', s: 5, e: 5.2 }], null, 0.02, -45).len
   const words = mk('그리고 이거는 이제 오에이보다 조금 더 얇고 가벼운 칠에이입니다. 이렇게 이런 스틱을 쓰면 연습하다 보면 손이 좀 덜 아프거든요.');
   const lines = buildCaptionLines(words, { maxChars: 18 }); const texts = lines.map(l => l.text);
   assert.ok(lines.every(l => normKo(l.text).length <= 22), JSON.stringify(texts));
-  assert.ok(texts.some(t => t.endsWith('칠에이입니다.')), 'sentence ends a line: ' + JSON.stringify(texts));
+  assert.ok(texts.some(t => t.endsWith('칠에이입니다')), 'sentence ends a line: ' + JSON.stringify(texts));
+  assert.ok(!texts.some(t => /[.,]$/.test(t)), 'no period or comma at a line end: ' + JSON.stringify(texts));
   assert.ok(!texts.some(t => /이런$/.test(t)), 'no break after a modifier: ' + JSON.stringify(texts));
   assert.ok(!texts.some(t => /연습하다$/.test(t)), '"연습하다 보면" stays together: ' + JSON.stringify(texts));
-  assert.equal(texts.join(' ').replace(/\s+/g, ''), words.map(w => w.text.trim()).join('').replace(/\s+/g, ''), 'no words lost');
+  assert.equal(normKo(texts.join('')).replace(/\s+/g, ''), normKo(words.map(w => w.text.trim()).join('')).replace(/\s+/g, ''), 'no words lost');
   assert.ok(breakScore({ text: '얇고', e: 1 }, { s: 1.05 }) > breakScore({ text: '이런', e: 1 }, { s: 1.05 }));
   // a long pause always ends a line
   const pw = mk('첫 문장 하나 그리고 둘째', 0, { 2: 1.5 }); assert.ok(buildCaptionLines(pw).length >= 2);
   // re-split hand-edited lines: one long edited line becomes natural lines with times spread over it
   const re = resplitLines([{ s: 10, e: 20, text: '오늘은 편집 방법을 알려 드릴게요. 먼저 무음 구간을 자동으로 찾아서 잘라 냅니다.', edited: true }], [], { maxChars: 18 });
   assert.ok(re.length >= 2 && re[0].s === 10 && Math.abs(re[re.length - 1].e - 20) < 0.9 && re.every(l => l.e > l.s), JSON.stringify(re));
-  assert.ok(re.some(l => l.text.endsWith('드릴게요.')) && !re.some(l => /드릴게요. /.test(l.text)), 'the sentence end closes a line: ' + JSON.stringify(re.map(l => l.text)));
+  assert.ok(re.some(l => l.text.endsWith('드릴게요')) && !re.some(l => /드릴게요. /.test(l.text)), 'the sentence end closes a line: ' + JSON.stringify(re.map(l => l.text)));
+  // Netflix Korean counting: Hangul 1, Latin/digits/spaces/punctuation 0.5; default lines stay within 16 (one line)
+  assert.equal(captionWidth('5A 스틱'), 3.5); assert.equal(captionWidth('가나다'), 3);
+  const long = mk('안녕하세요 오늘 영상은 스틱 종류에 대해서 가이드를 해보려고 합니다 스틱 종류가 뭐가 있는지 그리고 우리가 사용하는 일반 스틱에서도 어떤 종류가 있는지 같이 이야기 해보려고 영상을 제작하게 되었습니다');
+  const ll = buildCaptionLines(long); assert.ok(ll.length >= 5 && ll.every(l => captionWidth(l.text) <= 20), JSON.stringify(ll.map(l => l.text)));
+  // a conjunction opens the next line, a dependent noun never starts one, a polite ending closes a line without a period
+  assert.ok(breakScore({ text: '그리고', e: 1 }, { s: 1.05, text: '우리가' }) < 0 && breakScore({ text: '있는지', e: 1 }, { s: 1.05, text: '그리고' }) > breakScore({ text: '있는지', e: 1 }, { s: 1.05, text: '우리가' }));
+  assert.ok(breakScore({ text: '작은', e: 1 }, { s: 1.05, text: '것을' }) < 0 && breakScore({ text: '느껴질', e: 1 }, { s: 1.05, text: '때가' }) < 0);
+  assert.ok(breakScore({ text: '있습니다', e: 1 }, { s: 1.05, text: '그런' }) >= 5);
+  const dn = buildCaptionLines(mk('그래서 일반 스틱 보다 소리 볼륨이 많이 작은 것을 알 수가 있어요'));
+  assert.ok(!dn.some(l => /작은$|알$/.test(l.text)), JSON.stringify(dn.map(l => l.text)));
+  // each line stays up long enough to read at 12 characters a second, without running into the next one
+  const fl = finishLines([{ s: 0, e: 0.3, text: '가나다라마바사아자차카타' }, { s: 0.6, e: 2, text: '다음 줄입니다.' }, { s: 2.1, e: 3, text: '끝' }]);
+  assert.equal(fl[0].e, 0.6); assert.equal(fl[1].text, '다음 줄입니다'); assert.equal(fl[1].e, 2.1); assert.ok(fl[2].e >= 2.9);
   // untouched lines keep the recognized word times
   const rw = mk('안녕하세요 반갑습니다', 5); const wl = wordsOfLines([{ s: 5, e: 5.7, text: '안녕하세요 반갑습니다' }], rw); assert.equal(wl[1].s, rw[1].s);
   // splitting one caption at the playhead picks the nearest natural word boundary

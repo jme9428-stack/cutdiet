@@ -1,7 +1,7 @@
 // ASS subtitle builder for burned-in captions and text overlays (rendered by libass via ffmpeg's subtitles filter).
 // Mirrors the browser compositor's styling: font, size as a share of frame height, outline, box, shadow, 9 positions,
 // dragged (custom) positions and the caption entrance animation.
-import { customXY } from '../../src/fxlogic.js';
+import { customXY, fitScale } from '../../src/fxlogic.js';
 
 function assColor(hex, alpha = 1) { // '#RRGGBB' + opacity -> &HAABBGGRR
   const h = String(hex || '#000000').replace('#', ''); const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16) || 0;
@@ -38,26 +38,29 @@ export function overlayAnchor(pos, W, H, o = {}) {
 
 // captions: [{s, e, text}] and textOverlays: [{s, e, text, style, pos, sizeFrac, opacity, fade}] — all times in OUTPUT seconds
 // Caption override tags for a dragged position and the entrance animation (browser: captionAnim in fxlogic.js)
-export function captionTags(style, W, H) {
+// fit < 1 shrinks a line that is wider than the frame: captions are one line and never wrap
+export function captionTags(style, W, H, fit = 1) {
   if (!style) return ''; const c = customXY(style); const px = Math.round(H * (style.size || 0.055)); let t = '';
-  const x = c ? Math.round(c.x * W) : 0, y = c ? Math.round(c.y * H) : 0;
+  const x = c ? Math.round(c.x * W) : 0, y = c ? Math.round(c.y * H) : 0; const f = v => Math.round(v * fit);
+  if (fit < 1) t += `\\fscx${f(100)}\\fscy${f(100)}`;
   if (style.anim === 'up' && c) t += `\\an5\\move(${x},${y + Math.round(px * 0.6)},${x},${y},0,250)\\fad(220,0)`;
-  else { if (c) t += `\\an5\\pos(${x},${y})`; if (style.anim === 'fade' || style.anim === 'up') t += '\\fad(250,0)'; else if (style.anim === 'pop') t += '\\fad(90,0)\\fscx70\\fscy70\\t(0,220,\\fscx100\\fscy100)'; }
+  else { if (c) t += `\\an5\\pos(${x},${y})`; if (style.anim === 'fade' || style.anim === 'up') t += '\\fad(250,0)'; else if (style.anim === 'pop') t += `\\fad(90,0)\\fscx${f(70)}\\fscy${f(70)}\\t(0,220,\\fscx${f(100)}\\fscy${f(100)})`; }
   return t ? `{${t}}` : '';
 }
 export function buildASS({ W, H, style, captions = [], textOverlays = [], fontMap }) {
-  const head = ['[Script Info]', 'ScriptType: v4.00+', `PlayResX: ${W}`, `PlayResY: ${H}`, 'WrapStyle: 0', 'ScaledBorderAndShadow: yes', 'YCbCr Matrix: TV.709', '',
+  const head = ['[Script Info]', 'ScriptType: v4.00+', `PlayResX: ${W}`, `PlayResY: ${H}`, 'WrapStyle: 2', 'ScaledBorderAndShadow: yes', 'YCbCr Matrix: TV.709', '',
     '[V4+ Styles]', 'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding'];
   const styles = [styleLine('Cap', style || { size: 0.055 }, W, H, { fontMap })];
-  const events = []; const capTags = captionTags(style, W, H); const capLayer = 2 + Math.max(0, ...textOverlays.map(o => o.layer || 0)); // captions above every text layer
-  for (const c of captions) if (c.e - c.s >= 0.05 && c.text) events.push(`Dialogue: ${capLayer},${assTime(c.s)},${assTime(c.e)},Cap,,0,0,0,,${capTags}${assText(c.text)}`);
+  const events = []; const capPx = Math.round(H * ((style && style.size) || 0.055)); const capLayer = 2 + Math.max(0, ...textOverlays.map(o => o.layer || 0)); // captions above every text layer
+  for (const c of captions) if (c.e - c.s >= 0.05 && c.text) events.push(`Dialogue: ${capLayer},${assTime(c.s)},${assTime(c.e)},Cap,,0,0,0,,${captionTags(style, W, H, fitScale(c.text, capPx, W))}${assText(c.text)}`);
   textOverlays.forEach((o, i) => {
     if (!(o.e - o.s >= 0.05) || !o.text) return;
     const name = `Ov${i + 1}`; const st = o.style || { size: 0.06 };
     styles.push(styleLine(name, st, W, H, { sizeFrac: o.sizeFrac ?? 0.06, align: 5, marginV: 0, fontMap }));
     const { an, x, y } = overlayAnchor(o.pos, W, H, o);
     const fadeMs = Math.round(Math.max(0, o.fade || 0) * 1000); const alpha = Math.round((1 - Math.max(0, Math.min(1, o.opacity ?? 1))) * 255).toString(16).toUpperCase().padStart(2, '0');
-    const tags = `{\\an${an}\\pos(${x},${y})${fadeMs ? `\\fad(${fadeMs},${fadeMs})` : ''}${alpha !== '00' ? `\\alpha&H${alpha}&` : ''}}`;
+    const fit = fitScale(o.text, Math.round(H * (o.sizeFrac ?? 0.06)), W); const fs = fit < 1 ? `\\fscx${Math.round(fit * 100)}\\fscy${Math.round(fit * 100)}` : '';
+    const tags = `{\\an${an}\\pos(${x},${y})${fs}${fadeMs ? `\\fad(${fadeMs},${fadeMs})` : ''}${alpha !== '00' ? `\\alpha&H${alpha}&` : ''}}`;
     events.push(`Dialogue: ${1 + (o.layer || 0)},${assTime(o.s)},${assTime(o.e)},${name},,0,0,0,,${tags}${assText(o.text)}`);
   });
   return [...head, ...styles, '', '[Events]', 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text', ...events, ''].join('\n');

@@ -45,28 +45,43 @@ const SENT_END_RE = /[.?!…]$|[다요죠까네][.?!]?$/;
 // Caption lines that read naturally. Every gap between two words gets a score: a pause, a sentence ending, a comma,
 // a Korean connective ending (-고, -서, -는데, -지만, -니까, -면 …) or a particle make good places to break; breaking right
 // after a modifier ("이런 | 스틱", "가장 | 스탠다드한") is bad. A small dynamic program then picks the breaks so each line
-// stays within maxChars / maxDur, sentences end lines, and lines come out evenly sized instead of being cut mid-phrase.
+// stays within maxChars / maxDur, sentences end lines, and lines come out full instead of being cut mid-phrase.
 const ENDING_RE = /([다요죠까네])[.?!~]*$|[.?!…]$/;
 const CONNECT_RE = /(고|며|면|서|는데|은데|던데|지만|니까|니깐|으니|어서|아서|해서|도록|려고|면서|다가|거나|든지|더니|듯이|자마자|구요|고요|는데요|거든요)[,.]?$/;
 const PARTICLE_RE = /(은|는|이|가|을|를|에서|에게|에는|으로|로|와|과|도|만|까지|부터|처럼|보다|한테|께서|이랑|랑)[,]?$/;
+const CONJ_RE = /^(그리고|그래서|그런데|근데|그러면|그럼|하지만|그러니까|그니까|그러다가|그래도|또는|혹은|또|자|및)$/;
+const POLITE_END_RE = /(니다|[아어에여]요|죠|네요|군요|거든요|데요|고요|구요|세요)[.?!~]*$/;
+// dependent nouns can't start a line: "작은 | 것을", "느껴질 | 때가", "할 | 수가"
+const DEP_NOUN_RE = /^(것|거|수|때|줄|적|뿐|듯|만큼|데|건|걸|게)(이|을|를|은|는|가|도|에|야|만|에는|이나|이에요|예요|에요|입니다|이죠|죠|요)?[.,?!]*$/;
 const MODIFIER_RE = /^(이|그|저|이런|그런|저런|요런|어떤|무슨|한|두|세|네|몇|그냥|좀|더|덜|아주|정말|진짜|너무|매우|제일|가장|꽤|안|못|잘|다|모든|각|여러|새|헌|첫)$/;
 export function breakScore(w, next) {
   const t = String(w.text || '').trim(); let s = 0;
   if (next) s += Math.min(6, Math.max(0, next.s - w.e) * 8); // a pause of 0.5 s ≈ a sentence ending
   const gap = next ? next.s - w.e : 1;
   // "…입니다." ends a sentence; a bare "-다/-요" without a period only when a pause follows ("연습하다 보면" goes on)
+  // a polite ending (-습니다, -어요, -죠 …) ends a sentence even when the recognizer left the period out and no pause follows
   if (/[.?!…]$/.test(t) || (ENDING_RE.test(t) && gap >= 0.3)) s += 7;
+  else if (POLITE_END_RE.test(t)) s += 5;
   else if (ENDING_RE.test(t)) s += 1;
   else if (/,$/.test(t)) s += 3;
   else if (CONNECT_RE.test(t)) s += 3;
   else if (PARTICLE_RE.test(t)) s += 1.2;
   if (MODIFIER_RE.test(normKo(t))) s -= 6;
+  if (next && DEP_NOUN_RE.test(String(next.text || '').trim())) s -= 6;
+  if (CONJ_RE.test(normKo(t))) s -= 5;                          // "그리고 |" — a conjunction opens the next line
+  else if (next && CONJ_RE.test(normKo(String(next.text || '').trim()))) s += 2;
   if (/(는|은|ㄴ|던|던가|한|할|될|된)$/.test(normKo(t)) && !PARTICLE_RE.test(t) && !ENDING_RE.test(t)) s -= 1; // likely "…하는 | 사람"
   return s;
 }
 const joinWords = ws => ws.reduce((acc, w) => acc + (acc && needsSpace(acc, w.text.trim()) ? ' ' : '') + w.text.trim(), '');
+// Caption length the way Netflix's Korean subtitle guide counts it: a Hangul/CJK character is 1, Latin letters, digits,
+// spaces and punctuation are 0.5 ("5A 스틱" = 3.5). That guide allows 16 per line and 12 per second of display.
+export const CAPTION_CHARS = 16;
+export const CAPTION_CPS = 12;
+const WIDE_RE = /[ᄀ-ᇿ㄰-㆏가-힯぀-ヿ一-鿿＀-￯]/;
+export function captionWidth(text) { let n = 0; for (const ch of String(text || '')) n += WIDE_RE.test(ch) ? 1 : 0.5; return n; }
 export function buildCaptionLines(words, opts = {}) {
-  const maxChars = opts.maxChars ?? 24, maxDur = opts.maxDur ?? 5, maxGap = opts.maxGap ?? 0.9, target = opts.target ?? Math.round(maxChars * 0.7);
+  const maxChars = opts.maxChars ?? CAPTION_CHARS, maxDur = opts.maxDur ?? 6, maxGap = opts.maxGap ?? 0.9, target = opts.target ?? Math.round(maxChars * 0.7);
   const ws = words.filter(w => String(w.text || '').trim()); const n = ws.length; if (!n) return [];
   const score = ws.map((w, i) => breakScore(w, ws[i + 1]));
   // best[i] = lowest cost to lay out words[0..i) ; line = words[j..i)
@@ -74,22 +89,36 @@ export function buildCaptionLines(words, opts = {}) {
   for (let i = 1; i <= n; i++) {
     let chars = 0;
     for (let j = i - 1; j >= 0; j--) {
-      chars += normKo(ws[j].text).length + (j < i - 1 ? 1 : 0);
+      chars += captionWidth(normKo(ws[j].text)) + (j < i - 1 ? 0.5 : 0);
       const dur = ws[i - 1].e - ws[j].s;
       if (j < i - 1 && ws[j + 1].s - ws[j].e > maxGap) break; // a long pause always ends a line
-      if (j < i - 1 && (chars > maxChars * 1.35 || dur > maxDur * 1.6)) break;
+      if (j < i - 1 && (chars > maxChars * 1.25 || dur > maxDur * 1.6)) break; // a caption is one line, it has to fit
       let c = best[j];
       c += Math.pow(Math.max(0, chars - maxChars), 2) * 2 + Math.max(0, dur - maxDur) * 4; // too long
-      c += Math.abs(chars - target) * 0.15;                                                    // evenly sized
-      if (i < n && chars < 9 && !/[.?!…]$/.test(ws[i - 1].text.trim())) c += chars < 5 ? 5 : 2.5; // stray scraps
-      for (let k = j; k < i - 1; k++) if (score[k] >= 7) c += 5; // a sentence ending inside the line
+      c += 1 + Math.abs(chars - target) * 0.05;                                                // fewer, fuller lines
+      // stray scraps ("합니다" alone) flicker by; a short sentence on its own is less bad than a cut-off word group
+      if (chars < maxChars * 0.4) { const ended = /[.?!…]$/.test(ws[i - 1].text.trim()); c += chars < maxChars * 0.25 ? (ended ? 2.5 : 5) : (ended ? 1 : 2.5); }
+      for (let k = j; k < i - 1; k++) if (score[k] >= 5) c += 5; // a sentence ending inside the line
       if (i < n) c -= score[i - 1];                                                            // a good place to break
       if (c < best[i]) { best[i] = c; from[i] = j; }
     }
     if (best[i] === Infinity) { best[i] = best[i - 1] + 10; from[i] = i - 1; }
   }
   const lines = []; for (let i = n; i > 0; i = from[i]) { const part = ws.slice(from[i], i); lines.push({ s: part[0].s, e: part[part.length - 1].e, text: joinWords(part) }); }
-  return lines.reverse();
+  return finishLines(lines.reverse(), opts);
+}
+// Subtitle conventions on finished lines: no period or comma at the end of a line (? and ! stay); each line stays up
+// long enough to read at CAPTION_CPS, borrowing the silence after it but never overlapping the next line; and a gap
+// under 0.3 s between two lines is closed so captions don't flicker off and on.
+export function finishLines(lines, { cps = CAPTION_CPS, minDur = 0.8 } = {}) {
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i], next = lines[i + 1];
+    l.text = l.text.replace(/\s*[.,]+$/, '');
+    const want = Math.max(minDur, captionWidth(normKo(l.text)) / cps);
+    if (l.e - l.s < want) l.e = Math.max(l.e, Math.min(l.s + want, next ? next.s : Infinity));
+    if (next && next.s > l.e && next.s - l.e < 0.3) l.e = next.s;
+  }
+  return lines;
 }
 // Word timings for caption lines: the recognized words where a line is untouched, otherwise spread over the line by length
 export function wordsOfLines(lines, recognized = []) {

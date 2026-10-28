@@ -1,11 +1,15 @@
 // Pure logic for the 꾸미기 layer: subtitle styles, zoom/fade/dissolve schedules, overlays, sound effects.
 
+// Caption looks after the common styles of Korean YouTube genres. Every caption is one line at the bottom unless noted.
 export const SUB_PRESETS = {
-  outline: { label: '기본 · 흰 글씨 + 검정 외곽선', font: 'Noto Sans KR', weight: 700, size: 0.055, color: '#FFFFFF', stroke: '#000000', strokeW: 0.16, box: false, boxColor: '#000000', boxAlpha: 0.6, pos: 'bottom', shadow: true },
-  box: { label: '박스형 · 검정 반투명 배경', font: 'Noto Sans KR', weight: 700, size: 0.05, color: '#FFFFFF', stroke: '', strokeW: 0, box: true, boxColor: '#000000', boxAlpha: 0.65, pos: 'bottom', shadow: false },
-  variety: { label: '예능형 · 노란 글씨 + 두꺼운 외곽선', font: 'Black Han Sans', weight: 400, size: 0.065, color: '#FFE14D', stroke: '#1A1A1A', strokeW: 0.2, box: false, boxColor: '#000000', boxAlpha: 0.6, pos: 'bottom', shadow: true },
-  round: { label: '둥근 · 주아체 + 남색 외곽선', font: 'Jua', weight: 400, size: 0.06, color: '#FFFFFF', stroke: '#1F2A5C', strokeW: 0.18, box: false, boxColor: '#000000', boxAlpha: 0.6, pos: 'bottom', shadow: false },
-  clean: { label: '깔끔 · 흰 글씨 + 그림자', font: 'Noto Sans KR', weight: 500, size: 0.048, color: '#FFFFFF', stroke: '', strokeW: 0, box: false, boxColor: '#000000', boxAlpha: 0, pos: 'bottom', shadow: true },
+  outline: { label: '정보·강의형 · 흰 글씨 + 검정 외곽선 (기본)', font: 'Noto Sans KR', weight: 700, size: 0.055, color: '#FFFFFF', stroke: '#000000', strokeW: 0.16, box: false, boxColor: '#000000', boxAlpha: 0.6, pos: 'bottom', shadow: true },
+  box: { label: '토크·인터뷰형 · 반투명 검정 박스', font: 'Noto Sans KR', weight: 700, size: 0.05, color: '#FFFFFF', stroke: '', strokeW: 0, box: true, boxColor: '#000000', boxAlpha: 0.65, pos: 'bottom', shadow: false },
+  variety: { label: '예능형 · 노란 굵은 글씨 + 두꺼운 외곽선', font: 'Black Han Sans', weight: 400, size: 0.065, color: '#FFE14D', stroke: '#1A1A1A', strokeW: 0.2, box: false, boxColor: '#000000', boxAlpha: 0.6, pos: 'bottom', shadow: true },
+  shorts: { label: '숏츠형 · 가운데 큰 글씨 + 톡 튀어나오기', font: 'Black Han Sans', weight: 400, size: 0.075, color: '#FFFFFF', stroke: '#000000', strokeW: 0.22, box: false, boxColor: '#000000', boxAlpha: 0.6, pos: 'center', shadow: true, anim: 'pop' },
+  news: { label: '리뷰·뉴스형 · 흰 글씨 + 남색 박스', font: 'Pretendard', weight: 700, size: 0.05, color: '#FFFFFF', stroke: '', strokeW: 0, box: true, boxColor: '#14213D', boxAlpha: 0.88, pos: 'bottom', shadow: false },
+  game: { label: '게임·리액션형 · 흰 글씨 + 보라 외곽선', font: 'Do Hyeon', weight: 400, size: 0.065, color: '#FFFFFF', stroke: '#5B21B6', strokeW: 0.22, box: false, boxColor: '#000000', boxAlpha: 0.6, pos: 'bottom', shadow: true, anim: 'pop' },
+  round: { label: '브이로그형 · 주아체 + 남색 외곽선', font: 'Jua', weight: 400, size: 0.06, color: '#FFFFFF', stroke: '#1F2A5C', strokeW: 0.18, box: false, boxColor: '#000000', boxAlpha: 0.6, pos: 'bottom', shadow: false },
+  clean: { label: '감성·다큐형 · 얇은 흰 글씨 + 그림자', font: 'Noto Sans KR', weight: 500, size: 0.048, color: '#FFFFFF', stroke: '', strokeW: 0, box: false, boxColor: '#000000', boxAlpha: 0, pos: 'bottom', shadow: true },
 };
 // Free-for-commercial-use Korean fonts. g = Google Fonts (CSS loaded on demand), url = jsDelivr webfont (FontFace),
 // ttf = file the Pro engine downloads for burned-in subtitles (libass). w = the weight the font is drawn with.
@@ -132,16 +136,13 @@ export function overlayBox(o, W, H) {
   const xs = { l: m, c: (W - w) / 2, r: W - w - m }, ys = { t: m, m: (H - h) / 2, b: H - h - m };
   return { x: xs[pos[1]] ?? xs.c, y: ys[pos[0]] ?? ys.t, w, h };
 }
-export function wrapCaption(text, maxChars = 22) {
-  const words = String(text || '').trim().split(/\s+/).filter(Boolean); const lines = []; let cur = '';
-  for (const w of words) {
-    if (cur && (cur + ' ' + w).length > maxChars) { lines.push(cur); cur = w; }
-    else cur = cur ? cur + ' ' + w : w;
-    while (cur.length > maxChars) { lines.push(cur.slice(0, maxChars)); cur = cur.slice(maxChars); }
-  }
-  if (cur) lines.push(cur);
-  return lines.slice(0, 3);
-}
+// Captions and text overlays are drawn on one line (a line break only where the user typed one); a line wider than
+// the frame is shrunk to fit instead of wrapping. textLines splits on typed breaks, textEm estimates a line's width in
+// font-size units for the Pro engine, which has no canvas to measure with (Hangul ≈ 1, Latin ≈ 0.6, space ≈ 0.3).
+export const LINE_FIT = 0.92;
+export function textLines(text) { const ls = String(text || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean); return ls.length ? ls : ['']; }
+export function textEm(line) { let n = 0; for (const ch of String(line || '')) n += /[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF\u3040-\u30FF\u4E00-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 1 : ch === ' ' ? 0.3 : /[A-Z0-9MW%]/.test(ch) ? 0.65 : /[.,'!:;|il]/.test(ch) ? 0.3 : 0.55; return n; }
+export function fitScale(text, px, W) { const em = Math.max(...textLines(text).map(textEm)); return em * px > W * LINE_FIT ? (W * LINE_FIT) / (em * px) : 1; }
 export function captionAt(lines, srcT) { for (const l of lines) { if (srcT >= l.s && srcT < l.e) return l; if (l.s > srcT) break; } return null; }
 
 // Built-in sound effects, synthesized (no files, no licensing)

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { liveFx, freeLayer, layerCount, defaultTracks, SUB_PRESETS, FONT_CATALOG, SUB_FONTS, fontInfo, adjustActive, adjustFilter, adjustEq, captionAnim, customXY, defaultFx, fxActive, zoomAt, zoomSourceRect, fadeAlpha, dissolveAlpha, activeOverlays, overlayAlpha, overlayBox, wrapCaption, captionAt, synthSfx, mixSfxInto, hexA, fxToJSON, fxFromJSON } from '../src/fxlogic.js';
+import { liveFx, freeLayer, layerCount, defaultTracks, SUB_PRESETS, FONT_CATALOG, SUB_FONTS, fontInfo, adjustActive, adjustFilter, adjustEq, captionAnim, customXY, defaultFx, fxActive, zoomAt, zoomSourceRect, fadeAlpha, dissolveAlpha, activeOverlays, overlayAlpha, overlayBox, textLines, textEm, fitScale, captionAt, synthSfx, mixSfxInto, hexA, fxToJSON, fxFromJSON } from '../src/fxlogic.js';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const dec = fs.readFileSync(path.join(root, 'src/decorate.js'), 'utf8');
@@ -31,8 +31,12 @@ assert.ok(Math.abs(overlayAlpha(ov[0], 1.25) - 0.4) < 1e-9); assert.ok(Math.abs(
 const b = overlayBox(ov[0], 1920, 1080); assert.equal(b.w, 480); assert.equal(b.h, 240); assert.equal(b.x, 1920 - 480 - 58); assert.equal(b.y, 58);
 assert.equal(overlayBox({ pos: 'mc', w: 0.5, ratio: 1 }, 1000, 1000).x, 250);
 // captions
-assert.deepEqual(wrapCaption('오늘은 날씨가 정말 좋네요 여러분', 12), ['오늘은 날씨가 정말', '좋네요 여러분']);
-assert.equal(wrapCaption('가나다라마바사아자차카타파하', 5).length, 3);
+// one line per typed line (no automatic wrapping); a line wider than the frame shrinks to fit
+assert.deepEqual(textLines('오늘은 날씨가 정말 좋네요 여러분'), ['오늘은 날씨가 정말 좋네요 여러분']);
+assert.deepEqual(textLines('첫 줄\n 둘째 줄 '), ['첫 줄', '둘째 줄']);
+assert.equal(textEm('가나'), 2); assert.ok(textEm('5A') > 1 && textEm('5A') < 1.4);
+assert.equal(fitScale('짧은 자막', 60, 1920), 1);
+const sc = fitScale('가'.repeat(40), 60, 1920); assert.ok(sc < 1 && Math.abs(sc * 40 * 60 - 1920 * 0.92) < 1);
 const lines = [{ s: 0, e: 1, text: 'a' }, { s: 2, e: 3, text: 'b' }]; assert.equal(captionAt(lines, 2.5).text, 'b'); assert.equal(captionAt(lines, 1.5), null);
 // sfx
 for (const k of ['ding', 'pop', 'whoosh', 'thud', 'click']) { const d = synthSfx(k, 48000); assert.ok(d.length > 1000 && d.length < 48000, k); let peak = 0; for (const v of d) peak = Math.max(peak, Math.abs(v)); assert.ok(peak > 0.2 && peak <= 1.2, k + ' peak ' + peak); }

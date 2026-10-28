@@ -10,7 +10,7 @@ export const ASR_MODELS = {
   base: { id: 'Xenova/whisper-base', label: '빠름 · base (~80MB)', dtype: 'q8' },
   small: { id: 'Xenova/whisper-small', label: '기본 · small (~250MB)', dtype: 'q8' },
   medium: { id: 'Xenova/whisper-medium', label: '정확 · medium (~800MB, 느림)', dtype: 'q8' },
-  turbo: { id: 'onnx-community/whisper-large-v3-turbo', label: '최고 · large-v3-turbo (~1.6GB, 가장 느림)', dtype: 'q8' },
+  turbo: { id: 'onnx-community/whisper-large-v3-turbo_timestamped', label: '가장 정확 · large-v3-turbo (~760MB, 권장)', dtype: { encoder_model: 'q4', decoder_model_merged: 'q4' } },
 };
 export function resolveModel(key) { if (ASR_MODELS[key]) return ASR_MODELS[key]; const hit = Object.values(ASR_MODELS).find(m => m.id === key); return hit || ASR_MODELS.small; }
 

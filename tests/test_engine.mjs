@@ -63,6 +63,9 @@ const boxLine = styleLine('B', SUB_PRESETS.box, 1920, 1080); assert.ok(/,3,\d+,0
 // dragged caption position + entrance animation + catalog->file font names
 assert.equal(captionTags(SUB_PRESETS.outline, 1920, 1080), '');
 assert.equal(captionTags({ ...SUB_PRESETS.outline, pos: 'custom', x: 0.25, y: 0.5 }, 1920, 1080), '{\\an5\\pos(480,540)}');
+// captions never wrap: WrapStyle 2, and a line wider than the frame is shrunk with fscx/fscy tags
+{ const a2 = buildASS({ W: 1080, H: 1920, style: SUB_PRESETS.outline, captions: [{ s: 0, e: 2, text: '가'.repeat(30) }, { s: 2, e: 3, text: '짧은 자막' }] });
+  assert.ok(a2.includes('WrapStyle: 2')); const m = a2.match(/\\fscx(\d+)/); assert.ok(m && +m[1] < 100, a2); assert.ok(a2.includes(',,짧은 자막'), a2); }
 assert.ok(captionTags({ ...SUB_PRESETS.outline, anim: 'fade' }, 1920, 1080).includes('\\fad(250,0)'));
 assert.ok(/\\move\(960,\d+,960,540,0,250\)/.test(captionTags({ ...SUB_PRESETS.outline, pos: 'custom', x: 0.5, y: 0.5, anim: 'up' }, 1920, 1080)));
 assert.deepEqual(overlayAnchor('custom', 1000, 500, { x: 0.1, y: 0.9 }), { an: 5, x: 100, y: 450 });

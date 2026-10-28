@@ -444,8 +444,9 @@ details.sect > :not(summary){margin-bottom:8px}
       <summary>인식 설정</summary>
       <div class="field"><label for="aiModel">정확도</label>
         <select id="aiModel">
-          <option value="Xenova/whisper-base">빠름 · base (약 60MB)</option>
-          <option value="Xenova/whisper-small" selected>정확 · small (약 190MB, 권장)</option>
+          <option value="onnx-community/whisper-large-v3-turbo_timestamped" selected>가장 정확 · large-v3-turbo (약 760MB, 권장)</option>
+          <option value="Xenova/whisper-small">빠름 · small (약 190MB)</option>
+          <option value="Xenova/whisper-base">가장 빠름 · base (약 60MB, 정확도 낮음)</option>
         </select>
       </div>
       <label class="switch" title="빠른 그래픽카드가 있으면 GPU로, 아니면 CPU 여러 개로 동시에 인식합니다"><input type="checkbox" id="aiGpu" checked>GPU로 빠르게 (지원되면 자동)</label>
@@ -456,7 +457,7 @@ details.sect > :not(summary){margin-bottom:8px}
     <div class="capbar">
       <button class="btn sm" id="btnCapAdd" title="재생 위치에 새 자막 줄 추가">+ 자막 추가</button>
       <button class="btn sm" id="btnCapResplit" title="말이 되는 곳에서 끊어 문장 단위로 다시 나눕니다 (고친 자막에도 적용)">문장 단위로 다시 나누기</button>
-      <select id="capLen" aria-label="한 줄 글자 수" title="한 줄 최대 글자 수"><option value="16">짧게 (숏츠)</option><option value="24" selected>보통</option><option value="32">길게</option></select>
+      <select id="capLen" aria-label="한 줄 글자 수" title="자막은 늘 한 줄입니다. 한글 1자, 영문·숫자·띄어쓰기 0.5자로 셉니다"><option value="12">한 줄 12자 (숏츠)</option><option value="16" selected>한 줄 16자 (표준)</option><option value="20">한 줄 20자 (길게)</option></select>
       <label class="switch small"><input type="checkbox" id="capFollow" checked>재생 위치 따라가기</label>
     </div>
     <div class="caplist" id="capList"></div>

@@ -1,15 +1,15 @@
 // 꾸미기 layer: subtitle burn-in styles, zoom/fade/dissolve, color adjust, sound effects, image/text overlays.
 // The same compositor draws the live preview (over the <video>) and the rendered frames.
 // On the preview, captions and overlays can be dragged, resized (corner handle) and edited in place (double-click).
-import { SUB_PRESETS, FONT_CATALOG, fontInfo, CAPTION_ANIMS, SFX_KINDS, POS_LABELS, liveFx, freeLayer, fxActive, zoomAt, zoomSourceRect, fadeAlpha, dissolveAlpha, activeOverlays, overlayAlpha, overlayBox, wrapCaption, captionAnim, customXY, adjustFilter, adjustActive, synthSfx, hexA } from './fxlogic.js';
+import { SUB_PRESETS, FONT_CATALOG, fontInfo, CAPTION_ANIMS, SFX_KINDS, POS_LABELS, liveFx, freeLayer, fxActive, zoomAt, zoomSourceRect, fadeAlpha, dissolveAlpha, activeOverlays, overlayAlpha, overlayBox, textLines, LINE_FIT, captionAnim, customXY, adjustFilter, adjustActive, synthSfx, hexA } from './fxlogic.js';
 
 function roundRect(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
 export function fontSpec(style, px) { return `${style.weight || 700} ${px}px "${style.font || 'Noto Sans KR'}", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif`; }
 
 // Returns the caption block's box {x, y, w, h} in canvas pixels (used for hit-testing on the preview).
 export function drawCaption(ctx, text, style, W, H, animT = Infinity) {
-  const fontPx = Math.max(10, Math.round(H * (style.size || 0.055))); ctx.font = fontSpec(style, fontPx); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  const lines = wrapCaption(text, Math.max(8, Math.floor((W * 0.9) / (fontPx * 0.98)))); const lh = fontPx * 1.3; const total = lh * lines.length;
+  let fontPx = Math.max(10, Math.round(H * (style.size || 0.055))); ctx.font = fontSpec(style, fontPx); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const lines = textLines(text); fontPx = fitFont(ctx, lines, style, fontPx, W); const lh = fontPx * 1.3; const total = lh * lines.length;
   const c = customXY(style);
   const cx = c ? c.x * W : W / 2;
   const cy = c ? c.y * H : style.pos === 'top' ? H * 0.08 + total / 2 : style.pos === 'center' ? H / 2 : H * 0.93 - total / 2;
@@ -28,9 +28,14 @@ export function drawCaption(ctx, text, style, W, H, animT = Infinity) {
   ctx.restore();
   return box;
 }
+// One line per typed line: shrink the font until the widest line fits the frame (no automatic wrapping)
+function fitFont(ctx, lines, style, px, W) {
+  const tw = Math.max(1, ...lines.map(l => ctx.measureText(l).width)); if (tw <= W * LINE_FIT) return px;
+  const fp = Math.max(8, Math.floor(px * (W * LINE_FIT) / tw)); ctx.font = fontSpec(style, fp); return fp;
+}
 function drawTextOverlay(ctx, o, W, H, alpha) {
-  const px = Math.max(10, Math.round(H * (o.w || 0.06))); const st = o.style || SUB_PRESETS.outline; ctx.save(); ctx.globalAlpha = alpha;
-  ctx.font = fontSpec(st, px); ctx.textBaseline = 'middle'; const lines = wrapCaption(o.text, Math.max(6, Math.floor((W * 0.9) / (px * 0.98)))); const lh = px * 1.3; const tw = Math.max(...lines.map(l => ctx.measureText(l).width));
+  let px = Math.max(10, Math.round(H * (o.w || 0.06))); const st = o.style || SUB_PRESETS.outline; ctx.save(); ctx.globalAlpha = alpha;
+  ctx.font = fontSpec(st, px); ctx.textBaseline = 'middle'; const lines = textLines(o.text); px = fitFont(ctx, lines, st, px, W); const lh = px * 1.3; const tw = Math.max(...lines.map(l => ctx.measureText(l).width));
   const pos = o.pos || 'mc'; const m = Math.round(W * 0.03); const bw = tw + px * 0.8, bh = lh * lines.length;
   let x, y;
   if (pos === 'custom' && isFinite(o.x) && isFinite(o.y)) { x = o.x * W - bw / 2; y = o.y * H - bh / 2; }
@@ -133,7 +138,7 @@ export function initDecorate(api) {
     fx().subs.burn = subEls.burn.checked; fx().subs.preset = 'custom'; subEls.sizeVal.textContent = `${(s.size * 100).toFixed(1)}%`;
     ensureFont(s.font).then(redraw); api.autosave(); redraw();
   }
-  subEls.preset.addEventListener('change', () => { const p = SUB_PRESETS[subEls.preset.value]; if (!p) return; const old = fx().subs.style; fx().subs.preset = subEls.preset.value; fx().subs.style = { ...p, anim: old.anim || 'none', ...(customXY(old) ? { pos: 'custom', x: old.x, y: old.y } : {}) }; styleToUI(); ensureFont(p.font).then(redraw); api.autosave(); });
+  subEls.preset.addEventListener('change', () => { const p = SUB_PRESETS[subEls.preset.value]; if (!p) return; const old = fx().subs.style; fx().subs.preset = subEls.preset.value; fx().subs.style = { ...p, anim: p.anim || old.anim || 'none', ...(customXY(old) && p.pos !== 'center' ? { pos: 'custom', x: old.x, y: old.y } : {}) }; styleToUI(); ensureFont(p.font).then(redraw); api.autosave(); });
   ['font', 'size', 'color', 'stroke', 'strokeW', 'box', 'boxColor', 'pos', 'anim', 'shadow', 'burn'].forEach(k => subEls[k].addEventListener('input', () => { if (k === 'burn') { fx().subs.burn = subEls.burn.checked; api.autosave(); redraw(); } else uiToStyle(k); if (k === 'burn' && subEls.burn.checked && !(captionsOf() || []).length) subEls.note.textContent = '아직 자막이 없습니다. 왼쪽 자막에서 자막을 만들거나 SRT를 불러오면 영상에 구워집니다.'; else subEls.note.textContent = ''; }));
   for (const sel of [subEls.font]) { sel.addEventListener('pointerdown', previewFontNames); sel.addEventListener('focus', previewFontNames); }
   // the user's own font file (this session only; not stored in the project)

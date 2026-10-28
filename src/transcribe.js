@@ -1,7 +1,7 @@
 // AI 자막·NG tab: extracts 16 kHz mono audio, runs Whisper in a Web Worker, builds SRT and removal candidates.
 // Captions can be corrected line by line afterwards (text, timing, split/merge/delete), imported from SRT, and find/replaced.
 import { planWindows, speechSeconds, dedupeWords } from './asrplan.js';
-import { resplitLines, splitLineAt } from './textlogic.js';
+import { resplitLines, splitLineAt, CAPTION_CHARS } from './textlogic.js';
 import { wordsFromChunks, dropSilentWords, buildCaptionLines, buildSRT, findFillers, findStutters, findMumbles, findRepeats, findShortBursts, stripFromLines, parseSRT, mergeSpans, resampleInto } from './textlogic.js';
 
 const TARGET_SR = 16000;
@@ -54,10 +54,11 @@ export function initTranscribe(api) {
   // How many Whisper workers to run side by side: one Whisper instance doesn't get faster with more CPU threads, but
   // separate windows can be recognized at the same time. Each worker holds its own copy of the model (~0.4 GB),
   // so the count follows the CPU and the memory the browser reports. The GPU path uses one worker.
-  function poolSize(nWindows, device) {
+  function poolSize(nWindows, device, model = '') {
     if (device === 'webgpu') return 1;
     try { const o = Number(localStorage.getItem('cutdiet:aiWorkers')); if (o > 0) return Math.min(o, nWindows); } catch {} // manual override
     const cores = navigator.hardwareConcurrency || 4, mem = navigator.deviceMemory || 4;
+    if (/large|turbo/.test(model)) return Math.max(1, Math.min(nWindows, cores >= 8 && mem >= 8 ? 2 : 1)); // ~1 GB of memory per worker
     return Math.max(1, Math.min(nWindows, Math.floor(cores / 4), mem >= 8 ? 3 : mem >= 4 ? 2 : 1));
   }
   // Hands the planned windows to a small pool of workers, one window at a time. The first worker loads (and on the very
@@ -93,7 +94,7 @@ export function initTranscribe(api) {
             else if (m.phase === 'load') setProgress(0.1, '모델을 준비하는 중… (처음이면 내려받기에 1~3분)');
           } else if (m.type === 'device') { dev = m.device; if (m.reason === 'error') toast('GPU에서 오류가 나서 CPU로 계속합니다', 3000); }
           else if (m.type === 'ready') {
-            dev = m.device; if (first) { setProgress(0.35, '모델 준비 완료. 인식 시작…'); const extra = poolSize(n, dev) - 1; for (let k = 0; k < extra; k++) spawn(false); }
+            dev = m.device; if (first) { setProgress(0.35, '모델 준비 완료. 인식 시작…'); const extra = poolSize(n, dev, model) - 1; for (let k = 0; k < extra; k++) spawn(false); }
             next();
           } else if (m.type === 'win') {
             results[m.id] = m.chunks.map(c => ({ text: c.text, timestamp: c.timestamp.map(t => (t == null ? null : t + cur.S)) }));
@@ -354,8 +355,8 @@ export function initTranscribe(api) {
   function focusCaption(line) { const i = ai.lines.indexOf(line); if (i < 0) return; if (api.showTab) api.showTab('ai'); const inp = el.capList.querySelector(`.caprow[data-i="${i}"] input[data-f="text"]`); if (inp) { inp.scrollIntoView({ block: 'center' }); inp.focus(); inp.select(); } }
   function toggleCand(c) { if (!ai.cands.includes(c)) return; c.on = !c.on; renderCands(); }
   // line length: how many characters fit on one caption line (shorts need shorter lines)
-  function lineChars() { return Number(el.capLen && el.capLen.value) || 24; }
-  try { const v = localStorage.getItem('cutdiet:capLen'); if (v && el.capLen) el.capLen.value = v; } catch {}
+  function lineChars() { return Number(el.capLen && el.capLen.value) || CAPTION_CHARS; }
+  try { const v = localStorage.getItem('cutdiet:capLen'); if (v && el.capLen && [...el.capLen.options].some(o => o.value === v)) el.capLen.value = v; } catch {}
   if (el.capLen) el.capLen.addEventListener('change', () => { try { localStorage.setItem('cutdiet:capLen', el.capLen.value); } catch {} });
   if (el.capResplit) el.capResplit.addEventListener('click', () => {
     if (!ai.lines.length) { toast('먼저 자막을 만들거나 불러오세요'); return; }

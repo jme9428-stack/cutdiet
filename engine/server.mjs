@@ -28,7 +28,7 @@ const log = (...a) => console.log(new Date().toTimeString().slice(0, 8), ...a);
 
 // ---------- state ----------
 const settingsFile = path.join(DATA, 'settings.json');
-const settings = Object.assign({ outDir: defaultOutDir(), encoder: 'auto', preset: 'lecture', quality: 'high', asrModel: 'small', watch: { dir: '', on: false, tasks: { render: true, project: true } }, recent: [] }, loadJSON(settingsFile, {}));
+const settings = Object.assign({ outDir: defaultOutDir(), encoder: 'auto', preset: 'lecture', quality: 'high', asrModel: 'turbo', watch: { dir: '', on: false, tasks: { render: true, project: true } }, recent: [] }, loadJSON(settingsFile, {}));
 const saveSettings = () => saveJSON(settingsFile, settings);
 const media = new Map(); // token -> { token, path, name, size, info, env? }
 const jobs = new Map(); let jobSeq = 0;

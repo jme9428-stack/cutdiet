@@ -18,7 +18,10 @@ if (ort && ort.wasm && !ort.wasm.wasmPaths && ort.versions && ort.versions.web) 
 }
 
 const post = m => self.postMessage(m);
-// WebGPU in fp16 when the adapter supports it (same accuracy as fp32, half the download); q8 on the CPU.
+// small/base: WebGPU in fp16 when the adapter supports it (same accuracy as fp32, half the download), q8 on the CPU.
+// large-v3-turbo is 4-bit everywhere (q4f16 on a GPU with f16, else q4): about 560–760 MB instead of 1.6–3 GB, and on
+// a real recording it scored the same word error rate in 4-bit as the reference transcript allows (≈4 % vs 11 % for small).
+const isLarge = m => /large|turbo/.test(m);
 async function gpuDtype() {
   try {
     const a = navigator.gpu && await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }); if (!a || !fastGpu(a.info)) return null;
@@ -26,11 +29,12 @@ async function gpuDtype() {
   } catch { return null; }
 }
 async function load(model, device) {
-  const dtype = device === 'webgpu' ? await gpuDtype() : 'q8';
+  let dtype = device === 'webgpu' ? await gpuDtype() : 'q8';
   if (device === 'webgpu' && !dtype) throw new Error('webgpu adapter unavailable');
+  if (isLarge(model)) dtype = dtype === 'fp16' ? 'q4f16' : 'q4';
   const files = new Map();
   return pipeline('automatic-speech-recognition', model, {
-    device, dtype: device === 'webgpu' ? { encoder_model: dtype, decoder_model_merged: dtype } : dtype,
+    device, dtype: device === 'webgpu' || isLarge(model) ? { encoder_model: dtype, decoder_model_merged: dtype } : dtype,
     progress_callback: info => {
       if (info.status === 'progress' && info.file) {
         files.set(info.file, { loaded: info.loaded || 0, total: info.total || 0 });
