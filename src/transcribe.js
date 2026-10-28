@@ -18,20 +18,20 @@ export function initTranscribe(api) {
   // which removal candidates to look for (remembered per browser)
   const OPT_KEY = 'cutdiet:aiOpts'; const optEls = { filler: el.optFiller, stutter: el.optStutter, repeat: el.optRepeat, mumble: el.optMumble, strip: el.optStrip };
   try { const o = JSON.parse(localStorage.getItem(OPT_KEY) || '{}'); for (const [k, v] of Object.entries(o)) if (optEls[k] && typeof v === 'boolean') optEls[k].checked = v; } catch {}
-  for (const [k, c] of Object.entries(optEls)) c.addEventListener('change', () => { try { localStorage.setItem(OPT_KEY, JSON.stringify(Object.fromEntries(Object.entries(optEls).map(([a, b]) => [a, b.checked])))); } catch {} if (k !== 'strip' && ai.words.length) { computeCands(); renderCands(); } });
+  for (const [k, c] of Object.entries(optEls)) c.addEventListener('change', () => { try { localStorage.setItem(OPT_KEY, JSON.stringify(Object.fromEntries(Object.entries(optEls).map(([a, b]) => [a, b.checked])))); } catch {} if (k !== 'strip') { computeCands(); renderCands(); } });
 
   const setProgress = (frac, text) => { el.progress.hidden = false; el.progress.firstElementChild.style.width = `${Math.round(Math.max(0, Math.min(1, frac)) * 100)}%`; if (text != null) el.status.textContent = text; };
   const fmtMB = b => (b / 1e6).toFixed(0) + 'MB';
   const fileKey = () => state.file ? state.file.name + ':' + state.file.size : (state.engineMedia ? 'engine:' + (state.engineMedia.path || state.engineMedia.name || '') : null);
   const changed = () => { if (api.autosave) api.autosave(); if (api.captionsChanged) api.captionsChanged(); };
 
-  async function extractAudio(onProgress) {
+  async function extractAudio(onProgress, alive = () => ai.running) {
     const dur = state.duration; const target = new Float32Array(Math.ceil((dur + 1) * TARGET_SR));
     let filled = 0;
     if (state.mb && state.aTrack) {
       const sink = new state.mb.AudioBufferSink(state.aTrack); let lastUi = 0;
       for await (const wb of sink.buffers(0, dur)) {
-        if (!ai.running) throw new Error('canceled');
+        if (!alive()) throw new Error('canceled');
         const b = wb.buffer; const chans = []; for (let c = 0; c < b.numberOfChannels; c++) chans.push(b.getChannelData(c));
         filled = Math.max(filled, resampleInto(target, TARGET_SR, chans, b.sampleRate, wb.timestamp));
         if (wb.timestamp - lastUi > 3) { lastUi = wb.timestamp; onProgress(wb.timestamp / dur); await new Promise(r => setTimeout(r, 0)); }
@@ -58,7 +58,8 @@ export function initTranscribe(api) {
     const t0 = performance.now(); ai.abort = new AbortController();
     try {
       const useEngine = !!(state.engineMedia && state.hooks.transcribe);
-      const audio = useEngine ? null : await extractAudio(p => setProgress(p * 0.1, `오디오 추출 ${Math.round(p * 100)}%`));
+      const cached = snd.audio && snd.audio.key === fileKey() ? snd.audio.data.slice() : null;
+      const audio = useEngine ? null : cached || await extractAudio(p => setProgress(p * 0.1, `오디오 추출 ${Math.round(p * 100)}%`));
       if (!ai.running) throw new Error('canceled');
       const device = (el.gpu.checked && gpuOk) ? 'webgpu' : 'wasm'; const model = el.model.value;
       const result = useEngine ? await state.hooks.transcribe({ model, signal: ai.abort.signal, onProgress: (frac, text) => setProgress(frac, text) }) : await new Promise((resolve, reject) => {
@@ -114,11 +115,16 @@ export function initTranscribe(api) {
       if (el.optMumble.checked) list.push(...findMumbles(w, state.env, api.HOP, state.params.threshold));
     }
     if (w.length && el.optRepeat.checked) list.push(...findRepeats(w));
-    // before 자막 만들기: what the loudness analysis alone can tell — short sounds standing alone between pauses
-    if (!w.length && !state.isDemo && state.hasMedia && (el.optFiller.checked || el.optMumble.checked)) list.push(...findShortBursts(state.segments));
+    // before 자막 만들기: the sound scan (audiologic.js) + short sounds standing alone between pauses
+    if (!w.length && !state.isDemo && state.hasMedia) {
+      const raw = snd.key === fileKey() && snd.raw ? snd.raw : [];
+      for (const c of raw) if ((c.kind === 'filler' && el.optFiller.checked) || (c.kind === 'stutter' && el.optStutter.checked) || (c.kind === 'repeat' && el.optRepeat.checked)) list.push({ ...c });
+      if (el.optFiller.checked || el.optMumble.checked) list.push(...findShortBursts(state.segments));
+    }
     list.sort((a, b) => a.s - b.s || (b.e - b.s) - (a.e - a.s));
     // the same words can be both a filler and a stutter ("어 어"): keep the first one found for a span
-    ai.cands = list.filter((c, i) => !list.some((d, j) => j < i && d.kind !== 'repeat' && c.kind !== 'repeat' && d.s <= c.s + 0.01 && d.e >= c.e - 0.01)).map(c => ({ ...c, on: !!c.confident }));
+    const alreadyCut = c => state.segments.some(g => !g.keep && g.s <= c.s + 0.03 && g.e >= c.e - 0.03);
+    ai.cands = list.filter((c, i) => !alreadyCut(c) && !list.some((d, j) => j < i && d.kind !== 'repeat' && c.kind !== 'repeat' && d.s <= c.s + 0.01 && d.e >= c.e - 0.01)).map(c => ({ ...c, on: !!c.confident }));
     candsChanged();
   }
   const candsChanged = () => { if (api.candsChanged) api.candsChanged(); };
@@ -131,12 +137,8 @@ export function initTranscribe(api) {
   function renderCands() {
     const on = ai.cands.filter(c => c.on).length;
     el.candChip.textContent = ai.cands.length ? `${on}/${ai.cands.length}개 선택` : '0개';
-    const audioOnly = !ai.words.length;
-    el.candNote.innerHTML = !state.hasMedia || state.isDemo ? '영상을 불러오면 후보를 찾습니다.'
-      : audioOnly ? '지금 목록은 <b>소리만으로</b> 찾은 짧은 소리입니다. 추임새·말 버벅임·다시 말한 NG는 말의 내용을 알아야 찾을 수 있어서 <b>자막 만들기</b>를 먼저 실행해야 합니다. <button class="btn sm primary" id="btnAiRun2">자막 만들고 후보 찾기</button>'
-      : '자막(단어 시간)으로 찾은 후보입니다. 타임라인의 <b>NG 후보</b> 줄에도 같은 색으로 표시됩니다.';
-    const b2 = document.getElementById('btnAiRun2'); if (b2) b2.addEventListener('click', run);
-    if (!ai.cands.length) { el.candBody.innerHTML = `<tr><td colspan="6" class="muted">${audioOnly ? (state.hasMedia && !state.isDemo ? '짧게 끊긴 소리를 찾지 못했습니다. 위 버튼으로 자막을 만들면 추임새·버벅임·NG를 찾습니다.' : '자막을 만들면 후보가 여기에 표시됩니다.') : '선택한 종류의 삭제 후보를 찾지 못했습니다.'}</td></tr>`; el.apply.disabled = el.checkAll.disabled = el.uncheckAll.disabled = true; candsChanged(); return; }
+    const audioOnly = !ai.words.length; renderNote();
+    if (!ai.cands.length) { el.candBody.innerHTML = `<tr><td colspan="6" class="muted">${!state.hasMedia || state.isDemo ? '영상을 불러오면 후보를 찾습니다.' : audioOnly && snd.running ? '소리를 분석하는 중입니다… 잠시 후 여기에 후보가 나옵니다.' : '찾은 후보가 없습니다. 위의 찾을 종류를 켜거나, 자막을 만들어 다시 찾아 보세요.'}</td></tr>`; el.apply.disabled = el.checkAll.disabled = el.uncheckAll.disabled = true; candsChanged(); return; }
     el.candBody.innerHTML = ai.cands.map((c, i) => `<tr data-i="${i}" class="cand-${c.kind}${c.on ? ' on' : ''}"><td><input type="checkbox" data-act="toggle" ${c.on ? 'checked' : ''} aria-label="삭제할 후보로 선택"></td><td>${KIND_CHIP[c.kind] || `<span class="chip warn">반복·NG${c.sim ? ` ${Math.round(c.sim * 100)}%` : ''}</span>`}</td><td class="mono"><button class="btn sm ghost" data-act="play" title="앞뒤를 조금 붙여 들어보기">▶ ${fmtClock(c.s)}</button></td><td class="captime"><input class="mono" data-f="s" value="${fmtClock(c.s)}" aria-label="시작"><span class="muted">–</span><input class="mono" data-f="e" value="${fmtClock(c.e)}" aria-label="끝"></td><td style="white-space:normal;min-width:160px">${escapeHtml(c.text)}${c.pair ? `<div class="hint">→ ${c.kind === 'repeat' ? '다시 한 말' : '이어진 말'}: ${escapeHtml(c.pair)}</div>` : ''}</td><td class="mono">${(c.e - c.s).toFixed(1)}s <button class="btn sm ghost" data-act="drop" title="이 후보 빼기 (삭제 안 함)">✕</button></td></tr>`).join('');
     el.apply.disabled = el.checkAll.disabled = el.uncheckAll.disabled = false;
     candsChanged();
@@ -156,7 +158,7 @@ export function initTranscribe(api) {
   const setAll = v => { for (const c of ai.cands) c.on = v; renderCands(); };
   el.checkAll.addEventListener('click', () => setAll(true));
   el.uncheckAll.addEventListener('click', () => setAll(false));
-  el.rescan.addEventListener('click', () => { computeCands(); renderCands(); toast(ai.cands.length ? `후보 ${ai.cands.length}개` : '후보를 찾지 못했습니다', 1500); });
+  el.rescan.addEventListener('click', () => { if (!ai.words.length) { soundScan(true); return; } computeCands(); renderCands(); toast(ai.cands.length ? `후보 ${ai.cands.length}개` : '후보를 찾지 못했습니다', 1500); });
   el.apply.addEventListener('click', () => {
     const picked = ai.cands.filter(c => c.on);
     if (!picked.length) { toast('체크한 항목이 없습니다'); return; }
@@ -165,8 +167,39 @@ export function initTranscribe(api) {
     ai.cands = ai.cands.filter(c => !picked.includes(c)); renderCands();
     toast(`${picked.length}개 구간을 삭제 표시했습니다 (Ctrl+Z로 되돌리기)`, 3000);
   });
-  // after the loudness analysis of a new video: show the audio-only candidates right away
-  document.addEventListener('cutdiet:analyzed', () => { if (!ai.words.length) { computeCands(); renderCands(); } });
+  // ---- sound-only scan: fillers / stutters / retakes without a transcript, started as soon as a video is analyzed ----
+  const snd = { key: null, raw: null, running: false, token: 0, progress: 0, audio: null, worker: null, error: '' };
+  function renderNote() {
+    const audioOnly = !ai.words.length;
+    el.candNote.innerHTML = !state.hasMedia || state.isDemo ? '영상을 불러오면 바로 소리로 후보를 찾습니다.'
+      : !audioOnly ? '자막(단어 시간)으로 찾은 후보입니다. 타임라인의 <b>NG 후보</b> 줄에도 같은 색으로 표시됩니다.'
+      : snd.running ? `<b>자막 없이 소리만으로</b> 추임새·말 버벅임·다시 말한 부분을 찾는 중… ${Math.round(snd.progress * 100)}%`
+      : `<b>자막 없이 소리만으로</b> 찾은 후보입니다. ▶로 들어보고 지울 것만 체크하세요(확실한 것만 미리 체크돼 있음). 자막을 만들면 말 내용으로 더 정확하게 다시 찾습니다. <button class="btn sm" id="btnAiRun2">자막 만들고 더 정확하게 찾기</button>${snd.error ? ` <span class="muted">(${escapeHtml(snd.error)})</span>` : ''}`;
+    const b2 = document.getElementById('btnAiRun2'); if (b2) b2.addEventListener('click', run);
+  }
+  async function soundScan(force) {
+    const key = fileKey(); if (!state.hasMedia || state.isDemo || !key || ai.words.length) return;
+    if (!force && snd.key === key && (snd.raw || snd.running)) return;
+    const token = ++snd.token; snd.key = key; snd.raw = null; snd.error = ''; snd.progress = 0;
+    if (heavyReason()) { snd.raw = []; snd.error = '1시간이 넘는 영상은 소리 분석을 건너뜁니다'; computeCands(); renderCands(); return; }
+    snd.running = true; computeCands(); renderCands();
+    const alive = () => snd.token === token && fileKey() === key;
+    try {
+      const audio = await extractAudio(p => { if (alive()) { snd.progress = p * 0.8; renderNote(); } }, alive);
+      if (!alive()) return;
+      snd.audio = state.duration <= 1800 ? { key, data: audio.slice() } : null; // 자막 만들기 reuses it
+      if (snd.worker) snd.worker.terminate();
+      const w = snd.worker = new Worker(new URL('./audioscan.worker.js', import.meta.url), { type: 'module' });
+      snd.progress = 0.85; renderNote();
+      const res = await new Promise((resolve, reject) => { w.onmessage = e => { if (e.data.id !== token) return; if (e.data.error) reject(new Error(e.data.error)); else resolve(e.data.cands); }; w.onerror = ev => reject(new Error(ev.message || 'worker')); w.postMessage({ id: token, samples: audio }, [audio.buffer]); });
+      if (alive()) snd.raw = res;
+    } catch (e) {
+      if (alive()) { snd.raw = []; snd.error = /nofile|canceled/.test(String(e.message)) ? '이 방식으로 연 파일은 소리 분석을 할 수 없어 자막 만들기를 써야 합니다' : '소리 분석 실패: ' + String(e.message).slice(0, 80); }
+    } finally {
+      if (snd.token === token) { snd.running = false; if (snd.worker) { snd.worker.terminate(); snd.worker = null; } if (!ai.words.length) { computeCands(); renderCands(); if (alive() && snd.raw && snd.raw.length) toast(`소리로 찾은 삭제 후보 ${ai.cands.length}개 · AI 자막·NG 탭 ③에서 확인`, 3000); } }
+    }
+  }
+  document.addEventListener('cutdiet:analyzed', () => { if (!ai.words.length) { computeCands(); renderCands(); soundScan(false); } });
 
   function staleWarn() { const key = fileKey(); if (ai.forFile && key && ai.forFile !== key) toast('이 자막은 다른 영상에서 만든 것입니다', 3000); }
   el.srtOut.addEventListener('click', async () => { staleWarn(); const srt = buildSRT(ai.lines, t => outTime(state.segments, t)); if (!srt.trim()) { toast('편집 후 남는 자막이 없습니다'); return; } await saveFile(`${baseName(state.file ? state.file.name : 'video')}_cut.srt`, srt); });
