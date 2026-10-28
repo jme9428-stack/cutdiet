@@ -6,12 +6,12 @@ import { SR, analyzeFrames, speechRuns, prefixMatch, scanSound, FRAME } from '..
 let seed = 12345; const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
 const VOWELS = [[730, 1090], [270, 2290], [300, 870], [530, 1840], [570, 840], [440, 1020], [660, 1720]];
 // one syllable: c = consonant noise colour (0..4, or -1 for none), v = vowel index; dur seconds; f0 Hz
-function syllable(c, v, dur, f0, out) {
+function syllable(c, v, dur, f0, out, glide = 0.08) {
   const n = Math.round(dur * SR); const [F1, F2] = VOWELS[v]; const cn = c >= 0 ? Math.round(0.035 * SR) : 0; let lp = 0;
   for (let i = 0; i < n; i++) {
     const tt = i / SR; let s = 0;
     if (i < cn) { const w = rnd() * 2 - 1; lp += (w - lp) * (0.15 + c * 0.18); s = (c % 2 ? w - lp : lp) * 0.25; }
-    else { const f = f0 * (1 - 0.08 * (i / n)); for (let h = 1; h * f < 4000; h++) { const hf = h * f; const a = Math.exp(-((hf - F1) ** 2) / (2 * 90 ** 2)) + 0.6 * Math.exp(-((hf - F2) ** 2) / (2 * 120 ** 2)) + 0.02; s += a * Math.sin(2 * Math.PI * hf * tt) / h ** 0.3; } s *= 0.12; }
+    else { const f = f0 * (1 - glide * (i / n)); for (let h = 1; h * f < 4000; h++) { const hf = h * f; const a = Math.exp(-((hf - F1) ** 2) / (2 * 90 ** 2)) + 0.6 * Math.exp(-((hf - F2) ** 2) / (2 * 120 ** 2)) + 0.02; s += a * Math.sin(2 * Math.PI * hf * tt) / h ** 0.3; } s *= 0.12; }
     const env = Math.min(1, i / (0.01 * SR), (n - i) / (0.015 * SR)); out.push(s * env);
   }
 }
@@ -39,6 +39,18 @@ for (const tr of truth) assert.ok(hit(tr), `missed ${tr.kind} at ${tr.s.toFixed(
 const falses = c.filter(k => !truth.some(tr => Math.min(k.e, tr.e) - Math.max(k.s, tr.s) > 0.05));
 assert.ok(falses.length <= 1, 'false alarms: ' + JSON.stringify(falses));
 assert.ok(c.every(k => k.audio && k.e > k.s && typeof k.confident === 'boolean' && k.text));
+// real-recording pattern (1:26 in a user's video): "이~" held on one note with a short wobble, a break, then the sentence.
+// Its look-alike — the same held note running straight into the next syllable ("그~리고") — must not be offered for deletion.
+{
+  const held = (out, gapInside) => { syllable(-1, 1, 0.25, 108, out, 0.02); if (gapInside) for (let i = 0; i < Math.round(0.08 * SR); i++) out.push((rnd() - 0.5) * 0.01); syllable(-1, 1, 0.25, 110, out, 0.02); };
+  const y = []; pause(0.6, y); for (let k = 0; k < 8; k++) { word(randomWord(6), y); pause(0.5, y); }
+  const fs = y.length / SR; held(y, true); const fe = y.length / SR; pause(0.12, y); word(randomWord(5), y); pause(0.6, y);
+  const ws = y.length / SR; held(y, false); word(randomWord(3), y); const we = y.length / SR; pause(0.6, y);
+  for (let k = 0; k < 6; k++) { word(randomWord(5), y); pause(0.5, y); }
+  const got = scanSound(Float32Array.from(y)).filter(k => k.kind === 'filler');
+  assert.ok(got.some(k => k.s < fe && k.e > fs), 'held "이~" with a wobble should be found: ' + JSON.stringify(got));
+  assert.ok(!got.some(k => k.s < we && k.e > ws), 'a held syllable flowing into its word must not be cut: ' + JSON.stringify(got));
+}
 // silence or a pure tone gives nothing
 assert.deepEqual(scanSound(new Float32Array(SR * 3)), []);
 const tone = new Float32Array(SR * 3).map((_, i) => 0.2 * Math.sin(2 * Math.PI * 220 * i / SR)); assert.ok(scanSound(tone).length <= 1);
