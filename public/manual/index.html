@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>컷다이어트 사용 설명서</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+  :root { --brand: #2B4ED8; --brand-soft: #E8EDFB; --ink: #1A1D26; --muted: #5B6270; --line: #D9DDE6; --keep: #1F8A5A; --keep-soft: #DDF3E8; --remove: #D23F3F; --remove-soft: #FBE1E1; --warn-soft: #FFF4D6; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: "Noto Sans CJK KR", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; color: var(--ink); font-size: 10.6pt; line-height: 1.62; word-break: keep-all; }
+  h1, h2, h3 { font-weight: 700; line-height: 1.3; margin: 0; }
+  h2 { font-size: 17pt; color: var(--brand); margin: 0 0 10px; padding-bottom: 6px; border-bottom: 2px solid var(--brand); break-after: avoid; }
+  h2 .num { display: inline-block; min-width: 1.6em; color: #fff; background: var(--brand); border-radius: 6px; text-align: center; font-size: 11pt; padding: 1px 6px; margin-right: 8px; vertical-align: 3px; }
+  h3 { font-size: 12pt; margin: 16px 0 6px; break-after: avoid; }
+  p { margin: 0 0 8px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 9.2pt; }
+  section { break-before: page; }
+  section.cont { break-before: auto; }
+  /* cover */
+  .cover { break-before: auto; height: 255mm; display: flex; flex-direction: column; justify-content: space-between; }
+  .cover .eyebrow { color: var(--brand); font-weight: 700; letter-spacing: .02em; font-size: 11pt; }
+  .cover h1 { font-size: 34pt; margin: 10px 0 6px; }
+  .cover .sub { font-size: 13pt; color: var(--muted); margin-bottom: 26px; }
+  .cover .url { display: inline-block; font-size: 15pt; font-weight: 700; color: var(--brand); background: var(--brand-soft); padding: 8px 16px; border-radius: 10px; }
+  .cover .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; margin-top: 26px; }
+  .cover .fact { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .cover .fact b { display: block; font-size: 10pt; color: var(--brand); margin-bottom: 2px; }
+  .cover .hero { margin-top: 20px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .cover .hero img { width: 100%; display: block; }
+  .cover .foot { font-size: 9.2pt; color: var(--muted); display: flex; justify-content: space-between; border-top: 1px solid var(--line); padding-top: 8px; }
+  /* tables */
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 12px; font-size: 9.8pt; break-inside: auto; }
+  th, td { border: 1px solid var(--line); padding: 6px 8px; vertical-align: top; text-align: left; }
+  th { background: #F3F5FA; font-weight: 700; }
+  tr { break-inside: avoid; }
+  td.k { white-space: nowrap; font-weight: 700; width: 24%; }
+  kbd { display: inline-block; font-family: "IBM Plex Mono", "Menlo", monospace; font-size: 9pt; border: 1px solid #B9C0CF; border-bottom-width: 2px; border-radius: 5px; padding: 0 6px; background: #fff; line-height: 1.5; }
+  .chip { display: inline-block; border-radius: 999px; padding: 0 8px; font-size: 8.8pt; font-weight: 700; line-height: 1.6; }
+  .chip.keep { background: var(--keep-soft); color: var(--keep); } .chip.remove { background: var(--remove-soft); color: var(--remove); }
+  /* figures */
+  figure { margin: 10px 0 14px; break-inside: avoid; }
+  figure img { width: auto; max-width: 100%; max-height: 108mm; display: block; margin: 0 auto; border: 1px solid var(--line); border-radius: 8px; }
+  figure.half img { max-height: 95mm; width: auto; max-width: 100%; margin: 0 auto; }
+  figcaption { font-size: 9pt; color: var(--muted); margin-top: 5px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .callout { border-left: 4px solid var(--brand); background: var(--brand-soft); padding: 8px 12px; border-radius: 0 8px 8px 0; margin: 10px 0 12px; break-inside: avoid; }
+  .callout.warn { border-color: #D99A00; background: var(--warn-soft); }
+  .callout b { color: var(--brand); } .callout.warn b { color: #8A6100; }
+  ol.steps { counter-reset: s; list-style: none; padding: 0; margin: 6px 0 10px; }
+  ol.steps > li { counter-increment: s; position: relative; padding-left: 38px; margin: 0 0 12px; break-inside: avoid; }
+  ol.steps > li::before { content: counter(s); position: absolute; left: 0; top: 1px; width: 28px; height: 28px; border-radius: 50%; background: var(--brand); color: #fff; font-weight: 700; text-align: center; line-height: 28px; font-size: 12pt; }
+  ol.steps b.t { display: block; font-size: 11.5pt; margin-bottom: 2px; }
+  ul { margin: 4px 0 10px; padding-left: 18px; } li { margin-bottom: 3px; }
+  .toc { columns: 2; column-gap: 24px; font-size: 10.4pt; }
+  .toc div { break-inside: avoid; padding: 3px 0; border-bottom: 1px dashed var(--line); display: flex; gap: 8px; }
+  .toc .n { color: var(--brand); font-weight: 700; min-width: 1.4em; }
+  code { font-family: "IBM Plex Mono", Menlo, monospace; font-size: 9.3pt; background: #F3F5FA; padding: 0 4px; border-radius: 4px; }
+  pre { font-family: "IBM Plex Mono", Menlo, monospace; font-size: 9.3pt; background: #F3F5FA; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; white-space: pre-wrap; }
+  .layout { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; margin: 8px 0 12px; }
+  .layout div { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 9.6pt; break-inside: avoid; }
+  .layout div b { color: var(--brand); display: block; }
+  .cmp td:nth-child(2), .cmp td:nth-child(3) { width: 34%; }
+  .yes { color: var(--keep); font-weight: 700; } .no { color: var(--muted); }
+  /* on screen (cutdiet.vercel.app/manual/) the manual reads as a web page with a download bar; print/PDF ignores this */
+  .screenbar { display: none; }
+  @media screen {
+    body { max-width: 860px; margin: 0 auto; padding: 0 18px 60px; background: #fff; }
+    section { border-top: 1px solid var(--line); padding-top: 28px; margin-top: 28px; }
+    .cover { height: auto; border-top: 0; }
+    .screenbar { display: flex; gap: 10px; align-items: center; justify-content: flex-end; position: sticky; top: 0; z-index: 2; background: #fff; padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .screenbar a { font-weight: 700; color: #fff; background: var(--brand); padding: 6px 14px; border-radius: 8px; text-decoration: none; }
+    .screenbar a.ghost { background: var(--brand-soft); color: var(--brand); }
+  }
+</style>
+</head>
+<body>
+<div class="screenbar"><a class="ghost" href="/">컷다이어트 열기</a><a href="/manual.pdf" download="컷다이어트_사용설명서.pdf">PDF로 받기</a></div>
+
+<section class="cover">
+  <div>
+    <div class="eyebrow">정명은 트레이너의 회원 100배 성장 프로젝트</div>
+    <h1>컷다이어트 사용 설명서</h1>
+    <div class="sub">말 안 하는 구간을 자동으로 잘라 주고, 자막까지 만들어 주는 유튜브 편집 도구 · 회원용</div>
+    <span class="url">cutdiet.vercel.app</span>
+    <div class="facts">
+      <div class="fact"><b>설치·회원가입 없음</b>링크를 크롬이나 엣지에서 열면 끝입니다.</div>
+      <div class="fact"><b>영상은 어디에도 올라가지 않음</b>분석·자막·렌더링 전부 내 컴퓨터 브라우저 안에서 처리됩니다.</div>
+      <div class="fact"><b>비용 0원</b>서버도 결제도 없습니다. 내 컴퓨터가 일합니다.</div>
+      <div class="fact"><b>캡컷과 같은 화면·단축키</b>왼쪽 메뉴, 가운데 미리보기, 오른쪽 속성, 아래 타임라인. Ctrl+B, J·K·L 그대로.</div>
+    </div>
+    <div class="hero"><img src="shots/02_editor.jpg" alt="편집 화면"></div>
+  </div>
+  <div class="foot"><span>2026년 10월 · v2.3</span><span>문제가 생기면 마지막 장 "피드백 보내는 법"대로 한 줄만 보내 주세요</span></div>
+</section>
+
+<section>
+  <h2><span class="num">0</span>차례</h2>
+  <div class="toc">
+    <div><span class="n">1</span>시작하기 전에</div>
+    <div><span class="n">2</span>3단계로 끝내기</div>
+    <div><span class="n">3</span>화면 구성</div>
+    <div><span class="n">4</span>컷 고치기 — 타임라인과 단축키</div>
+    <div><span class="n">5</span>자동 자막</div>
+    <div><span class="n">6</span>NG 정리 (추임새·말 버벅임)</div>
+    <div><span class="n">7</span>텍스트·오디오·효과·숏츠</div>
+    <div><span class="n">8</span>내보내기와 캡컷으로 가져가기</div>
+    <div><span class="n">9</span>무료 버전과 Pro의 차이</div>
+    <div><span class="n">10</span>자주 묻는 질문과 문제 해결</div>
+    <div><span class="n">11</span>피드백 보내는 법</div>
+  </div>
+  <div class="callout"><b>딱 한 가지만 기억하세요.</b> 영상을 넣고 → 재생해서 들어보고 → 오른쪽 위 <b>내보내기</b>. 나머지 메뉴는 컷이 익숙해진 뒤에 열어도 늦지 않습니다. 첫 영상은 5분짜리로 테스트하는 편이 빠릅니다.</div>
+
+  <h2 style="margin-top:22px"><span class="num">1</span>시작하기 전에</h2>
+  <p>데스크톱 크롬이나 엣지에서 열면 모든 기능이 됩니다. 휴대폰과 사파리에서는 분석·편집까지만 되고 MP4 만들기는 안 될 수 있습니다.</p>
+  <table>
+    <tr><th>항목</th><th>내용</th></tr>
+    <tr><td class="k">잘 맞는 영상</td><td>혼자 말하는 강의, 화면 녹화 설명, 브이로그 내레이션, 인터뷰</td></tr>
+    <tr><td class="k">안 맞는 영상</td><td>촬영 때부터 배경음악이 깔린 영상, 여러 명이 동시에 말하는 영상, 현장음이 큰 영상 (배경음악은 여기서 나중에 깔 수 있습니다)</td></tr>
+    <tr><td class="k">길이</td><td>10분 안팎이 가장 쾌적, 30분까지 무리 없음. 1시간이 넘으면 분석과 편집 프로그램용 파일만 만들어집니다</td></tr>
+    <tr><td class="k">파일 형식</td><td>MP4, MOV, WebM, MKV. 음성만 있는 파일(MP3·WAV·M4A)도 가능</td></tr>
+    <tr><td class="k">컴퓨터 사양</td><td>메모리 8GB 이상 권장. 자동 자막은 처음 한 번 음성 인식 모델(약 760MB)을 내려받습니다</td></tr>
+    <tr><td class="k">영상은 어디로</td><td>어디에도 올라가지 않습니다. 결과 파일은 내가 고른 위치(또는 다운로드 폴더)에만 저장됩니다</td></tr>
+  </table>
+  <figure class="half"><img src="shots/00_onboarding.jpg" alt="처음 안내"><figcaption>처음 열면 3단계 안내가 한 번 뜹니다. 뒤의 화면은 예시 데이터이고, 내 영상을 넣으면 바뀝니다.</figcaption></figure>
+</section>
+
+<section>
+  <h2><span class="num">2</span>3단계로 끝내기</h2>
+  <ol class="steps">
+    <li><b class="t">영상 넣기</b>가운데 점선 상자에 파일을 끌어다 놓거나 클릭해 고릅니다. 10분 영상이면 20~40초 뒤 분석이 끝나고, 아래 타임라인 파형이 <span class="chip keep">초록 = 남김</span> <span class="chip remove">빨강 = 삭제</span>로 칠해집니다. 오른쪽에 "편집 후 길이"와 "줄어드는 시간"이 뜹니다.</li>
+    <li><b class="t">들어보며 고치기</b>재생(또는 <kbd>Space</kbd>)을 누르면 빨간 구간을 건너뛰며 완성본처럼 들립니다. 말이 잘렸거나 쉼이 너무 길면 그 자리에서 멈추고 고칩니다(4장). 전체가 어색하면 왼쪽 <b>컷</b> 메뉴에서 프리셋(강의형 / 토크·인터뷰 / 브이로그)을 바꿔 봅니다.</li>
+    <li><b class="t">내보내기</b>오른쪽 위 <b>내보내기</b> → <b>MP4 만들기</b>. 저장 위치를 고르는 창이 먼저 뜨고, 저장을 누르면 렌더링이 시작되어 그 파일로 바로 저장됩니다(크롬·엣지). 작업은 같은 브라우저에 자동 저장되어, 같은 영상을 다시 열면 이어서 할 수 있습니다.</li>
+  </ol>
+  <figure><img src="shots/02_editor.jpg" alt="편집 화면"><figcaption>분석 직후. 왼쪽 메뉴와 기능 창, 가운데 미리보기, 오른쪽 프로젝트 요약, 아래 트랙 타임라인.</figcaption></figure>
+  <div class="callout warn"><b>렌더링 시간</b> 보통 영상 길이의 10~30%입니다(10분 영상 → 1~3분). 그동안 다른 메뉴를 써도 되지만, 브라우저 탭을 닫으면 멈춥니다.</div>
+</section>
+
+<section>
+  <h2><span class="num">3</span>화면 구성</h2>
+  <p>캡컷과 같은 배치입니다. 한 번 익히면 어느 기능이든 같은 자리에서 찾습니다.</p>
+  <div class="layout">
+    <div><b>위 막대</b>파일 이름 · 다른 영상 · 불러오기/저장(프로젝트 파일) · ? 안내 · <b>내보내기</b></div>
+    <div><b>왼쪽 아이콘 메뉴</b>컷 · 자막 · NG 정리 · 텍스트 · 오디오 · 효과 · 숏츠 · 내보내기 · 가이드(?)</div>
+    <div><b>가운데 미리보기</b>재생 버튼, 배속, 음량, 전체 화면. 자막·텍스트를 끌어 옮기고 모서리로 크기 조절, 더블클릭으로 글자 수정</div>
+    <div><b>오른쪽 속성 창</b>고른 클립(자막·텍스트·이미지·효과음·음악)의 글자·글꼴·색·크기·시작/끝·나누기·삭제. 고른 게 없으면 프로젝트 요약</div>
+    <div style="grid-column:1/3"><b>아래 타임라인</b>위에서부터 자막 · 텍스트 레이어 · 영상(파형) · 효과음 · 음악 트랙. 트랙 이름 옆 눈(숨기기)·스피커(음소거)·자물쇠(잠금). 클립을 끌어 옮기고 양끝을 끌어 길이 조절</div>
+  </div>
+  <figure><img src="shots/03_timeline.jpg" alt="타임라인"><figcaption>트랙 타임라인. 버튼 위에 마우스를 올리면 단축키가 표시됩니다.</figcaption></figure>
+  <div class="two">
+    <figure class="half"><img src="shots/06_inspector.jpg" alt="속성 창"><figcaption>자막 한 줄을 고르면 오른쪽 속성 창에서 글자와 시간을 고칩니다.</figcaption></figure>
+    <figure class="half"><img src="shots/16_mobile.jpg" alt="휴대폰 화면"><figcaption>좁은 화면에서는 미리보기 → 타임라인 → 메뉴 순으로 쌓입니다.</figcaption></figure>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">4</span>컷 고치기 — 타임라인과 단축키</h2>
+  <p>들으면서 어색한 자리에 멈추고 키 하나를 누르는 게 전부입니다. 타임라인을 클릭하면 그 위치로 가고, 더블클릭하면 그 구간이 남김↔삭제로 바뀝니다. 구간 경계선은 끌어서 미세 조정합니다.</p>
+  <table>
+    <tr><th>키</th><th>동작</th><th>이럴 때</th></tr>
+    <tr><td class="k"><kbd>Space</kbd></td><td>재생 / 일시정지</td><td></td></tr>
+    <tr><td class="k"><kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd></td><td>뒤로 / 멈춤 / 앞으로 (한 번 더 누르면 2배속 → 4배속)</td><td>빠르게 훑어볼 때</td></tr>
+    <tr><td class="k"><kbd>S</kbd> 또는 <kbd>Ctrl</kbd>+<kbd>B</kbd></td><td>재생 위치에서 나누기. 그 자리의 자막·텍스트도 함께 둘로 나뉩니다(자막은 말이 끊기는 자연스러운 곳에서)</td><td>구간 일부만 지울 때: 나눈 뒤 한쪽을 <kbd>X</kbd></td></tr>
+    <tr><td class="k"><kbd>Q</kbd> / <kbd>W</kbd></td><td>재생 위치 앞부분 / 뒷부분 삭제</td><td>말 앞 잡담, 말 끝 정적</td></tr>
+    <tr><td class="k"><kbd>X</kbd></td><td>현재 구간 남김 ↔ 삭제</td><td>잘못 잘린 구간을 살릴 때</td></tr>
+    <tr><td class="k"><kbd>Delete</kbd></td><td>고른 클립 삭제 (고른 게 없으면 현재 구간 삭제)</td><td></td></tr>
+    <tr><td class="k"><kbd>I</kbd> / <kbd>O</kbd></td><td>범위 시작 / 끝 표시 → "범위 삭제"</td><td>긴 부분을 한 번에 지울 때</td></tr>
+    <tr><td class="k"><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>되돌리기 (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> 다시 실행)</td><td>뭐든 실수했을 때</td></tr>
+    <tr><td class="k"><kbd>←</kbd> <kbd>→</kbd></td><td>1초 이동 (<kbd>Shift</kbd> 함께: 5초, <kbd>,</kbd> <kbd>.</kbd>: 1프레임)</td><td></td></tr>
+    <tr><td class="k"><kbd>[</kbd> <kbd>]</kbd></td><td>이전 / 다음 컷 경계로</td><td>컷만 빠르게 확인할 때</td></tr>
+    <tr><td class="k"><kbd>M</kbd></td><td>현재 위치에 챕터</td><td>내용이 바뀔 때마다</td></tr>
+    <tr><td class="k"><kbd>F</kbd></td><td>미리보기 전체 화면</td><td></td></tr>
+  </table>
+  <p class="small muted">맥에서는 Ctrl 대신 ⌘도 됩니다. 한글 입력 상태여도 단축키는 그대로 작동합니다.</p>
+  <h3>설정은 프리셋 하나면 됩니다</h3>
+  <table>
+    <tr><th>증상</th><th>바꿀 것 (컷 메뉴 → 세부 설정)</th></tr>
+    <tr><td>말 첫 음절이 자꾸 잘린다</td><td>말 앞뒤 여백을 0.25초로, 말소리 기준을 낮춰서(-48)</td></tr>
+    <tr><td>숨소리·잡음까지 남는다</td><td>말소리 기준을 올려서(-36)</td></tr>
+    <tr><td>짧은 쉼까지 다 잘려 숨 가쁘다</td><td>프리셋을 토크·인터뷰로, 또는 구간 목록의 "0.4초 미만 되살리기"</td></tr>
+  </table>
+  <figure class="half"><img src="shots/04_cut.jpg" alt="컷 메뉴"><figcaption>컷 메뉴. 프리셋 3종, 세부 설정, 구간 목록.</figcaption></figure>
+</section>
+
+<section>
+  <h2><span class="num">5</span>자동 자막</h2>
+  <ol class="steps">
+    <li><b class="t">자막 만들기</b>왼쪽 <b>자막</b> → <b>자동 자막 만들기</b>. 처음 한 번 음성 인식 모델(약 760MB)을 내려받고, 그다음부터는 바로 시작합니다. 영상 길이와 비슷한 시간이 걸립니다(10분 영상 ≈ 10분). 그동안 다른 메뉴에서 계속 작업해도 됩니다.</li>
+    <li><b class="t">틀린 글자 고치기</b>목록에서 줄을 누르면 그 위치로 가고, 글자를 바로 고칠 수 있습니다. 미리보기의 자막을 더블클릭하거나, 오른쪽 속성 창에서 고쳐도 됩니다. 같은 오타가 여러 번 나오면 "찾아 바꾸기".</li>
+    <li><b class="t">스타일 고르기</b>같은 메뉴 아래 <b>자막 스타일</b>에서 "자막을 영상에 굽기"를 켜고 스타일을 고릅니다. 미리보기에 그대로 보이고 MP4에 새겨집니다.</li>
+  </ol>
+  <table>
+    <tr><th>알아 두면 좋은 것</th><th>내용</th></tr>
+    <tr><td class="k">정확도</td><td>기본 모델(가장 정확 · large-v3-turbo)로 실제 강의 영상에서 틀린 단어가 약 4~5%였습니다(이전 모델 11%). 급할 때는 "인식 설정"에서 빠름(small)을 고르면 2배 빠르지만 덜 정확합니다</td></tr>
+    <tr><td class="k">한 줄 자막</td><td>자막은 늘 한 줄입니다. 한 줄 16자(한글 1자, 영문·숫자·띄어쓰기 0.5자)가 기본이고, 숏츠는 12자, 길게는 20자. 화면보다 길면 글자가 자동으로 작아집니다</td></tr>
+    <tr><td class="k">자연스러운 끊기</td><td>문장 끝(-습니다, -어요)에서 끊고, "그리고·그래서"는 다음 줄 앞으로, "작은 / 것을"처럼 말이 이어지는 곳은 끊지 않습니다. 고친 뒤에는 "문장 단위로 다시 나누기"</td></tr>
+    <tr><td class="k">읽기 속도</td><td>초당 12자 이하로 읽히도록 표시 시간을 맞추고, 줄 끝 마침표·쉼표는 뺍니다 (넷플릭스 한국어 자막 기준)</td></tr>
+    <tr><td class="k">SRT 파일</td><td>내보내기 → SRT(편집 후 시간)를 캡컷이나 유튜브에 그대로 올릴 수 있습니다. 반대로 SRT 불러오기도 됩니다</td></tr>
+  </table>
+  <div class="two">
+    <figure class="half"><img src="shots/05_subtitles.jpg" alt="자막 메뉴"><figcaption>자동 자막 결과. 한 줄씩 듣기·고치기·나누기·삭제.</figcaption></figure>
+    <figure class="half"><img src="shots/08_caption_style.jpg" alt="자막 스타일"><figcaption>자막 스타일 8종: 정보·강의, 토크·인터뷰, 예능, 숏츠, 리뷰·뉴스, 게임·리액션, 브이로그, 감성·다큐.</figcaption></figure>
+  </div>
+  <figure class="half"><img src="shots/07_monitor_caption.jpg" alt="미리보기 자막"><figcaption>미리보기에 보이는 그대로 MP4에 새겨집니다. 자막을 끌어 위치를 옮길 수 있습니다.</figcaption></figure>
+</section>
+
+<section>
+  <h2><span class="num">6</span>NG 정리 (추임새·말 버벅임)</h2>
+  <p>영상을 넣으면 자막 없이도 <b>소리만으로</b> 길게 끈 "어…·음…", 같은 소리로 다시 시작한 말 버벅임, 다시 말한 NG를 후보로 찾습니다. 자동 자막을 만들면 말 내용까지 보고 더 정확하게 다시 찾습니다.</p>
+  <ol class="steps">
+    <li><b class="t">듣고 고르기</b>왼쪽 <b>NG 정리</b>에서 후보마다 ▶로 들어보고, 지울 것만 체크합니다. 확실한 것은 미리 체크되어 있습니다. 시작·끝 시간도 고칠 수 있습니다.</li>
+    <li><b class="t">삭제 표시</b>"체크한 항목 지우기"를 누르면 그 구간이 빨간색(삭제)이 됩니다. 지운 말은 자막 글자에서도 빠집니다. 마음이 바뀌면 <kbd>Ctrl</kbd>+<kbd>Z</kbd>.</li>
+  </ol>
+  <p>종류별로 켜고 끌 수 있습니다: 추임새, 말 버벅임("그 그러니까"·말 꼬임), 다시 말한 NG, 웅얼거림(인식 안 된 소리). 타임라인에는 후보 자리가 따로 표시됩니다.</p>
+  <figure class="half"><img src="shots/09_ng.jpg" alt="NG 정리"><figcaption>NG 정리 메뉴.</figcaption></figure>
+</section>
+
+<section>
+  <h2><span class="num">7</span>텍스트·오디오·효과·숏츠</h2>
+  <table>
+    <tr><th>메뉴</th><th>쓰는 때</th><th>핵심 사용법</th></tr>
+    <tr><td class="k">텍스트</td><td>강조 문구, 제목, 로고·워터마크</td><td>문구 입력 → 텍스트 추가(재생 위치부터 3초). 미리보기에서 끌어 옮기고, 오른쪽 속성 창에서 글꼴·색·크기·시간. 여러 개가 겹치면 레이어로 위아래 쌓입니다. 이미지·로고는 범위 "영상 전체"로 두면 워터마크</td></tr>
+    <tr><td class="k">오디오</td><td>배경음악, 효과음</td><td>음악 파일 선택 → 음량(15~25% 권장) → "말할 때 음악 줄이기" 켜기. 타임라인 음악 트랙을 끌어 시작 위치 조절. 효과음은 재생 위치에 추가</td></tr>
+    <tr><td class="k">효과</td><td>점프컷 숨기기, 화면 전환</td><td>자동 줌(컷마다 살짝 확대해 튐을 가림), 구간 줌, 페이드 인/아웃, 디졸브, 밝기·대비·채도</td></tr>
+    <tr><td class="k">숏츠</td><td>같은 영상으로 세로 숏츠</td><td>시작/끝 "현재 위치로" → 미리보기의 노란 9:16 틀을 끌어 위치 → 숏츠 MP4 만들기. 자막·텍스트·효과도 같이 들어갑니다</td></tr>
+  </table>
+  <div class="two">
+    <figure class="half"><img src="shots/10_text.jpg" alt="텍스트"><figcaption>텍스트 추가. 오른쪽 속성 창에서 바로 꾸밉니다.</figcaption></figure>
+    <figure class="half"><img src="shots/13_shorts.jpg" alt="숏츠"><figcaption>숏츠. 노란 틀을 끌어 크롭 위치를 정합니다.</figcaption></figure>
+  </div>
+  <div class="two">
+    <figure class="half"><img src="shots/11_audio.jpg" alt="오디오"><figcaption>오디오. 배경음악과 효과음.</figcaption></figure>
+    <figure class="half"><img src="shots/12_effects.jpg" alt="효과"><figcaption>효과. 줌·페이드·전환·색 보정.</figcaption></figure>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">8</span>내보내기와 캡컷으로 가져가기</h2>
+  <table>
+    <tr><th>결과물</th><th>쓰는 곳</th></tr>
+    <tr><td class="k">MP4</td><td>유튜브 업로드, 캡컷 가져오기. 화질은 "고화질 · 원본 해상도" 권장</td></tr>
+    <tr><td class="k">SRT 자막</td><td>유튜브 자막 업로드, 캡컷 자막 가져오기 (편집 후 시간으로 딱 맞음)</td></tr>
+    <tr><td class="k">유튜브 챕터</td><td>설명란에 붙여 넣는 타임스탬프 (첫 챕터 0:00, 3개 이상, 10초 간격을 자동 검사)</td></tr>
+    <tr><td class="k">썸네일 후보</td><td>목소리에 힘이 있는 순간의 프레임 → JPG</td></tr>
+    <tr><td class="k">EDL · XML · FFmpeg</td><td>프리미어·다빈치·파이널컷 사용자용 컷 패키지 (캡컷은 필요 없음)</td></tr>
+    <tr><td class="k">프로젝트 파일</td><td>다른 컴퓨터에서 이어서 작업할 때만. 같은 컴퓨터는 같은 영상을 다시 열면 이어서 할지 묻습니다</td></tr>
+  </table>
+  <h3>캡컷으로 가져가기</h3>
+  <ul>
+    <li>여기서 컷만 하고 MP4를 만들어 캡컷에 가져가면, 자막·스티커·효과만 올리면 됩니다.</li>
+    <li>자막은 여기서 만든 SRT(편집 후 시간)를 캡컷에 가져와도 시간이 딱 맞습니다.</li>
+  </ul>
+  <h3>캡컷 없이 끝내기</h3>
+  <ul>
+    <li>자동 자막 → 자막 스타일에서 "영상에 굽기" → 필요하면 텍스트·음악·자동 줌 → MP4 만들기. 그대로 업로드하면 됩니다.</li>
+  </ul>
+  <figure class="half"><img src="shots/14_export.jpg" alt="내보내기"><figcaption>내보내기 메뉴. 대부분은 MP4 만들기 하나면 됩니다.</figcaption></figure>
+</section>
+
+<section>
+  <h2><span class="num">9</span>무료 버전과 Pro의 차이</h2>
+  <p>편집 기능(컷·자막·NG 정리·텍스트·오디오·효과·숏츠·내보내기)은 두 버전이 <b>똑같습니다</b>. Pro는 영상을 <b>많이, 자주, 빠르게</b> 처리하는 사람을 위한 자동화와 속도 도구가 더해진 버전입니다.</p>
+  <table class="cmp">
+    <tr><th>항목</th><th>무료 (cutdiet.vercel.app)</th><th>Pro (/pro.html)</th></tr>
+    <tr><td class="k">편집 기능 전체</td><td class="yes">✔ 같음</td><td class="yes">✔ 같음</td></tr>
+    <tr><td class="k">여러 영상 한 번에</td><td class="no">한 번에 한 영상</td><td><b>큐 자동 처리</b>: 여러 파일을 넣으면 분석 → MP4 → 숏츠 → 썸네일 → 프로젝트 저장까지 차례로</td></tr>
+    <tr><td class="k">채널 기본값</td><td class="no">매번 프리셋·화질 선택</td><td>프리셋·화질·크롭 위치·음악 음량을 고정해 새 영상에 자동 적용</td></tr>
+    <tr><td class="k">저장</td><td>파일마다 저장 위치 선택</td><td><b>출력 폴더</b>를 한 번 정하면 저장 창 없이 쌓임</td></tr>
+    <tr><td class="k">단축키</td><td>기본 단축키</td><td>숫자키 1~9로 메뉴 전환, <b>모든 단축키를 원하는 키로 변경</b>, 단축키 표(/)</td></tr>
+    <tr><td class="k">편집 기록</td><td class="no">없음</td><td>영상마다 원본·편집 후 길이, 컷 비율, 수동 수정 횟수, 편집 시간을 기록하고 추세 그래프·CSV</td></tr>
+    <tr><td class="k">로컬 엔진 (선택)</td><td class="no">브라우저만 사용</td><td>내 PC에 설치하는 작은 엔진(Node.js): <b>FFmpeg 하드웨어 렌더</b>(길이 제한 없음, 1시간 이상 영상), <b>워치 폴더</b>(폴더에 넣으면 자동 처리), 탐색기로 파일 열기, CPU 전체 코어로 더 빠른 음성 인식</td></tr>
+    <tr><td class="k">대상</td><td>회원 누구나</td><td>운영자·영상을 매주 여러 개 만드는 사람</td></tr>
+  </table>
+  <figure><img src="shots/17_pro.jpg" alt="Pro 화면"><figcaption>Pro 화면. 왼쪽 메뉴에 Pro(큐·채널 기본값·로컬 엔진)·기록·단축키가 더해지고, 메뉴마다 숫자키가 붙습니다.</figcaption></figure>
+  <div class="two">
+    <figure class="half"><img src="shots/18_pro_log.jpg" alt="편집 기록"><figcaption>Pro 기록. 촬영 습관이 좋아지면 컷 비율이 내려갑니다.</figcaption></figure>
+    <figure class="half"><img src="shots/19_pro_keys.jpg" alt="단축키 변경"><figcaption>Pro 단축키. 키를 누르고 새 조합을 누르면 바뀝니다.</figcaption></figure>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">10</span>자주 묻는 질문과 문제 해결</h2>
+  <table>
+    <tr><th>증상</th><th>조치</th></tr>
+    <tr><td>"이 파일을 분석하지 못했습니다"</td><td>카메라 원본 코덱을 브라우저가 못 읽는 경우. 휴대폰·카메라 설정에서 "호환성 우선(H.264)"으로 촬영하거나, 한 번 MP4(H.264)로 변환해 넣으세요</td></tr>
+    <tr><td>분석은 되는데 화면이 검은색</td><td>브라우저가 재생만 못 하는 형식. 컷·내보내기는 그대로 되고, 들어보려면 MP4(H.264)로 변환</td></tr>
+    <tr><td>MP4 만들기 버튼이 회색</td><td>버튼 아래 회색 글씨에 이유가 적혀 있습니다. 대개 "크롬·엣지 데스크톱에서 열기" 또는 "1시간 초과"</td></tr>
+    <tr><td>저장 창을 닫았더니 렌더링이 시작되지 않는다</td><td>정상입니다. 저장 위치를 고르지 않으면 시작하지 않습니다. MP4 만들기를 다시 누르세요</td></tr>
+    <tr><td>렌더링이 중간에 실패</td><td>화질을 1080p나 720p로 낮춰 다시. 다른 탭·프로그램을 닫으면 메모리가 늘어납니다</td></tr>
+    <tr><td>자동 자막이 너무 오래 걸린다</td><td>"인식 설정"에서 빠름(small)으로 바꾸면 약 2배 빠릅니다(정확도는 낮아짐). 처음 한 번은 모델 다운로드 시간이 더해집니다. 메모리가 부족하면 다른 탭을 닫으세요</td></tr>
+    <tr><td>자막에 틀린 단어가 있다</td><td>목록이나 속성 창에서 고치고, 같은 오타는 "찾아 바꾸기". 무음 구간의 헛소리는 자동으로 걸러집니다</td></tr>
+    <tr><td>자막이 너무 짧게/길게 끊긴다</td><td>"한 줄 글자 수"를 12·16·20자 중에서 바꾸고 "문장 단위로 다시 나누기"</td></tr>
+    <tr><td>자막 글자가 작아졌다</td><td>한 줄이 화면보다 길어 자동으로 줄인 것입니다. 그 줄을 나누거나(속성 창 ✂) 글자 수를 줄이세요</td></tr>
+    <tr><td>배경음악이 다음에 열면 사라져 있다</td><td>음악 파일은 브라우저에 저장되지 않습니다. 다시 선택하면 음량·덕킹 설정은 그대로 있습니다</td></tr>
+    <tr><td>이전 작업을 이어서 하고 싶다</td><td>같은 컴퓨터: 같은 영상을 다시 열면 복구 여부를 묻습니다. 다른 컴퓨터: 위 막대 저장(.json) 후 불러오기</td></tr>
+    <tr><td>영상이 어디에 저장되나</td><td>저장되지 않습니다. 브라우저 탭을 닫으면 영상은 메모리에서 사라지고, 컷·자막 정보만 남습니다</td></tr>
+  </table>
+  <h3>편집 시간을 줄이는 촬영·편집 습관 7가지</h3>
+  <ol>
+    <li>원고나 개요를 보고 촬영하세요. NG가 줄면 컷편집이 가장 크게 줍니다.</li>
+    <li>NG가 나면 2~3초 입을 다물고 다시 시작하세요. 긴 정적은 자동 컷이 가장 정확하게 잡는 신호입니다.</li>
+    <li>박수 한 번으로 표시를 남기세요. 파형에 뾰족하게 남아 타임라인에서 바로 찾습니다.</li>
+    <li>1차 컷은 기계에게, 판단은 사람에게. 자동 결과를 받아들이고 들으며 어색한 곳만 고치세요.</li>
+    <li>자막·효과는 컷이 확정된 뒤에 넣으세요.</li>
+    <li>반복되는 결정은 기본값으로. 프리셋·화질·음악 음량은 한 번 정하고 다시 고민하지 마세요.</li>
+    <li>챕터는 편집하면서 <kbd>M</kbd>키로 찍으세요.</li>
+  </ol>
+</section>
+
+<section>
+  <h2><span class="num">11</span>피드백 보내는 법</h2>
+  <p>이 도구는 회원들의 사용 기록으로 고쳐 나갑니다. 한 줄이면 충분합니다.</p>
+  <pre>[길이]분 [종류] 영상, [기능]에서 [증상], [걸린 시간]
+예) 12분 강의 영상, 자동 자막에서 "5A"가 "오에이"로 나옴, 11분 걸림</pre>
+  <p>증상은 해석하지 말고 보인 그대로 적어 주세요. 화면의 안내 문구나 오류 메시지가 있으면 그 문장도 같이. 어떤 브라우저(크롬/엣지)인지도 한 단어로.</p>
+  <p>보낼 곳: ____________________ (카톡방 / 댓글 등 채널)</p>
+  <p class="small muted" style="margin-top:30px">컷다이어트 v2.3 · cutdiet.vercel.app · 영상은 업로드되지 않고 내 브라우저 안에서만 처리됩니다. 음성 인식에는 Whisper(MIT), 영상 처리에는 mediabunny(MPL-2.0)·transformers.js(Apache-2.0)가 쓰였습니다. 자막 길이 기준은 Netflix Korean Timed Text Style Guide를 참고했습니다.</p>
+</section>
+
+</body>
+</html>

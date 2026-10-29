@@ -63,9 +63,20 @@
   .layout div b { color: var(--brand); display: block; }
   .cmp td:nth-child(2), .cmp td:nth-child(3) { width: 34%; }
   .yes { color: var(--keep); font-weight: 700; } .no { color: var(--muted); }
+  /* on screen (cutdiet.vercel.app/manual/) the manual reads as a web page with a download bar; print/PDF ignores this */
+  .screenbar { display: none; }
+  @media screen {
+    body { max-width: 860px; margin: 0 auto; padding: 0 18px 60px; background: #fff; }
+    section { border-top: 1px solid var(--line); padding-top: 28px; margin-top: 28px; }
+    .cover { height: auto; border-top: 0; }
+    .screenbar { display: flex; gap: 10px; align-items: center; justify-content: flex-end; position: sticky; top: 0; z-index: 2; background: #fff; padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .screenbar a { font-weight: 700; color: #fff; background: var(--brand); padding: 6px 14px; border-radius: 8px; text-decoration: none; }
+    .screenbar a.ghost { background: var(--brand-soft); color: var(--brand); }
+  }
 </style>
 </head>
 <body>
+<div class="screenbar"><a class="ghost" href="/">컷다이어트 열기</a><a href="/manual.pdf" download="컷다이어트_사용설명서.pdf">PDF로 받기</a></div>
 
 <section class="cover">
   <div>

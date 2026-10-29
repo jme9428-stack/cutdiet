@@ -20,4 +20,11 @@ await page.pdf({
   margin: { top: '16mm', bottom: '16mm', left: '0', right: '0' },
 });
 await browser.close();
+// the same manual as a web page at /manual/ (opens everywhere, even where a PDF extension blocks the PDF)
+if (!process.argv[2]) {
+  const web = path.join(root, 'public/manual'); fs.rmSync(web, { recursive: true, force: true }); fs.mkdirSync(path.join(web, 'shots'), { recursive: true });
+  fs.copyFileSync(html, path.join(web, 'index.html'));
+  for (const f of fs.readdirSync(path.join(root, 'docs/manual/shots'))) fs.copyFileSync(path.join(root, 'docs/manual/shots', f), path.join(web, 'shots', f));
+  console.log('web:', web);
+}
 console.log('pdf:', out, (fs.statSync(out).size / 1e6).toFixed(2), 'MB');
