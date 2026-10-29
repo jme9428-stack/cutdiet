@@ -3,3 +3,8 @@
 /*
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Embedder-Policy: credentialless
+
+# The member manual is opened by the browser's PDF viewer or a PDF extension (e.g. Acrobat), which COEP would block
+/manual.pdf
+  ! Cross-Origin-Opener-Policy
+  ! Cross-Origin-Embedder-Policy
