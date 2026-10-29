@@ -132,7 +132,8 @@ export function wordsOfLines(lines, recognized = []) {
   return out;
 }
 // Re-split existing captions (possibly hand-edited) into natural lines
-export function resplitLines(lines, recognized = [], opts = {}) { return buildCaptionLines(wordsOfLines(lines, recognized), opts).map(l => ({ ...l, edited: true })); }
+// (a new line counts as hand-edited only where it overlaps a line that was, so untouched lines keep the recognized word times)
+export function resplitLines(lines, recognized = [], opts = {}) { return buildCaptionLines(wordsOfLines(lines, recognized), opts).map(l => ({ ...l, edited: lines.some(o => o.edited && o.s < l.e && o.e > l.s) })); }
 // Split one caption at time t at the most natural word boundary near t -> [first, second] (or null if it can't be split)
 export function splitLineAt(line, t, recognized = []) {
   const ws = wordsOfLines([line], recognized); if (ws.length < 2) return null;
@@ -246,7 +247,7 @@ export function stripFromLines(lines, cands) {
       for (let i = 0; i + want.length <= toks.length; i++) {
         if (want.every((w, k) => normKo(toks[i + k]) === w)) { toks.splice(i, want.length); l.text = toks.join(' ').trim(); break; }
       }
-    } else out = out.filter(l => !(l.s >= c.s - 0.1 && l.e <= c.e + 0.1));
+    } else out = out.filter(l => !(l.s >= c.s - 0.1 && (l.e <= c.e + 0.1 || Math.min(l.e, c.e) - l.s >= 0.6 * (l.e - l.s)))); // lines may run a little past the words (finishLines)
   }
   return out.filter(l => normKo(l.text).length);
 }

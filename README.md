@@ -25,7 +25,7 @@
 | 꾸미기 | 자막 굽기(한글 글꼴 35종·내 글꼴 파일, 색·외곽선·박스·위치·등장 효과), 자동 줌(점프컷 숨기기)·구간 줌, 페이드·디졸브, 색 보정(밝기·대비·채도), 효과음 5종(합성)+내 파일, 이미지·텍스트 오버레이. 미리보기에서 자막·텍스트·이미지를 끌어 옮기고 모서리로 크기 조절, 더블클릭으로 글자 수정. 미리보기 = 렌더 결과 |
 | 숏츠 9:16 | 구간 선택 + 드래그 크롭 → 1080×1920 MP4 |
 | 썸네일 프레임 | 목소리가 힘 있는 순간 12장 추출 → JPG/zip |
-| AI 자막·NG | 기본 모델은 Whisper large-v3-turbo(4비트, 약 760MB): 실제 강의 영상(7분 47초)에서 틀린 단어가 small 11.1% → 4.0%로 줄었습니다(손으로 고친 원고 기준, 띄어쓰기 차이는 제외). 빠름(small)·가장 빠름(base)도 고를 수 있습니다. 자동 자막은 말소리만 쉼에서 나눠 겹침 없이 인식하고, 그 창들을 CPU 작업자 여러 개(이 PC는 3개)가 동시에 처리합니다(같은 200초 영상 204초→96초). 빠른 그래픽카드(NVIDIA·AMD·Apple·Intel Arc)는 GPU(fp16)로, 내장 Intel 그래픽은 CPU가 더 빨라 CPU로. 자막 없이도 영상을 열면 소리만으로 추임새(길게 끈 어·음)·말 버벅임(같은 소리로 다시 시작)·다시 말한 NG·짧게 끊긴 소리를 후보로 찾음(src/audiologic.js, 워커에서 10분 영상 약 2초). 자막을 만들면 단어 기준 후보로 더 정확하게 바뀜. 후보마다 듣기·시작/끝 수정·빼기 가능. Whisper를 브라우저에서 실행 → SRT(편집 후/원본 시간). 줄 단위 자막 편집(글자·시간·나누기·합치기·삭제·추가), SRT 불러오기, 찾아 바꾸기. 삭제 후보는 종류별로 켜고 끔: 추임새, 말 버벅임("그 그러니까"·말 꼬임), 다시 말한 NG, 웅얼거림(인식 안 된 소리). 삭제한 말은 자막 글자에서도 지움 |
+| AI 자막·NG | 기본 모델은 Whisper large-v3-turbo(4비트, 약 760MB): 실제 강의 영상(7분 47초)에서 틀린 단어가 small 11.1% → 4.0~4.5%로 줄었습니다(손으로 고친 원고 기준, 띄어쓰기 차이는 제외; 브라우저에서 이 PC 기준 영상 길이와 비슷한 시간이 걸립니다). 빠름(small)·가장 빠름(base)도 고를 수 있습니다. 자동 자막은 말소리만 쉼에서 나눠 겹침 없이 인식하고, 그 창들을 CPU 작업자 여러 개(이 PC는 3개)가 동시에 처리합니다(같은 200초 영상 204초→96초). 빠른 그래픽카드(NVIDIA·AMD·Apple·Intel Arc)는 GPU(fp16)로, 내장 Intel 그래픽은 CPU가 더 빨라 CPU로. 자막 없이도 영상을 열면 소리만으로 추임새(길게 끈 어·음)·말 버벅임(같은 소리로 다시 시작)·다시 말한 NG·짧게 끊긴 소리를 후보로 찾음(src/audiologic.js, 워커에서 10분 영상 약 2초). 자막을 만들면 단어 기준 후보로 더 정확하게 바뀜. 후보마다 듣기·시작/끝 수정·빼기 가능. Whisper를 브라우저에서 실행 → SRT(편집 후/원본 시간). 줄 단위 자막 편집(글자·시간·나누기·합치기·삭제·추가), SRT 불러오기, 찾아 바꾸기. 삭제 후보는 종류별로 켜고 끔: 추임새, 말 버벅임("그 그러니까"·말 꼬임), 다시 말한 NG, 웅얼거림(인식 안 된 소리). 삭제한 말은 자막 글자에서도 지움 |
 | 내보내기 | MP4(캡컷·업로드용), EDL(프리미어·다빈치), FCPXML(파이널컷), FFmpeg 스크립트, 프로젝트(.json) |
 
 ## 두 개의 화면
@@ -136,14 +136,14 @@ src/engine.js       Pro ↔ 로컬 엔진 클라이언트 (훅 설치, 엔진 �
 engine/server.mjs   로컬 엔진 HTTP 서버 (정적 파일 + /api)
 engine/lib/         ff(바이너리·프로브·인코더 감지) · analyze(엔벨로프) · graph(필터 그래프) · ass(자막) · asr(Whisper) · util(다이얼로그·설정) · fonts
 scripts/make-pro.mjs index.html → pro.html 생성
-scripts/shots.mjs   회원 설명서용 실제 화면 캡처 (헤드리스 크롬)
+scripts/shots.mjs   회원 설명서용 실제 화면 캡처 (설치된 크롬, playwright-core)
 scripts/manual-pdf.mjs docs/manual/manual.html → public/manual.pdf (사이트의 /manual.pdf)
 docs/manual/        회원용 사용 설명서 원고(HTML)와 화면 캡처
 start-engine.command / .bat  엔진 원클릭 실행
 tests/              단위·E2E 테스트
 ```
 
-회원용 PDF 설명서는 `https://cutdiet.vercel.app/manual.pdf` 로 배포되고, 가이드 탭에서도 열립니다. 내용을 고치려면 `docs/manual/manual.html`을 수정한 뒤 `node scripts/shots.mjs docs/manual/shots && node scripts/manual-pdf.mjs` 를 실행하고 푸시하세요.
+회원용 PDF 설명서는 `https://cutdiet.vercel.app/manual.pdf` 로 배포되고, 가이드 탭에서도 열립니다. 내용을 고치려면 `docs/manual/manual.html`을 수정한 뒤 `npm run build` → `npx vite preview --port 5175` 를 띄운 채 `npm run manual:shots -- <1분짜리 말하는 영상.mp4>` (설치된 크롬으로 화면 캡처, 자동 자막 포함) → `npm run manual:pdf` 를 실행하고 푸시하세요. 엣지만 있으면 `CHROME_CHANNEL=msedge`.
 
 ## 브라우저 지원
 - 모든 기능: 최신 Chrome·Edge(데스크톱). Chrome 113+ 이면 WebGPU 가속(실험) 선택 가능.

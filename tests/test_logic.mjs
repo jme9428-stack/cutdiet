@@ -118,6 +118,11 @@ assert.equal(dropSilentWords([{ text: 'x', s: 5, e: 5.2 }], null, 0.02, -45).len
   assert.ok(breakScore({ text: '있습니다', e: 1 }, { s: 1.05, text: '그런' }) >= 5);
   const dn = buildCaptionLines(mk('그래서 일반 스틱 보다 소리 볼륨이 많이 작은 것을 알 수가 있어요'));
   assert.ok(!dn.some(l => /작은$|알$/.test(l.text)), JSON.stringify(dn.map(l => l.text)));
+  // a retake line stretched to the next caption is still removed with its deleted span
+  const rt = stripFromLines([{ s: 0, e: 1.45, text: '이건 정말 중요합니다' }, { s: 1.45, e: 3, text: '이건 정말 중요합니다' }], [{ kind: 'repeat', s: 0, e: 1.2 }]);
+  assert.equal(rt.length, 1); assert.equal(rt[0].s, 1.45);
+  // re-splitting untouched lines keeps them untouched
+  assert.ok(resplitLines([{ s: 0, e: 4, text: '오늘은 편집 방법을 알려 드릴게요' }], [], {}).every(l => !l.edited));
   // each line stays up long enough to read at 12 characters a second, without running into the next one
   const fl = finishLines([{ s: 0, e: 0.3, text: '가나다라마바사아자차카타' }, { s: 0.6, e: 2, text: '다음 줄입니다.' }, { s: 2.1, e: 3, text: '끝' }]);
   assert.equal(fl[0].e, 0.6); assert.equal(fl[1].text, '다음 줄입니다'); assert.equal(fl[1].e, 2.1); assert.ok(fl[2].e >= 2.9);

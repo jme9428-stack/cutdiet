@@ -432,7 +432,7 @@ function addChapterAt(t) {
   pushUndo();
   const n = state.chapters.length + 1; state.chapters.push({ t, title: n === 1 && t < 1 ? '인트로' : `챕터 ${n}` }); state.chapters.sort((a, b) => a.t - b.t);
   renderChapters(); drawTimeline(); autosave(); toast(`챕터 추가: ${fmtClock(t)}`, 1400);
-  if (!$('#tab-chapters').hidden) { const inp = els.chBody.querySelector(`tr[data-i="${state.chapters.findIndex(c => c.t === t)}"] input`); if (inp) { inp.focus(); inp.select(); } }
+  if ($('#tab-export') && !$('#tab-export').hidden) { const inp = els.chBody.querySelector(`tr[data-i="${state.chapters.findIndex(c => c.t === t)}"] input`); if (inp) { inp.focus(); inp.select(); } }
 }
 function renderChapters() {
   els.chBody.innerHTML = state.chapters.map((c, i) => `<tr data-i="${i}"><td class="ttl"><input type="text" value="${escapeHtml(c.title)}" aria-label="챕터 제목" id="chTitle${i}"></td><td class="mono"><button class="link mono" data-act="seek">${fmtClock(c.t)}</button></td><td class="mono">${ytStamp(outTime(state.segments, c.t))}</td><td><button class="btn sm ghost" data-act="del" title="삭제">✕</button></td></tr>`).join('') || `<tr><td colspan="4" class="muted">아직 챕터가 없습니다. 재생 중 M키를 누르거나 위 버튼으로 추가하세요.</td></tr>`;
@@ -1314,7 +1314,7 @@ bootDemo();
 
 // ===================== AI (in-browser transcription) =====================
 function markSpans(spans, keep = false) { if (!spans.length) return 0; pushUndo(); state.activity.aiApplied += spans.length; let segs = state.segments; for (const sp of spans) segs = applySpan(segs, clamp(sp.s, 0, state.duration), clamp(sp.e, 0, state.duration), keep); state.segments = segs; markDirty(); refreshAll(); return spans.length; }
-const tr = initTranscribe({ state, HOP, toast, saveFile, copyText, outTime, keptDuration, fmtClock, baseName, seek, sleep, nextFrame, markSpans, heavyReason, escapeHtml, accumulateEnergy, autosave,
+const tr = initTranscribe({ state, HOP, pushUndo, toast, saveFile, copyText, outTime, keptDuration, fmtClock, baseName, seek, sleep, nextFrame, markSpans, heavyReason, escapeHtml, accumulateEnergy, autosave,
   play: () => { if (els.video.paused) togglePlay(); }, previewSpan, showTab, candsChanged: () => drawTimeline(), captionsChanged: () => { if (decor) { decor.renderLists(); decor.previewTick(false); } } });
 if (tr && tr.getLines) captionsOf = tr.getLines;
 trApi = tr;
@@ -1333,6 +1333,6 @@ window.cutdiet = {
   keptDuration, countRemoveRuns, keepRanges, outTime, chapterLines, buildZip, showTab, seek, refreshAll, renderBlockReason, shortsBlockReason, heavyReason, loadBgm, clearBgm, resetShortsRange,
   notice, escapeHtml, fsAccess, updateRenderAvailability, pickThumbnailTimes: (count = 12) => pickThumbnailTimes(state.env, HOP, state.segments, count), captionsOf: () => captionsOf(),
   undoDepth: () => undo.stack.length,
-  actions: { play: togglePlay, rev: () => setShuttle(-1), stop: () => setShuttle(0), fwd: () => setShuttle(1), toggle: () => toggleSegmentAt(state.cur), split: () => splitAt(state.cur), trimL: () => trimDelete('left'), trimR: () => trimDelete('right'), del: deleteCurrent, chapter: () => addChapterAt(state.cur), undo: doUndo, redo: doRedo, prevCut: () => jumpCut(-1), nextCut: () => jumpCut(1), home: () => seek(0), end: () => seek(state.duration), back1: () => seek(state.cur - 1), fwd1: () => seek(state.cur + 1), frameBack: () => seek(state.cur - 1 / (state.fps || 30)), frameFwd: () => seek(state.cur + 1 / (state.fps || 30)), markIn: () => setMark('in', state.cur), markOut: () => setMark('out', state.cur), fullscreen: toggleFullscreen },
+  actions: { play: togglePlay, rev: () => setShuttle(-1), stop: () => setShuttle(0), fwd: () => setShuttle(1), toggle: () => toggleSegmentAt(state.cur), split: () => splitAt(state.cur), trimL: () => trimDelete('left'), trimR: () => trimDelete('right'), del: () => { if (!deleteSelectedClip()) deleteCurrent(); }, chapter: () => addChapterAt(state.cur), undo: doUndo, redo: doRedo, prevCut: () => jumpCut(-1), nextCut: () => jumpCut(1), home: () => seek(0), end: () => seek(state.duration), back1: () => seek(state.cur - 1), fwd1: () => seek(state.cur + 1), frameBack: () => seek(state.cur - 1 / (state.fps || 30)), frameFwd: () => seek(state.cur + 1 / (state.fps || 30)), markIn: () => setMark('in', state.cur), markOut: () => setMark('out', state.cur), fullscreen: toggleFullscreen },
 };
 document.dispatchEvent(new CustomEvent('cutdiet:ready'));

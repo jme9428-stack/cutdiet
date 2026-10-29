@@ -263,7 +263,9 @@ td.ttl input:focus{border-color:var(--accent);background:var(--surface)}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
 @media (max-width:600px){
-  .tlheads{flex-basis:76px}.th-name{font-size:10px}.monitor.mini{width:55vw}
+  .tlheads{flex-basis:56px}.th-name{display:none}.monitor.mini{width:55vw}
+  .app .top{padding:6px 8px;gap:6px}.app .brand .name{font-size:14px}.filebar .fmeta{display:none}.app .filebar .fname{max-width:26vw}
+  .top-actions{gap:2px}.top-actions .btn{padding:4px 7px}
   .stat .v{font-size:16px}
   .zoom{margin-left:0}
   canvas#tl{height:120px}
@@ -453,7 +455,7 @@ details.sect > :not(summary){margin-bottom:8px}
         </select>
       </div>
       <label class="switch" title="빠른 그래픽카드가 있으면 GPU로, 아니면 CPU 여러 개로 동시에 인식합니다"><input type="checkbox" id="aiGpu" checked>GPU로 빠르게 (지원되면 자동)</label>
-      <p class="hint">음성 인식은 내 브라우저 안에서만 돌아갑니다. 처음 한 번 모델을 내려받습니다.</p>
+      <p class="hint">음성 인식은 내 브라우저 안에서만 돌아갑니다. 처음 한 번 모델을 내려받고(가장 정확 약 760MB), 영상 길이와 비슷한 시간이 걸립니다. 급하면 빠름(small)을 고르세요.</p>
     </details>
 
     <h3 class="sh">자막 편집 <span class="chip" id="capChip">0줄</span></h3>
@@ -514,7 +516,7 @@ details.sect > :not(summary){margin-bottom:8px}
     <div class="row"><button class="btn sm" id="btnOvImage">이미지·로고 추가</button><input type="file" id="ovImageFile" class="sr" tabindex="-1" accept="image/png,image/jpeg,image/webp,image/gif"></div>
     <details class="sect">
       <summary>넣을 때 기본값 (범위·위치·크기)</summary>
-      <div class="field"><span class="pair"><label for="ovRange">범위</label><select id="ovRange"><option value="seg">현재 구간</option><option value="3s">현재 위치부터 3초</option><option value="5s">현재 위치부터 5초</option><option value="all">영상 전체 (워터마크)</option></select></span><span class="pair"><label for="ovPos">위치</label><select id="ovPos"></select></span></div>
+      <div class="field"><span class="pair"><label for="ovRange">범위</label><select id="ovRange"><option value="3s" selected>현재 위치부터 3초</option><option value="seg">현재 구간</option><option value="5s">현재 위치부터 5초</option><option value="all">영상 전체 (워터마크)</option></select></span><span class="pair"><label for="ovPos">위치</label><select id="ovPos"></select></span></div>
       <div class="field"><span class="pair grow"><label for="ovSize">크기</label><input type="range" id="ovSize" min="5" max="100" step="1" value="25"><span class="mono small" id="ovSizeVal">25%</span></span></div>
       <div class="field"><span class="pair"><label for="ovOpacity">불투명</label><input type="range" id="ovOpacity" min="10" max="100" step="5" value="100" style="flex:0 1 90px;min-width:70px"></span><span class="pair"><label for="ovFade">페이드</label><select id="ovFade"><option value="0">없음</option><option value="0.3">0.3s</option><option value="0.6">0.6s</option></select></span></div>
     </details>

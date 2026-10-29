@@ -2,7 +2,8 @@
    plus a "Pro" rail tab (queue · channel defaults · local engine), work log and key remapping. */
 body.pro{font-size:13px}
 body.pro .steps-note,body.pro #presetNote,body.pro .ctl .desc,body.pro .onb{display:none!important}
-body.pro .rail .tab::after{content:attr(data-key);font-family:var(--font-mono);font-size:9px;color:var(--muted);opacity:.75;line-height:1}
+body.pro .rail .tab{position:relative;padding:6px 2px 5px}
+body.pro .rail .tab::after{content:attr(data-key);position:absolute;top:3px;right:5px;font-family:var(--font-mono);font-size:9px;color:var(--muted);opacity:.75;line-height:1}
 body.pro td,body.pro th{padding:4px 8px}
 
 .probar{display:flex;flex-direction:column;gap:10px}

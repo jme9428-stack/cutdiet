@@ -12,7 +12,7 @@ import { buildArgs, mapOverlaysAndCaptions, segsFromRanges } from './lib/graph.m
 import { buildASS } from './lib/ass.mjs';
 import { writeWav, nativePick, openFolder, openBrowser, defaultOutDir, uniquePath, baseName, loadJSON, saveJSON, randomToken, MEDIA_RE } from './lib/util.mjs';
 import { ensureFonts, BASE_FAMILIES } from './lib/fonts.mjs';
-import { extractAudio16k, transcribeAudio, ASR_MODELS } from './lib/asr.mjs';
+import { extractAudio16k, transcribeAudio, ASR_MODELS, resolveModel } from './lib/asr.mjs';
 import { synthSfx } from '../src/fxlogic.js';
 import { HOP, PRESETS, detectSegments, suggestThreshold, keepRanges, keptDuration, countRemoveRuns, clamp } from '../src/cutlogic.js';
 
@@ -187,7 +187,7 @@ function syncWatcher() { if (watchTimer) { clearInterval(watchTimer); watchTimer
 
 // ---------- HTTP ----------
 function statusPayload() {
-  return { ok: true, version: VERSION, port: PORT, platform: os.platform(), ffmpeg: ff.bin ? { path: ff.bin, version: ff.version, libass: ff.libass, encoders: ff.encoders, labels: ENCODER_LABELS } : null, encoder: resolveEncoder(), fonts: ff.fonts, outDir: settings.outDir, settings: { encoder: settings.encoder, preset: settings.preset, quality: settings.quality, asrModel: settings.asrModel, watch: settings.watch }, asrModels: Object.fromEntries(Object.entries(ASR_MODELS).map(([k, v]) => [k, v.label])), recent: settings.recent.filter(p => fs.existsSync(p)).slice(0, 12), jobs: [...jobs.values()].slice(-30).map(publicJob), cpu: os.cpus().length, mem: Math.round(os.totalmem() / 1e9) };
+  return { ok: true, version: VERSION, port: PORT, platform: os.platform(), ffmpeg: ff.bin ? { path: ff.bin, version: ff.version, libass: ff.libass, encoders: ff.encoders, labels: ENCODER_LABELS } : null, encoder: resolveEncoder(), fonts: ff.fonts, outDir: settings.outDir, settings: { encoder: settings.encoder, preset: settings.preset, quality: settings.quality, asrModel: resolveModel(settings.asrModel).id, watch: settings.watch }, asrModels: Object.fromEntries(Object.values(ASR_MODELS).map(v => [v.id, v.label])), recent: settings.recent.filter(p => fs.existsSync(p)).slice(0, 12), jobs: [...jobs.values()].slice(-30).map(publicJob), cpu: os.cpus().length, mem: Math.round(os.totalmem() / 1e9) };
 }
 async function api(req, res, u) {
   const p = u.pathname.replace(/^\/api/, ''); const q = u.searchParams;

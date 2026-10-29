@@ -6,9 +6,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const html = path.join(root, 'docs/manual/manual.html');
 const out = path.resolve(process.argv[2] || path.join(root, 'public/manual.pdf'));
-const PW = process.env.PLAYWRIGHT_PATH || '/home/claude/.npm-global/lib/node_modules/playwright/index.mjs';
-const { chromium } = await import(PW);
-const browser = await chromium.launch();
+// playwright-core drives the installed Chrome (set CHROME_CHANNEL=msedge for Edge); nothing extra is downloaded
+const { chromium } = await import(process.env.PLAYWRIGHT_PATH || 'playwright-core');
+const browser = await chromium.launch({ channel: process.env.CHROME_CHANNEL || 'chrome' });
 const page = await browser.newPage();
 await page.goto(pathToFileURL(html).href, { waitUntil: 'load' });
 await page.evaluate(async () => { await document.fonts.ready; await Promise.all([...document.images].map(img => img.complete ? null : new Promise(r => { img.onload = img.onerror = r; }))); });

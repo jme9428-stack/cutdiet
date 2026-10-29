@@ -19,8 +19,8 @@ if (ort && ort.wasm && !ort.wasm.wasmPaths && ort.versions && ort.versions.web) 
 
 const post = m => self.postMessage(m);
 // small/base: WebGPU in fp16 when the adapter supports it (same accuracy as fp32, half the download), q8 on the CPU.
-// large-v3-turbo is 4-bit everywhere (q4f16 on a GPU with f16, else q4): about 560–760 MB instead of 1.6–3 GB, and on
-// a real recording it scored the same word error rate in 4-bit as the reference transcript allows (≈4 % vs 11 % for small).
+// large-v3-turbo is 4-bit (q4) on both GPU and CPU: about 760 MB instead of 1.6–3 GB (≈4–5 % wrong words on a real
+// recording vs 11 % for small), and a GPU that fails mid-way falls back to the CPU with the files already downloaded.
 const isLarge = m => /large|turbo/.test(m);
 async function gpuDtype() {
   try {
@@ -31,7 +31,7 @@ async function gpuDtype() {
 async function load(model, device) {
   let dtype = device === 'webgpu' ? await gpuDtype() : 'q8';
   if (device === 'webgpu' && !dtype) throw new Error('webgpu adapter unavailable');
-  if (isLarge(model)) dtype = dtype === 'fp16' ? 'q4f16' : 'q4';
+  if (isLarge(model)) dtype = 'q4';
   const files = new Map();
   return pipeline('automatic-speech-recognition', model, {
     device, dtype: device === 'webgpu' || isLarge(model) ? { encoder_model: dtype, decoder_model_merged: dtype } : dtype,
@@ -51,7 +51,7 @@ async function run(a) {
   try { return await asr(a, wordLevel ? OPTS : { ...OPTS, return_timestamps: true }); }
   catch (err) {
     // the GPU can fail mid-way on some drivers: finish on the CPU instead of losing the work
-    if (device === 'webgpu') { device = 'wasm'; post({ type: 'device', device, reason: 'error' }); asr = await load(model, device); return run(a); }
+    if (device === 'webgpu') { device = 'wasm'; post({ type: 'device', device, reason: 'error' }); try { await asr.dispose(); } catch {} asr = await load(model, device); return run(a); }
     // word-level alignment not available for this model: fall back to segment timestamps
     if (wordLevel) { wordLevel = false; post({ type: 'progress', phase: 'transcribe', note: 'segment' }); return asr(a, { ...OPTS, return_timestamps: true }); }
     throw err;

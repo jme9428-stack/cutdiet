@@ -1,59 +1,67 @@
-// Captures real UI screenshots for the member manual (PDF). Run: node scripts/shots.mjs <outDir>
-// Uses the local engine's static server + a synthetic "lecture" clip so the screens show real analysis results.
+// Captures real UI screenshots for the member manual (PDF).
+// Run: npm run build && npx vite preview --port 5175, then
+//      node scripts/shots.mjs <video.mp4> [outDir=docs/manual/shots] [base=http://localhost:5175]
+// Uses the installed Chrome (playwright-core, no browser download). A persistent profile in the OS temp folder keeps the
+// speech model cached between runs, so only the first run downloads it. Pass a short (~1 min) clip with clear speech.
 import fs from 'node:fs';
-import path from 'node:path';
 import os from 'node:os';
+import path from 'node:path';
+import { chromium } from 'playwright-core';
 
-const outDir = path.resolve(process.argv[2] || 'shots'); fs.mkdirSync(outDir, { recursive: true });
-const PW = process.env.PLAYWRIGHT_PATH || '/home/claude/.npm-global/lib/node_modules/playwright/index.mjs';
-const { chromium } = await import(PW);
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cutdiet-shots-'));
-process.env.CUTDIET_PORT = process.env.CUTDIET_PORT || '7812'; process.env.CUTDIET_DATA = path.join(tmp, 'data'); process.env.CUTDIET_NO_OPEN = '1';
-const { start, stop } = await import('../engine/server.mjs');
-const { findFfmpeg, run } = await import('../engine/lib/ff.mjs');
-const ff = findFfmpeg();
-const { url } = await start({ open: false }); const base = url.replace(/\/pro\.html$/, '');
-// a calm "talking head" stand-in: dark gradient, soft spotlight, Korean title; speech-like bursts with pauses
-const font = ['/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc', '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc'].find(f => fs.existsSync(f));
-const sysFf = (await run('ffmpeg', ['-hide_banner', '-filters']).catch(() => ({ stdout: Buffer.alloc(0) }))).stdout.toString().includes('drawtext') ? 'ffmpeg' : null;
-const src = path.join(tmp, 'lecture.mp4');
-const bursts = [[1.0, 5.2], [6.4, 11.9], [13.6, 19.1], [20.0, 23.4], [26.2, 33.0], [34.1, 37.8], [39.5, 46.2], [48.0, 52.3], [53.0, 58.9]];
-const volExpr = bursts.map(([a, b]) => `between(t,${a},${b})`).join('+');
-const bg = path.join(tmp, 'bg.png');
-let r = await run(sysFf || ff.path, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=0x1f2937:size=1280x720:rate=1', '-frames:v', '1', '-vf', "geq=r='40+20*sin(X/600)':g='52+30*(1-hypot(X-640,Y-300)/900)':b='76+40*(1-hypot(X-640,Y-300)/900)'", bg]);
-if (r.code !== 0) { console.error(r.stderr); process.exit(1); }
-const vf = font && sysFf ? `drawtext=fontfile='${font}':text='예시 강의 영상':fontcolor=white@0.85:fontsize=58:x=(w-text_w)/2:y=(h-text_h)/2-20,drawtext=fontfile='${font}':text='비즈니스 PT · 3회차':fontcolor=white@0.6:fontsize=28:x=(w-text_w)/2:y=(h-text_h)/2+50,format=yuv420p` : 'format=yuv420p';
-r = await run(sysFf || ff.path, ['-y', '-loglevel', 'error', '-loop', '1', '-framerate', '30', '-i', bg, '-f', 'lavfi', '-i', `sine=frequency=180:sample_rate=48000,aeval=val(0)*(0.6+0.4*sin(2*PI*5.3*t))*(0.5+0.5*sin(2*PI*1.7*t+1)),volume=volume='if(${volExpr},1,0.001)':eval=frame`, '-vf', vf, '-t', '60', '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', src]);
-if (r.code !== 0) { console.error(r.stderr); process.exit(1); }
-const browser = await chromium.launch(); const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 }, deviceScaleFactor: 2, colorScheme: 'light' }); const page = await ctx.newPage(); page.on('console', m => { if (m.type() === 'error') console.log('[console]', m.text().slice(0, 160)); }); page.on('pageerror', e => console.log('[pageerror]', e.message));
-const shot = async (name, opts = {}) => { await page.waitForTimeout(250); await page.screenshot({ path: path.join(outDir, name + '.png'), ...opts }); console.log('shot', name); };
+const [video, outArg, baseArg] = process.argv.slice(2);
+if (!video || !fs.existsSync(video)) { console.error('usage: node scripts/shots.mjs <video.mp4> [outDir] [base]'); process.exit(1); }
+const outDir = path.resolve(outArg || 'docs/manual/shots'); const base = baseArg || 'http://localhost:5175';
+fs.mkdirSync(outDir, { recursive: true });
+const ctx = await chromium.launchPersistentContext(path.join(os.tmpdir(), 'cutdiet-shots-profile'), { channel: process.env.CHROME_CHANNEL || 'chrome', headless: true, viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1.5, colorScheme: 'dark' });
+const page = ctx.pages()[0] || await ctx.newPage();
+const errors = [];
+page.on('pageerror', e => errors.push(e.message)); page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+const shot = async (name, opts = {}) => { await page.waitForTimeout(350); await page.screenshot({ path: path.join(outDir, name + '.jpg'), type: 'jpeg', quality: 84, ...opts }); console.log('shot', name); };
+const box = async sel => { const b = await page.locator(sel).first().boundingBox(); return { x: b.x, y: b.y, width: b.width, height: b.height }; };
+const tab = async t => { await page.evaluate(t => { window.cutdiet.showTab(t); const sp = document.querySelector('.sidepanel'); if (sp) sp.scrollTop = 0; }, t); await page.waitForTimeout(350); };
+const hideToast = () => page.evaluate(() => { const t = document.getElementById('toast'); if (t) t.classList.remove('show'); });
+const ready = () => page.waitForFunction(() => window.cutdiet && window.cutdiet.state.mbStatus === 'ready', null, { timeout: 30000 });
 try {
-  await page.goto(base + '/', { waitUntil: 'domcontentloaded' }); await page.waitForFunction(() => window.cutdiet && window.cutdiet.state.mbStatus === 'ready', null, { timeout: 30000 });
-  await page.addStyleTag({ content: '*{caret-color:transparent} .toast{display:none}' });
-  await shot('00_onboarding', { fullPage: false });
+  await page.goto(base + '/', { waitUntil: 'domcontentloaded' });
+  await page.evaluate(() => { localStorage.clear(); }); await page.reload({ waitUntil: 'domcontentloaded' }); await ready();
+  await page.addStyleTag({ content: '*{caret-color:transparent}' }); await page.waitForTimeout(600);
+  await shot('00_onboarding');
   await page.evaluate(() => { localStorage.setItem('cutdiet:onboarded', '1'); document.getElementById('onb').hidden = true; });
-  await shot('01_start', { clip: { x: 0, y: 0, width: 1280, height: 560 } });
-  await page.setInputFiles('#fileInput', { name: '강의_3회차_원본.mp4', mimeType: 'video/mp4', buffer: fs.readFileSync(src) }); // buffer form: non-ASCII paths are not picked up by setInputFiles
-  await page.waitForFunction(() => !window.cutdiet.state.analyzing && window.cutdiet.state.duration > 0 && window.cutdiet.state.videoPlayable, null, { timeout: 60000 });
-  await page.evaluate(() => { document.getElementById('toast').classList.remove('show'); window.cutdiet.seek(7.2); document.getElementById('notice').hidden = true; });
-  await page.waitForTimeout(600);
-  await shot('02_analyzed', { clip: { x: 0, y: 0, width: 1280, height: 760 } });
-  const tl = await page.locator('section.timeline').boundingBox(); await shot('03_timeline', { clip: { x: tl.x, y: tl.y, width: tl.width, height: tl.height } });
-  const panel = await page.locator('aside.panel').boundingBox(); await shot('04_settings', { clip: { x: panel.x - 4, y: panel.y - 4, width: panel.width + 8, height: panel.height + 8 } });
-  const tabShot = async (tab, name, extra) => { await page.evaluate(t => window.cutdiet.showTab(t), tab); if (extra) await extra(); await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(350); const r = await page.evaluate(t => { const n = document.querySelector('nav.tabs').getBoundingClientRect(), s = document.getElementById('tab-' + t).getBoundingClientRect(); return { top: n.top + window.scrollY, bottom: s.bottom + window.scrollY }; }, tab); await shot(name, { fullPage: true, clip: { x: 0, y: r.top, width: 1280, height: Math.min(1150, r.bottom - r.top + 8) } }); };
-  await tabShot('segments', '05_segments');
-  await page.evaluate(() => { const C = window.cutdiet; C.state.chapters = [{ t: 1.0, title: '인트로' }, { t: 13.6, title: '핵심 개념 3가지' }, { t: 39.5, title: '실습과 정리' }]; C.refreshAll(); });
-  await tabShot('chapters', '06_chapters');
-  await tabShot('bgm', '07_bgm');
-  await tabShot('decorate', '08_decorate', async () => { await page.evaluate(() => { const C = window.cutdiet; document.getElementById('subBurn').checked = true; document.getElementById('subBurn').dispatchEvent(new Event('input')); document.getElementById('subSample').checked = true; document.getElementById('subSample').dispatchEvent(new Event('change')); document.getElementById('fxAutoZoom').checked = true; document.getElementById('fxAutoZoom').dispatchEvent(new Event('change')); }); });
-  // monitor with sample caption + decorate on
-  await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(400);
-  const mon = await page.locator('#monitor').boundingBox(); await shot('09_monitor_caption', { clip: { x: mon.x, y: mon.y, width: mon.width, height: mon.height } });
-  await tabShot('shorts', '10_shorts'); await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(300);
-  const mon2 = await page.locator('#monitor').boundingBox(); await shot('11_monitor_crop', { clip: { x: mon2.x, y: mon2.y, width: mon2.width, height: mon2.height } });
-  await tabShot('thumbs', '12_thumbs', async () => { await page.evaluate(() => window.cutdiet.pickThumbs()); await page.waitForTimeout(1500); });
-  await tabShot('ai', '13_ai');
-  await tabShot('export', '14_export');
-  await tabShot('guide', '15_guide');
-  console.log('done', outDir);
-} catch (e) { console.error(e); process.exitCode = 1; } finally { await browser.close(); await stop(); fs.rmSync(tmp, { recursive: true, force: true }); process.exit(process.exitCode || 0); }
+  await shot('01_start');
+  await page.setInputFiles('#fileInput', { name: '예시_강의영상.mp4', mimeType: 'video/mp4', buffer: fs.readFileSync(video) }); // buffer form: non-ASCII paths are not picked up
+  await page.waitForFunction(() => !window.cutdiet.state.analyzing && window.cutdiet.state.duration > 0 && window.cutdiet.state.videoPlayable, null, { timeout: 90000 });
+  await page.waitForTimeout(2500); await page.evaluate(() => { const n = document.getElementById('notice'); if (n) n.hidden = true; window.cutdiet.seek(9.5); }); await hideToast();
+  await shot('02_editor');
+  await shot('03_timeline', { clip: await box('section.timeline') });
+  await tab('segments'); await shot('04_cut', { clip: await box('.sidepanel') });
+  // auto subtitles (the speech model is cached in the profile after the first run)
+  await tab('ai'); await page.click('#btnAiRun');
+  await page.waitForFunction(() => /^완료|오류|실패/.test(document.getElementById('aiStatus').textContent), null, { timeout: 1200000, polling: 2000 });
+  console.log('subtitles:', await page.textContent('#aiStatus'));
+  await page.evaluate(() => { document.getElementById('subBurn').checked = true; ['input', 'change'].forEach(t => document.getElementById('subBurn').dispatchEvent(new Event(t, { bubbles: true }))); window.cutdiet.seek(12.3); }); await hideToast();
+  await tab('ai'); await shot('05_subtitles');
+  // a caption selected: the right-hand inspector
+  await page.evaluate(() => { const l = window.cutdiet.captionsOf().find(x => x.s > 11) || window.cutdiet.captionsOf()[0]; window.cutdiet.state.selClip = { kind: 'cap', ref: l }; window.cutdiet.seek(l.s + 0.3); window.cutdiet.refreshAll(); }); await hideToast();
+  await shot('06_inspector', { clip: await box('#inspector') });
+  await shot('07_monitor_caption', { clip: await box('#monitor') });
+  await page.evaluate(() => { window.cutdiet.state.selClip = null; window.cutdiet.refreshAll(); });
+  await tab('ai'); await page.evaluate(() => { const el = document.getElementById('subPreset'); el.scrollIntoView({ block: 'start' }); }); await shot('08_caption_style', { clip: await box('.sidepanel') });
+  await tab('ng'); await shot('09_ng', { clip: await box('.sidepanel') });
+  await tab('text'); await page.evaluate(() => window.cutdiet.seek(30)); await page.fill('#ovText', '5A 스틱 고르는 법'); await page.click('#btnOvText'); await hideToast();
+  await shot('10_text');
+  await page.evaluate(() => { window.cutdiet.state.selClip = null; window.cutdiet.refreshAll(); });
+  await tab('bgm'); await shot('11_audio', { clip: await box('.sidepanel') });
+  await tab('decorate'); await shot('12_effects', { clip: await box('.sidepanel') });
+  await tab('shorts'); await shot('13_shorts');
+  await tab('export'); await shot('14_export', { clip: await box('.sidepanel') });
+  await tab('guide'); await shot('15_guide', { clip: await box('.sidepanel') });
+  await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(700); await page.evaluate(() => window.scrollTo(0, 0)); await shot('16_mobile');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(base + '/pro.html', { waitUntil: 'domcontentloaded' }); await ready();
+  await page.evaluate(() => { localStorage.setItem('cutdiet:onboarded', '1'); const o = document.getElementById('onb'); if (o) o.hidden = true; }); await page.waitForTimeout(500);
+  await tab('pro'); await shot('17_pro');
+  await tab('log'); await shot('18_pro_log', { clip: await box('.sidepanel') });
+  await tab('keys'); await shot('19_pro_keys', { clip: await box('.sidepanel') });
+} catch (e) { errors.push('script: ' + e.message); console.error(e); process.exitCode = 1; }
+if (errors.length) console.log('page errors:', errors);
+await ctx.close();
