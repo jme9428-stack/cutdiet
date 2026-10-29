@@ -86,6 +86,9 @@ need('<div id="toast" role="status" aria-live="polite"></div>'); html = html.rep
 
 need('<script type="module" src="/src/main.js"></script>'); html = html.replace('<script type="module" src="/src/main.js"></script>', '<script type="module" src="/src/main.js"></script>\n<script type="module" src="/src/pro.js"></script>');
 html = html.replace('<body>', '<body class="pro">');
+// Pro links the full manual (with the Pro chapter); the site links the one without it
+need('href="/manual/" target="_blank" rel="noopener" id="manualLink"'); html = html.replace('href="/manual/" target="_blank" rel="noopener" id="manualLink"', 'href="/manual-pro/" target="_blank" rel="noopener" id="manualLink"');
+need('href="/manual.pdf" download="컷다이어트_사용설명서.pdf"'); html = html.replace('href="/manual.pdf" download="컷다이어트_사용설명서.pdf"', 'href="/manual-pro.pdf" download="컷다이어트_사용설명서_Pro.pdf"');
 
 fs.writeFileSync(path.join(root, 'pro.html'), html);
 console.log('pro.html generated:', html.length, 'bytes');

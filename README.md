@@ -137,13 +137,13 @@ engine/server.mjs   로컬 엔진 HTTP 서버 (정적 파일 + /api)
 engine/lib/         ff(바이너리·프로브·인코더 감지) · analyze(엔벨로프) · graph(필터 그래프) · ass(자막) · asr(Whisper) · util(다이얼로그·설정) · fonts
 scripts/make-pro.mjs index.html → pro.html 생성
 scripts/shots.mjs   회원 설명서용 실제 화면 캡처 (설치된 크롬, playwright-core)
-scripts/manual-pdf.mjs docs/manual/manual.html → public/manual.pdf (사이트의 /manual.pdf)
+scripts/manual-pdf.mjs docs/manual/manual.html → 사이트용·Pro용 설명서 PDF와 웹 페이지 (public/manual*)
 docs/manual/        회원용 사용 설명서 원고(HTML)와 화면 캡처
 start-engine.command / .bat  엔진 원클릭 실행
 tests/              단위·E2E 테스트
 ```
 
-회원용 PDF 설명서는 `https://cutdiet.vercel.app/manual.pdf` 로 배포되고, 가이드 탭에서도 열립니다. 내용을 고치려면 `docs/manual/manual.html`을 수정한 뒤 `npm run build` → `npx vite preview --port 5175` 를 띄운 채 `npm run manual:shots -- <1분짜리 말하는 영상.mp4>` (설치된 크롬으로 화면 캡처, 자동 자막 포함) → `npm run manual:pdf` 를 실행하고 푸시하세요. 엣지만 있으면 `CHROME_CHANNEL=msedge`.
+설명서는 원고 하나(`docs/manual/manual.html`)에서 두 가지로 만들어집니다. 사이트용(`/manual/`·`/manual.pdf`, Pro 장 제외, 사이트 가이드에서 연결)과 Pro 장을 포함한 판(`/manual-pro/`·`/manual-pro.pdf`, Pro 화면 가이드에서 연결). Pro에만 들어갈 부분은 `data-only="pro"`로 표시합니다. 내용을 고치려면 `docs/manual/manual.html`을 수정한 뒤 `npm run build` → `npx vite preview --port 5175` 를 띄운 채 `npm run manual:shots -- <1분짜리 말하는 영상.mp4>` (설치된 크롬으로 화면 캡처, 자동 자막 포함) → `npm run manual:pdf` 를 실행하고 푸시하세요. 엣지만 있으면 `CHROME_CHANNEL=msedge`.
 
 ## 브라우저 지원
 - 모든 기능: 최신 Chrome·Edge(데스크톱). Chrome 113+ 이면 WebGPU 가속(실험) 선택 가능.
