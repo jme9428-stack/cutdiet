@@ -551,6 +551,7 @@ document.addEventListener('keyup', e => { const tag = (e.target && e.target.tagN
 document.addEventListener('keydown', e => {
   if (e.cutdietHandled) return;
   if (!els.onb.hidden) { if (e.key === 'Escape') closeOnboarding(); return; }
+  if (!document.getElementById('exportDlg').hidden) { if (e.key === 'Escape') closeExportDialog(); return; } // editing keys stay off while exporting
   const tag = (e.target && e.target.tagName) || ''; const isRange = tag === 'INPUT' && e.target.type === 'range';
   if (isTextEntry(e.target)) return;
   // Space plays/pauses even right after clicking a checkbox, slider, dropdown or button (instead of toggling that control)
@@ -1022,7 +1023,7 @@ async function startRender(kind, rerender) {
   if (kind === 'shorts') { const so = shortsOut(); ranges = shortsRanges(); out = { w: so.w, h: so.h, bitrate: so.bitrate }; crop = so.crop; }
   else { const qs = qualitySpec(); ranges = keepRanges(state.segments); out = { w: qs.w, h: qs.h, bitrate: qs.bitrate }; }
   const setProgress = (frac, label) => { frac = clamp(frac, 0, 1); ui.progress.firstElementChild.style.width = (frac * 100).toFixed(1) + '%'; const el = (performance.now() - t0) / 1000; const eta = frac > 0.02 ? el / frac - el : null; ui.status.textContent = `${label || '렌더링'} ${Math.round(frac * 100)}% · 경과 ${fmtClock(el, false)}${eta != null ? ` · 남은 시간 약 ${fmtClock(eta, false)}` : ''}${rerender ? ' · 호환 모드' : ''}`; };
-  const name = `${baseName(state.file.name)}${J.suffix}.mp4`;
+  const name = kind === 'main' && state.exportTitle ? `${state.exportTitle}.mp4` : `${baseName(state.file.name)}${J.suffix}.mp4`; // title from the export dialog
   try {
     if (state.engineMedia && state.hooks.render) { // Pro: ffmpeg in the local engine, written straight into the output folder
       const r = await state.hooks.render({ kind, ranges, out, crop, quality: els.selQuality.value, fps: state.fps, name, signal: abort.signal, onProgress: setProgress });
@@ -1324,7 +1325,60 @@ decor = initDecorate({ state, els, toast, fmtClock, seek, refreshAll, autosave, 
 inspApi = initInspector({ state, fmtClock, escapeHtml, toast, showTab, seek, captionsOf: () => captionsOf(),
   play: () => { if (els.video.paused) togglePlay(); }, split: () => splitAt(state.cur), del: () => deleteSelectedClip(), select: c => selectClip(c),
   changed: (c, typing) => { autosave(); if (c.kind === 'cap' && trApi) { if (!typing) (captionsOf() || []).sort((a, b) => a.s - b.s); trApi.refresh(); } if (decor) { decor.renderLists(); decor.previewTick(false); } if (c.kind === 'bgm') syncBgmPreview(isPlaying()); drawTimeline(); } });
-document.getElementById('btnTopExport').addEventListener('click', () => showTab('export'));
+document.getElementById('btnTopExport').addEventListener('click', () => openExportDialog());
+
+// ===================== EXPORT DIALOG (CapCut style) =====================
+// The top "내보내기" opens this: preview + title, quality, burn-in captions, SRT. It drives the same render as the
+// 내보내기 menu (startRender) and mirrors its progress, so both stay in step.
+const X = Object.fromEntries(['exportDlg', 'xClose', 'xThumb', 'xMeta', 'xName', 'xVideo', 'xQuality', 'xFps', 'xBurn', 'xSrt', 'xCapHint', 'xProgWrap', 'xBar', 'xStatus', 'xEstimate', 'xCancel', 'xGo'].map(id => [id, document.getElementById(id)]));
+const safeName = s => String(s || '').replace(/[\\/:*?"<>|\x00-\x1f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+const fileKeyOf = () => (state.file ? `${state.file.name}:${state.file.size}` : '');
+function exportDialogRefresh() {
+  const reason = renderBlockReason(), caps = (captionsOf() || []).length, video = X.xVideo.checked;
+  X.xQuality.disabled = !video; X.xBurn.disabled = !video || !caps; X.xSrt.disabled = !caps; X.xCapHint.hidden = !!caps;
+  if (!caps) { X.xBurn.checked = false; X.xSrt.checked = false; }
+  X.xFps.textContent = state.fps ? `원본 ${Math.round(state.fps * 100) / 100}fps` : '원본';
+  updateRenderAvailability();
+  X.xEstimate.textContent = !video ? (X.xSrt.checked ? '자막 파일만 저장합니다' : '내보낼 항목을 고르세요') : reason || els.renderEstimate.textContent;
+  X.xGo.disabled = !!state.rendering || (video ? !!reason : !X.xSrt.checked);
+  if (state.rendering) { X.xGo.textContent = '내보내는 중…'; X.xCancel.textContent = '중단'; } else X.xCancel.textContent = X.xGo.textContent === '다시 내보내기' ? '닫기' : '취소';
+}
+function exportDialogThumb() {
+  const c = X.xThumb, ctx = c.getContext('2d'); const vw = state.width || 16, vh = state.height || 9;
+  c.height = Math.round(c.width * vh / vw); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, c.width, c.height);
+  try { if (els.video.readyState >= 2) ctx.drawImage(els.video, 0, 0, c.width, c.height); } catch {}
+  X.xMeta.innerHTML = `${escapeHtml(state.file ? state.file.name : '')}<br>원본 ${fmtClock(state.duration, false)} → 편집 후 <b>${fmtClock(keptDuration(state.segments), false)}</b>${state.width ? ` · ${state.width}×${state.height}` : ''}`;
+}
+function openExportDialog() {
+  if (!state.hasMedia) { toast('먼저 영상을 불러오세요'); return; }
+  if (X.exportDlg.dataset.for !== fileKeyOf()) { X.xName.value = baseName(state.file.name) + '_cut'; X.exportDlg.dataset.for = fileKeyOf(); }
+  X.xQuality.value = els.selQuality.value; X.xBurn.checked = !!state.fx.subs.burn;
+  if (!state.rendering) { X.xProgWrap.hidden = true; X.xStatus.textContent = ''; X.xGo.textContent = '내보내기'; }
+  exportDialogThumb(); exportDialogRefresh(); X.exportDlg.hidden = false; setTimeout(() => X.xName.focus(), 0);
+}
+function closeExportDialog() { X.exportDlg.hidden = true; }
+X.xQuality.addEventListener('change', () => { els.selQuality.value = X.xQuality.value; exportDialogRefresh(); });
+X.xBurn.addEventListener('change', () => { const b = document.getElementById('subBurn'); if (b && b.checked !== X.xBurn.checked) { b.checked = X.xBurn.checked; ['input', 'change'].forEach(t => b.dispatchEvent(new Event(t, { bubbles: true }))); } exportDialogRefresh(); });
+X.xVideo.addEventListener('change', exportDialogRefresh); X.xSrt.addEventListener('change', exportDialogRefresh);
+X.xClose.addEventListener('click', closeExportDialog);
+X.exportDlg.addEventListener('click', e => { if (e.target === X.exportDlg && !state.rendering) closeExportDialog(); });
+X.exportDlg.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Escape') closeExportDialog(); else if (e.key === 'Enter' && e.target === X.xName && !X.xGo.disabled) X.xGo.click(); });
+X.xCancel.addEventListener('click', () => { if (state.rendering) { state.rendering.abort.abort(); X.xStatus.textContent = '중단하는 중…'; } else closeExportDialog(); });
+// mirror the render progress of the 내보내기 menu into the dialog
+const mirror = () => { X.xStatus.textContent = els.renderStatus.textContent; X.xBar.style.width = els.renderProgress.firstElementChild.style.width; };
+new MutationObserver(mirror).observe(els.renderStatus, { childList: true, characterData: true, subtree: true });
+new MutationObserver(mirror).observe(els.renderProgress.firstElementChild, { attributes: true, attributeFilter: ['style'] });
+function exportSrtAs(title) { const b = document.getElementById('btnSrtOut'); if (!b || b.disabled) return; state.exportSrtName = title + '.srt'; b.click(); state.exportSrtName = null; }
+X.xGo.addEventListener('click', async () => {
+  const title = safeName(X.xName.value) || baseName(state.file.name) + '_cut';
+  const wantSrt = X.xSrt.checked && !X.xSrt.disabled;
+  if (!X.xVideo.checked) { if (wantSrt) { exportSrtAs(title); closeExportDialog(); } return; }
+  state.exportTitle = title; X.xProgWrap.hidden = false; X.xBar.style.width = '0%'; X.xStatus.textContent = '저장 위치를 고르세요…';
+  const run = startRender('main', false); exportDialogRefresh();
+  const ok = await run; state.exportTitle = null;
+  if (ok) { X.xGo.textContent = '다시 내보내기'; if (wantSrt) exportSrtAs(title); } else X.xGo.textContent = '내보내기';
+  exportDialogRefresh();
+});
 window.addEventListener('resize', () => decor && decor.previewTick(false));
 
 // Public API used by the Pro layer (src/pro.js)

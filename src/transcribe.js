@@ -259,7 +259,7 @@ export function initTranscribe(api) {
   document.addEventListener('cutdiet:analyzed', () => { if (!ai.words.length) { computeCands(); renderCands(); soundScan(false); } });
 
   function staleWarn() { const key = fileKey(); if (ai.forFile && key && ai.forFile !== key) toast('이 자막은 다른 영상에서 만든 것입니다', 3000); }
-  el.srtOut.addEventListener('click', async () => { staleWarn(); const srt = buildSRT(ai.lines, t => outTime(state.segments, t)); if (!srt.trim()) { toast('편집 후 남는 자막이 없습니다'); return; } await saveFile(`${baseName(state.file ? state.file.name : 'video')}_cut.srt`, srt); });
+  el.srtOut.addEventListener('click', async () => { staleWarn(); const srt = buildSRT(ai.lines, t => outTime(state.segments, t)); if (!srt.trim()) { toast('편집 후 남는 자막이 없습니다'); return; } await saveFile(state.exportSrtName || `${baseName(state.file ? state.file.name : 'video')}_cut.srt`, srt); });
   el.srtSrc.addEventListener('click', async () => { staleWarn(); await saveFile(`${baseName(state.file ? state.file.name : 'video')}_original.srt`, buildSRT(ai.lines)); });
   el.txtCopy.addEventListener('click', () => copyText(ai.lines.map(l => l.text).join('\n')));
   // bulk correction in the text box: keep timings, take the words
