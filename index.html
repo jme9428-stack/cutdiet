@@ -152,7 +152,7 @@ kbd{font-family:var(--font-mono);font-size:11px;border:1px solid var(--line-stro
 .audio-face .af-meter i{display:block;height:100%;width:0;background:#3DBA82;transition:width .08s linear}
 .audio-face .af-hint{font-size:12px;color:#8B96A5}
 .monitor.mini .audio-face .af-hint,.monitor.mini .audio-face .af-name{display:none}
-body.audio-mode .rail .tab[data-tab="shorts"],body.audio-mode .rail .tab[data-tab="text"]{display:none}
+body.audio-mode .rail .tab[data-tab="shorts"],body.audio-mode .rail .tab[data-tab="text"],body.audio-mode #sectThumbs{display:none}
 .legend-cand{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:var(--muted);margin-left:6px;flex-wrap:wrap}
 .legend-cand i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-left:4px}
 #aiCandBody tr.on td{background:var(--remove-soft)}
@@ -639,7 +639,7 @@ details.sect > :not(summary){margin-bottom:8px}
     </div>
     <div class="progress" id="renderProgress" hidden><i></i></div>
     <p class="hint" id="renderStatus"></p>
-    <p class="hint">저장 위치를 먼저 고르면 그 파일로 바로 저장됩니다. 캡컷에서 이어 편집하려면 이 MP4를 가져가세요.</p>
+    <p class="hint" id="exportHint">저장 위치를 먼저 고르면 그 파일로 바로 저장됩니다. 캡컷에서 이어 편집하려면 이 MP4를 가져가세요.</p>
 
     <details class="sect">
       <summary>유튜브 챕터</summary>
@@ -649,7 +649,7 @@ details.sect > :not(summary){margin-bottom:8px}
       <div class="row"><button class="btn sm primary" id="btnCopyChapters">복사</button><span class="hint" id="chValid"></span></div>
       <textarea id="chText2" readonly aria-label="챕터 타임스탬프 텍스트" hidden></textarea><button class="btn sm" id="btnCopyChapters2" hidden>복사</button>
     </details>
-    <details class="sect">
+    <details class="sect" id="sectThumbs">
       <summary>썸네일 후보</summary>
       <div class="row">
         <button class="btn sm primary" id="btnThumbs">후보 12장 뽑기</button>
@@ -682,7 +682,7 @@ details.sect > :not(summary){margin-bottom:8px}
           <li><b>영상 열기</b> — 무음·NG 뒤 정적이 자동으로 빨갛게 잡힙니다.</li>
           <li><b>들으며 고치기</b> — 재생하면 빨간 곳을 건너뜁니다. 어색한 곳만 <kbd>Q</kbd> <kbd>W</kbd> <kbd>X</kbd>로.</li>
           <li><b>NG 정리 · 자막</b> — 추임새·버벅임을 지우고 자동 자막을 만듭니다.</li>
-          <li><b>내보내기</b> — MP4 또는 편집 프로그램용 파일.</li>
+          <li><b>내보내기</b> — MP4 또는 편집 프로그램용 파일. 음성 파일(녹음·통화)은 MP3·M4A·WAV로.</li>
         </ol>
       </div>
       <div class="card">

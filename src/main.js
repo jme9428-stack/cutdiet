@@ -1043,6 +1043,7 @@ function applyAudioMode() {
   els.audioFace.hidden = !a; els.audioFaceName.textContent = a && state.file ? state.file.name : '';
   els.fldQuality.hidden = a; els.fldAudioFmt.hidden = !a; els.fldBoost.hidden = !a;
   els.btnRender.textContent = a ? '음성 파일 만들기' : 'MP4 만들기';
+  const hint = document.getElementById('exportHint'); if (hint) hint.textContent = a ? '저장 위치를 먼저 고르면 그 파일로 바로 저장됩니다. MP3는 휴대폰·카카오톡·팟캐스트 어디서나 재생되고, 캡컷에 넣으면 오디오 트랙으로 들어갑니다.' : '저장 위치를 먼저 고르면 그 파일로 바로 저장됩니다. 캡컷에서 이어 편집하려면 이 MP4를 가져가세요.';
   const cur = document.querySelector('.tab[aria-selected="true"]'); if (a && cur && (cur.dataset.tab === 'shorts' || cur.dataset.tab === 'text')) showTab('segments');
   updateRenderAvailability(); syncPreviewGain();
 }
