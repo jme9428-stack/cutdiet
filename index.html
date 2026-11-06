@@ -144,6 +144,15 @@ kbd{font-family:var(--font-mono);font-size:11px;border:1px solid var(--line-stro
 .monitor.mini{position:fixed;right:16px;bottom:16px;width:min(400px,46vw);height:auto;z-index:60;box-shadow:0 12px 32px rgba(0,0,0,.45);border:2px solid var(--line-strong);min-height:0}
 .monitor.mini .mini-close{display:block;position:absolute;right:6px;top:6px;z-index:7;width:24px;height:24px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;cursor:pointer;font-size:12px}
 .monitor.mini .monitor-empty{display:none}
+/* voice files: no picture, so the monitor shows the file name and a live level meter instead */
+.audio-face{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:20px;text-align:center;color:#C8D0DA;pointer-events:none}
+.audio-face .af-icon{width:64px;height:64px;border-radius:50%;background:rgba(143,166,255,.16);color:#8FA6FF;display:flex;align-items:center;justify-content:center;font-size:30px}
+.audio-face .af-name{font-size:15px;font-weight:600;color:#F2F5F8;max-width:90%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.audio-face .af-meter{width:min(320px,70%);height:6px;border-radius:3px;background:rgba(255,255,255,.12);overflow:hidden}
+.audio-face .af-meter i{display:block;height:100%;width:0;background:#3DBA82;transition:width .08s linear}
+.audio-face .af-hint{font-size:12px;color:#8B96A5}
+.monitor.mini .audio-face .af-hint,.monitor.mini .audio-face .af-name{display:none}
+body.audio-mode .rail .tab[data-tab="shorts"],body.audio-mode .rail .tab[data-tab="text"]{display:none}
 .legend-cand{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:var(--muted);margin-left:6px;flex-wrap:wrap}
 .legend-cand i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-left:4px}
 #aiCandBody tr.on td{background:var(--remove-soft)}
@@ -379,7 +388,7 @@ details.sect > :not(summary){margin-bottom:8px}
   <header class="top">
     <div class="brand">
       <span class="name">컷다이어트</span>
-      <div class="filebar" id="filebar" hidden><span class="fname" id="fileName"></span> <span class="fmeta" id="fileMeta"></span><button class="btn sm ghost" id="btnOtherFile">다른 영상</button></div>
+      <div class="filebar" id="filebar" hidden><span class="fname" id="fileName"></span> <span class="fmeta" id="fileMeta"></span><button class="btn sm ghost" id="btnOtherFile">다른 파일</button></div>
     </div>
     <div class="top-actions">
       <button class="btn sm ghost" id="btnLoadProject" title="저장해 둔 프로젝트(.json) 열기">불러오기</button>
@@ -419,7 +428,7 @@ details.sect > :not(summary){margin-bottom:8px}
       <summary><span>세부 설정</span><span class="mono muted small" id="advSummary"></span></summary>
       <div class="ctl">
         <label for="rngThreshold">말소리 기준</label><span class="val" id="valThreshold">-42 dB</span>
-        <input type="range" id="rngThreshold" min="-70" max="-20" step="1" value="-42">
+        <input type="range" id="rngThreshold" min="-95" max="-20" step="1" value="-42">
         <span class="desc">말이 잘리면 내리고(-48), 숨소리까지 남으면 올리세요(-36).</span>
       </div>
       <div class="ctl">
@@ -608,7 +617,7 @@ details.sect > :not(summary){margin-bottom:8px}
 
   <section class="tabpanel" id="tab-export" role="tabpanel" hidden>
     <h2 class="ph">내보내기 <span class="chip" id="renderChip">확인 중</span></h2>
-    <div class="field">
+    <div class="field" id="fldQuality">
       <label for="selQuality">화질</label>
       <select id="selQuality">
         <option value="high">고화질 · 원본 해상도</option>
@@ -617,6 +626,11 @@ details.sect > :not(summary){margin-bottom:8px}
         <option value="720">720p (빠른 확인용)</option>
       </select>
     </div>
+    <div class="field" id="fldAudioFmt" hidden>
+      <label for="selAudioFmt">형식</label>
+      <select id="selAudioFmt"><option value="mp3">MP3 · 어디서나 재생</option><option value="m4a">M4A (AAC)</option><option value="wav">WAV · 무손실 (용량 큼)</option></select>
+    </div>
+    <label class="switch" id="fldBoost" hidden><input type="checkbox" id="chkBoost">소리 크기 자동 맞춤 <span class="mono muted small" id="boostVal"></span></label>
     <p class="hint" id="renderEstimate"></p>
     <div class="row">
       <button class="btn primary" id="btnRender">MP4 만들기</button>
@@ -710,13 +724,19 @@ details.sect > :not(summary){margin-bottom:8px}
     </div>
 
     <section class="stage">
-      <div class="drop" id="drop" role="button" tabindex="0" aria-label="영상 파일 선택">
-        <div class="big">＋ 영상 가져오기</div>
-        <div class="hint">여기에 놓거나 클릭 · 영상은 업로드되지 않고 이 브라우저 안에서만 처리됩니다</div>
-        <input type="file" id="fileInput" accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.m4a,.mp3,.wav">
+      <div class="drop" id="drop" role="button" tabindex="0" aria-label="영상·음성 파일 선택">
+        <div class="big">＋ 영상·음성 가져오기</div>
+        <div class="hint">영상(MP4·MOV…)이나 음성(M4A·MP3·WAV…)을 여기에 놓거나 클릭 · 업로드되지 않고 이 브라우저 안에서만 처리됩니다</div>
+        <input type="file" id="fileInput" accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.m4a,.m4b,.mp3,.wav,.aac,.ogg,.oga,.opus,.flac,.weba">
       </div>
       <div class="monitor" id="monitor">
         <video id="video" playsinline preload="metadata"></video>
+        <div class="audio-face" id="audioFace" hidden aria-live="off">
+          <div class="af-icon" aria-hidden="true">♪</div>
+          <div class="af-name" id="audioFaceName"></div>
+          <div class="af-meter" aria-hidden="true"><i id="audioMeter"></i></div>
+          <div class="af-hint">음성 파일 · 재생하면 빨간(삭제) 구간을 건너뛰며 들립니다</div>
+        </div>
         <div class="monitor-empty" id="monitorEmpty">
           <div class="me-title">영상을 불러오면 여기서 컷 결과를 미리 봅니다</div>
           <p>삭제 구간을 건너뛰며 재생돼서, 완성본의 흐름을 들어볼 수 있습니다.</p>
@@ -812,12 +832,14 @@ details.sect > :not(summary){margin-bottom:8px}
       <div class="xleft"><canvas id="xThumb" width="640" height="360" aria-label="미리보기"></canvas><div class="xmeta" id="xMeta"></div></div>
       <div class="xright">
         <div class="xrow"><label for="xName">제목</label><input type="text" id="xName" spellcheck="false"></div>
-        <div class="xsec"><label class="switch"><input type="checkbox" id="xVideo" checked>동영상</label></div>
-        <div class="xrow"><label for="xQuality">해상도·화질</label><select id="xQuality"><option value="high">고화질 · 원본 해상도</option><option value="std">표준 · 원본 해상도 (용량 절약)</option><option value="1080">1080p</option><option value="720">720p (빠른 확인용)</option></select></div>
-        <div class="xrow"><label>형식</label><span class="val">MP4 (H.264 · AAC)</span></div>
-        <div class="xrow"><label>프레임 속도</label><span class="val" id="xFps">원본</span></div>
+        <div class="xsec"><label class="switch"><input type="checkbox" id="xVideo" checked><span id="xVideoLabel">동영상</span></label></div>
+        <div class="xrow" id="xRowAudioFmt" hidden><label for="xAudioFmt">형식</label><select id="xAudioFmt"><option value="mp3">MP3 · 어디서나 재생</option><option value="m4a">M4A (AAC)</option><option value="wav">WAV · 무손실 (용량 큼)</option></select></div>
+        <div class="xrow" id="xRowBoost" hidden><label for="xBoost">소리 크기</label><label class="switch"><input type="checkbox" id="xBoost">자동 맞춤 <span class="mono muted small" id="xBoostVal"></span></label></div>
+        <div class="xrow" id="xRowQuality"><label for="xQuality">해상도·화질</label><select id="xQuality"><option value="high">고화질 · 원본 해상도</option><option value="std">표준 · 원본 해상도 (용량 절약)</option><option value="1080">1080p</option><option value="720">720p (빠른 확인용)</option></select></div>
+        <div class="xrow" id="xRowFormat"><label>형식</label><span class="val">MP4 (H.264 · AAC)</span></div>
+        <div class="xrow" id="xRowFps"><label>프레임 속도</label><span class="val" id="xFps">원본</span></div>
         <div class="xsec">자막</div>
-        <label class="switch"><input type="checkbox" id="xBurn">자막을 영상에 굽기</label>
+        <label class="switch" id="xBurnRow"><input type="checkbox" id="xBurn">자막을 영상에 굽기</label>
         <label class="switch"><input type="checkbox" id="xSrt">자막 파일(SRT)도 저장</label>
         <p class="hint" id="xCapHint" hidden>자막이 없습니다. 왼쪽 자막 메뉴에서 만들 수 있습니다.</p>
       </div>

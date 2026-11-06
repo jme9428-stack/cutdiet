@@ -14,7 +14,7 @@ import { writeWav, nativePick, openFolder, openBrowser, defaultOutDir, uniquePat
 import { ensureFonts, BASE_FAMILIES } from './lib/fonts.mjs';
 import { extractAudio16k, transcribeAudio, ASR_MODELS, resolveModel } from './lib/asr.mjs';
 import { synthSfx } from '../src/fxlogic.js';
-import { HOP, PRESETS, detectSegments, suggestThreshold, keepRanges, keptDuration, countRemoveRuns, clamp } from '../src/cutlogic.js';
+import { HOP, PRESETS, detectSegments, suggestThreshold, keepRanges, keptDuration, countRemoveRuns, clamp, audioFormat, autoGainDb } from '../src/cutlogic.js';
 
 export const VERSION = '1.0.0';
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -87,6 +87,8 @@ async function startRender(body) {
   const ranges = (body.ranges || []).map(r => ({ s: Math.max(0, +r.s), e: Math.min(info.duration || +r.e, +r.e) })).filter(r => r.e - r.s > 0.01);
   if (!ranges.length) throw new Error('유지 구간이 없습니다');
   const kind = body.kind === 'shorts' ? 'shorts' : 'render';
+  const audioOnly = !info.hasVideo; // voice file: the cut is written as an audio file (MP3 / M4A / WAV)
+  if (audioOnly && kind === 'shorts') throw new Error('음성 파일에는 화면이 없어 숏츠를 만들 수 없습니다');
   const j = newJob(kind, { name: m.name, duration: info.duration, kept: ranges.reduce((a, r) => a + r.e - r.s, 0), cuts: Math.max(0, ranges.length - 1) });
   const dir = path.join(TMP, 'job-' + j.id); fs.mkdirSync(dir, { recursive: true });
   const out = body.out && body.out.w ? { w: Math.round(body.out.w / 2) * 2, h: Math.round(body.out.h / 2) * 2 } : { w: info.width, h: info.height };
@@ -98,6 +100,7 @@ async function startRender(body) {
     fxCopy.overlays = (fxCopy.overlays || []).filter(o => o.type === 'text' ? !!o.text : !!o.path);
   }
   const req = { src: m.path, ranges, duration: info.duration, fps: body.fps || info.fps || 30, width: info.width, height: info.height, hasAudio: !!info.hasAudio, out, crop: body.crop || null, quality: body.quality || settings.quality, encoder: resolveEncoder(), fx: fxCopy, captions: body.captions || [], outPath: '' };
+  if (audioOnly) { req.audioOnly = true; req.audio = { format: audioFormat(body.audio && body.audio.format).ext, gainDb: clamp(Number(body.audio && body.audio.gainDb) || 0, 0, 60), channels: info.channels === 1 ? 1 : 2 }; req.captions = []; if (req.fx) { req.fx.overlays = []; if (req.fx.subs) req.fx.subs.burn = false; } }
   const mapped = mapOverlaysAndCaptions(req);
   const assets = { ass: null, bgm: null, images: mapped.images, sfx: [] };
   const burn = fxCopy && fxCopy.subs && fxCopy.subs.burn && mapped.captions.length;
@@ -110,7 +113,7 @@ async function startRender(body) {
   if (body.bgm && body.bgm.path && fs.existsSync(body.bgm.path)) assets.bgm = { path: body.bgm.path, volume: +body.bgm.volume || 0.18, duck: body.bgm.duck !== false, fade: +body.bgm.fade || 0, loop: body.bgm.loop !== false, offset: Math.max(0, +body.bgm.offset || 0) };
   fs.mkdirSync(settings.outDir, { recursive: true });
   const base = body.filename ? baseName(body.filename) : baseName(m.name) + (kind === 'shorts' ? '_shorts' : '_cut');
-  req.outPath = uniquePath(settings.outDir, base, '.mp4');
+  req.outPath = uniquePath(settings.outDir, base, audioOnly ? '.' + req.audio.format : '.mp4');
   const plan = buildArgs(req, assets, { fontsDir: ff.fonts.have.length ? FONTS : null, hasLibass: ff.libass, ffVersion: ff.version });
   const graphFile = path.join(dir, 'graph.txt'); fs.writeFileSync(graphFile, plan.graph);
   const args = plan.args.map(a => a === '__GRAPH__' ? graphFile : a);
@@ -170,12 +173,12 @@ async function autoProcess(p) {
   try {
     const a = await analyzeFile(ff.bin, p, { signal: j.abort.signal, onProgress: f => { j.progress = f * 0.2; } });
     m.info = a.info; m.env = a.env; j.meta.duration = a.duration;
-    const pr = PRESETS[settings.preset] || PRESETS.lecture; const params = { threshold: clamp(suggestThreshold(a.env) + pr.thrOffset, -70, -20), minSilence: pr.minSilence, pad: pr.pad, minKeep: 0.25 };
+    const pr = PRESETS[settings.preset] || PRESETS.lecture; const params = { threshold: clamp(suggestThreshold(a.env) + pr.thrOffset, -95, -20), minSilence: pr.minSilence, pad: pr.pad, minKeep: 0.25 };
     const segs = detectSegments(a.env, HOP, a.duration, params); const ranges = keepRanges(segs);
     j.meta.kept = keptDuration(segs); j.meta.cuts = countRemoveRuns(segs);
     if (settings.watch.tasks.project !== false) { const pj = { app: 'cutdiet', version: 2, savedAt: new Date().toISOString(), file: { name: m.name, size: m.size }, duration: a.duration, fps: a.info.fps, preset: settings.preset, params, dirty: false, segments: segs.map(g => [Math.round(g.s * 1000) / 1000, Math.round(g.e * 1000) / 1000, g.keep ? 1 : 0]), chapters: [], bgm: { name: '', volume: 0.18, duck: true, fade: 1.5, loop: true }, shorts: { in: 0, out: 0, pos: 0.5, upscale: true }, fx: null, engine: { source: p } }; fs.mkdirSync(settings.outDir, { recursive: true }); fs.writeFileSync(uniquePath(settings.outDir, baseName(m.name), '.cutdiet.json'), JSON.stringify(pj, null, 1)); }
     if (settings.watch.tasks.render !== false) {
-      j.step = '렌더링'; const r = await startRender({ token: m.token, ranges, quality: settings.quality });
+      j.step = '렌더링'; const gain = autoGainDb(a.env, HOP, segs); const r = await startRender({ token: m.token, ranges, quality: settings.quality, audio: { format: 'mp3', gainDb: gain >= 6 ? gain : 0 } });
       await new Promise(res => { const t = setInterval(() => { j.progress = 0.2 + 0.8 * r.progress; if (r.status !== 'run') { clearInterval(t); res(); } }, 500); });
       if (r.status !== 'done') throw new Error(r.error || '렌더 실패');
       j.out = r.out; j.meta.encoder = r.meta.encoder;

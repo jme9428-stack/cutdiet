@@ -13,7 +13,7 @@ import { analyzeFile } from '../engine/lib/analyze.mjs';
 import { transcribeAudio } from '../engine/lib/asr.mjs';
 import { uniquePath, writeWav } from '../engine/lib/util.mjs';
 import { SUB_PRESETS } from '../src/fxlogic.js';
-import { detectSegments, keepRanges, HOP, outTime } from '../src/cutlogic.js';
+import { detectSegments, keepRanges, HOP, outTime, suggestThreshold, keptDuration } from '../src/cutlogic.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -132,6 +132,24 @@ const plan3 = buildArgs({ src, ranges: [kr[0]], duration: a.duration, fps: 30, w
 fs.writeFileSync(graphFile, plan3.graph); r = await run(ffbin.path, plan3.args.map(x => x === '__GRAPH__' ? graphFile : x)); assert.equal(r.code, 0, r.stderr);
 const ps = parseProbe((await run(ffbin.path, ['-hide_banner', '-i', shorts])).stderr); assert.equal(ps.width, 540); assert.equal(ps.height, 960);
 console.log('shorts crop ok');
+// voice file: a quiet audio-only source cut to MP3 / M4A / WAV with the auto gain, no video stream in the output
+{
+  const memo = path.join(tmp, 'memo.m4a');
+  r = await run(ffbin.path, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', "sine=frequency=300:sample_rate=48000,volume=volume='if(between(t,1,3)+between(t,6,8),0.003,0)':eval=frame", '-t', '10', '-c:a', 'aac', memo]); assert.equal(r.code, 0, r.stderr);
+  const am = await analyzeFile(ffbin.path, memo); assert.equal(am.info.hasVideo, false);
+  const thr = suggestThreshold(am.env); const msegs = detectSegments(am.env, HOP, am.duration, { threshold: thr, minSilence: 0.6, pad: 0.15, minKeep: 0.25 }); const mr = keepRanges(msegs);
+  assert.equal(mr.length, 2, 'memo ranges ' + JSON.stringify(mr) + ' thr ' + thr);
+  for (const fmt of ['mp3', 'm4a', 'wav']) {
+    const outA = path.join(tmp, 'memo_cut.' + fmt);
+    const pa = buildArgs({ src: memo, ranges: mr, duration: am.duration, fps: 30, width: 0, height: 0, hasAudio: true, out: { w: 0, h: 0 }, crop: null, quality: 'high', encoder: 'libx264', fx: null, audioOnly: true, audio: { format: fmt, gainDb: 30 }, outPath: outA }, { images: [], sfx: [] }, { ffVersion: ffbin.version });
+    assert.ok(!pa.graph.includes('[0:v]') && !pa.args.includes('[vout]'), pa.graph);
+    fs.writeFileSync(graphFile, pa.graph); r = await run(ffbin.path, pa.args.map(x => x === '__GRAPH__' ? graphFile : x)); assert.equal(r.code, 0, fmt + ' ' + r.stderr + pa.graph);
+    const po = parseProbe((await run(ffbin.path, ['-hide_banner', '-i', outA])).stderr);
+    assert.ok(!po.hasVideo && po.hasAudio && Math.abs(po.duration - keptDuration(msegs)) < 0.2, fmt + ' ' + JSON.stringify(po));
+    const ao = await analyzeFile(ffbin.path, outA); const peak = Math.max(...ao.env), srcPeak = Math.max(...am.env); assert.ok(peak > srcPeak + 25, fmt + ' boosted peak ' + peak + ' vs ' + srcPeak);
+  }
+}
+console.log('voice file (mp3/m4a/wav) ok');
 assert.ok(uniquePath(tmp, 'out', '.mp4').endsWith('out (2).mp4'));
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log('ALL ENGINE TESTS PASSED');

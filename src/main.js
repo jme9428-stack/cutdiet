@@ -2,7 +2,7 @@ import { initTranscribe } from './transcribe.js';
 import { initDecorate, makeCompositor, preloadFonts } from './decorate.js';
 import { initInspector } from './inspector.js';
 import { defaultFx, defaultTracks, fxActive, fxToJSON, fxFromJSON, mixSfxInto, liveFx, layerCount } from './fxlogic.js';
-import { HOP, clamp, PRESETS, detectSegments, suggestThreshold, keepRanges, intersectRanges, rangesDuration, keptDuration, applySpan, countRemoveRuns, outTime, sourceTimeAtOutput, segIndexAt, fmtClock, ytStamp, tcFromSeconds, buildEDL, buildFCPXML, buildFFmpeg, chapterLines, validateChapters, pickThumbnailTimes, mixBgmInto, buildZip, assembleBlob, accumulateEnergy, energyToDb, demoEnvelope } from './cutlogic.js';
+import { HOP, clamp, PRESETS, detectSegments, suggestThreshold, keepRanges, intersectRanges, rangesDuration, keptDuration, applySpan, countRemoveRuns, outTime, sourceTimeAtOutput, segIndexAt, fmtClock, ytStamp, tcFromSeconds, buildEDL, buildFCPXML, buildFFmpeg, chapterLines, validateChapters, pickThumbnailTimes, mixBgmInto, buildZip, assembleBlob, accumulateEnergy, energyToDb, demoEnvelope, audioFormat, audioOutBytes, autoGainDb, applyGain } from './cutlogic.js';
 const LS_PREFIX = 'cutdiet:v1:';
 const HEAVY_LIMIT = 3600; // seconds: above this only light features
 
@@ -15,6 +15,8 @@ const state = {
   mb: null, mbStatus: 'loading',
   file: null, fileURL: null, hasMedia: false, isDemo: true,
   input: null, vTrack: null, aTrack: null, canDecodeVideo: false, videoPlayable: false,
+  // voice files (no picture): cut and exported as audio (MP3/M4A/WAV); audioSr/audioCh describe the source sound
+  audioOnly: false, audioSr: 48000, audioCh: 2, audioFmt: 'mp3',
   duration: 0, fps: 30, width: 0, height: 0, rotation: 0,
   env: null, params: { threshold: -42, minSilence: 0.6, pad: 0.15, minKeep: 0.25 }, autoThreshold: -42, preset: 'lecture',
   segments: [], chapters: [], dirty: false,
@@ -40,7 +42,8 @@ const ids = ['drop','fileInput','filebar','fileName','fileMeta','btnOtherFile','
   'shIn','shOut','btnShInHere','btnShOutHere','btnShAll','shInfo','btnShPreview','cropPos','cropPosVal','chkUpscale','cropInfo','shortsChip','shEstimate','btnShortsRender','btnShortsCancel','btnShortsResave','shortsProgress','shortsStatus',
   'btnThumbs','btnThumbNow','btnThumbsZip','thumbsInfo','thumbGrid',
   'renderChip','selQuality','renderEstimate','btnRender','btnCancelRender','btnResave','renderProgress','renderStatus','fpsInput','btnZip','btnCopyFfmpeg',
-  'btnSaveProject','btnSaveProject2','btnLoadProject','btnLoadProject2','projectInput','btnHelp','onb','onbStart','onbGuide','toast'];
+  'btnSaveProject','btnSaveProject2','btnLoadProject','btnLoadProject2','projectInput','btnHelp','onb','onbStart','onbGuide','toast',
+  'audioFace','audioFaceName','audioMeter','fldQuality','fldAudioFmt','selAudioFmt','fldBoost','chkBoost','boostVal'];
 const els = {}; for (const id of ids) els[id] = document.getElementById(id);
 
 // ===================== UTIL =====================
@@ -72,7 +75,7 @@ async function copyText(text) {
 // save dialog (Chrome/Edge, when the call happens right after a click) → plain download.
 const fsAccess = typeof window.showSaveFilePicker === 'function' && window.self === window.top;
 const userActive = () => !navigator.userActivation || navigator.userActivation.isActive;
-const MIME_TYPES = { mp4: ['MP4 동영상', 'video/mp4'], srt: ['SRT 자막', 'text/plain'], json: ['JSON', 'application/json'], zip: ['ZIP', 'application/zip'], jpg: ['JPEG 이미지', 'image/jpeg'], csv: ['CSV', 'text/csv'], txt: ['텍스트', 'text/plain'] };
+const MIME_TYPES = { mp4: ['MP4 동영상', 'video/mp4'], mp3: ['MP3 오디오', 'audio/mpeg'], m4a: ['M4A 오디오', 'audio/mp4'], wav: ['WAV 오디오', 'audio/wav'], srt: ['SRT 자막', 'text/plain'], json: ['JSON', 'application/json'], zip: ['ZIP', 'application/zip'], jpg: ['JPEG 이미지', 'image/jpeg'], csv: ['CSV', 'text/csv'], txt: ['텍스트', 'text/plain'] };
 function pickerTypes(filename) { const ext = (filename.match(/\.(\w+)$/) || [])[1]; const t = MIME_TYPES[ext]; return t ? [{ description: t[0], accept: { [t[1]]: ['.' + ext] } }] : undefined; }
 async function writeToDir(dir, filename, data) {
   if ((await dir.queryPermission({ mode: 'readwrite' })) !== 'granted' && (await dir.requestPermission({ mode: 'readwrite' })) !== 'granted') throw new Error('폴더 쓰기 권한이 없습니다');
@@ -98,7 +101,7 @@ async function saveFile(filename, data) {
 async function openRenderSink(filename) {
   if (state.hooks.saveFile) return { memory: true };
   if (state.outDirHandle) {
-    try { if ((await state.outDirHandle.queryPermission({ mode: 'readwrite' })) !== 'granted' && (await state.outDirHandle.requestPermission({ mode: 'readwrite' })) !== 'granted') throw new Error('perm'); let name = filename, k = 2; const base = filename.replace(/\.[^.]+$/, ''); while (true) { try { await state.outDirHandle.getFileHandle(name); name = `${base} (${k++}).mp4`; } catch { break; } } const h = await state.outDirHandle.getFileHandle(name, { create: true }); return { writable: await h.createWritable(), name, where: '출력 폴더' }; }
+    try { if ((await state.outDirHandle.queryPermission({ mode: 'readwrite' })) !== 'granted' && (await state.outDirHandle.requestPermission({ mode: 'readwrite' })) !== 'granted') throw new Error('perm'); let name = filename, k = 2; const base = filename.replace(/\.[^.]+$/, ''), ext = (filename.match(/\.[^.]+$/) || ['.mp4'])[0]; while (true) { try { await state.outDirHandle.getFileHandle(name); name = `${base} (${k++})${ext}`; } catch { break; } } const h = await state.outDirHandle.getFileHandle(name, { create: true }); return { writable: await h.createWritable(), name, where: '출력 폴더' }; }
     catch (e) { console.warn(e); }
   }
   if (fsAccess && userActive()) {
@@ -144,12 +147,12 @@ async function openFile(file) {
   try { if (state.input) state.input.dispose(); } catch {}
   if (state.fileURL && state.fileURL.startsWith('blob:')) URL.revokeObjectURL(state.fileURL);
   setShuttle(0);
-  Object.assign(state, { file, fileURL: isEngine ? file.mediaUrl : URL.createObjectURL(file), engineMedia: isEngine ? file : null, hasMedia: true, isDemo: false, input: null, vTrack: null, aTrack: null, canDecodeVideo: false, videoPlayable: false, duration: 0, env: null, segments: [], chapters: [], dirty: false, cur: 0, zoom: 1, scroll: 0, lastRender: null, lastShorts: null, width: 0, height: 0, rotation: 0, fps: 30, currentRow: -1, thumbs: [], thumbSel: -1, previewStop: null, autosaveBlocked: true });
+  Object.assign(state, { file, fileURL: isEngine ? file.mediaUrl : URL.createObjectURL(file), engineMedia: isEngine ? file : null, hasMedia: true, isDemo: false, input: null, vTrack: null, aTrack: null, canDecodeVideo: false, videoPlayable: false, duration: 0, env: null, segments: [], chapters: [], dirty: false, cur: 0, zoom: 1, scroll: 0, lastRender: null, lastShorts: null, audioOnly: false, audioSr: 48000, audioCh: 2, width: 0, height: 0, rotation: 0, fps: 30, currentRow: -1, thumbs: [], thumbSel: -1, previewStop: null, autosaveBlocked: true });
   state.activity = { openedAt: Date.now(), manualEdits: 0, aiApplied: 0, renders: 0 };
   state.fx.zooms = []; state.fx.overlays = []; state.fx.sfx = []; if (decor) decor.renderLists();
   undoReset(); els.btnReanalyze.hidden = true; els.dirtyHint.hidden = true; els.btnResave.hidden = true; els.btnShortsResave.hidden = true; els.thumbGrid.innerHTML = ''; els.btnThumbsZip.hidden = true;
   els.video.pause(); els.video.src = state.fileURL; els.video.load();
-  els.monitorEmpty.hidden = true; els.hudState.textContent = '분석 중';
+  els.monitorEmpty.hidden = true; els.hudState.textContent = '분석 중'; applyAudioMode();
   els.drop.hidden = true; els.filebar.hidden = false; els.fileName.textContent = file.name; els.fileMeta.textContent = fmtBytes(file.size);
   notice('오디오를 분석하고 있습니다. 영상은 이 브라우저 밖으로 나가지 않습니다.', '', 0);
   drawTimeline(); updateStats(); renderSegList(); renderChapters();
@@ -186,18 +189,21 @@ async function openFile(file) {
   }
   Object.assign(state, result);
   if (!state.duration && state.videoPlayable && isFinite(els.video.duration)) state.duration = els.video.duration;
+  state.audioOnly = !state.vTrack && !state.width; // a voice recording: cut it and export it as an audio file
   state.autoThreshold = suggestThreshold(state.env);
   if (PRESETS[state.preset]) applyPreset(state.preset, { silent: true });
   else { state.params.threshold = state.autoThreshold; syncSliders(); state.segments = detectSegments(state.env, HOP, state.duration, state.params); }
   state.analyzing = false;
-  els.hudState.textContent = state.videoPlayable ? '미리보기' : '미리보기 불가';
+  els.hudState.textContent = state.videoPlayable ? (state.audioOnly ? '미리듣기' : '미리보기') : '미리보기 불가';
+  els.chkBoost.checked = autoGainDb(state.env, HOP, state.segments) >= 6; applyAudioMode();
   if (state.width) { els.hudRes.hidden = false; els.hudRes.textContent = `${state.width}×${state.height} · ${state.fps.toFixed(2).replace(/\.?0+$/, '')}fps`; } else els.hudRes.hidden = true;
   els.fpsInput.value = String(Math.round(state.fps * 1000) / 1000);
-  if (!state.videoPlayable) { els.monitorEmpty.hidden = false; els.monitorEmpty.querySelector('.me-title').textContent = '이 브라우저에서 재생할 수 없는 영상 형식입니다'; els.monitorEmpty.querySelector('p').textContent = '분석과 내보내기는 그대로 할 수 있습니다. 미리 들어보려면 MP4(H.264)로 변환한 파일을 여세요.'; }
+  if (!state.videoPlayable) { els.audioFace.hidden = true; els.monitorEmpty.hidden = false; els.monitorEmpty.querySelector('.me-title').textContent = state.audioOnly ? '이 브라우저에서 재생할 수 없는 음성 형식입니다' : '이 브라우저에서 재생할 수 없는 영상 형식입니다'; els.monitorEmpty.querySelector('p').textContent = '분석과 내보내기는 그대로 할 수 있습니다. 미리 들어보려면 MP4(H.264)로 변환한 파일을 여세요.'; }
   notice(null);
   resetShortsRange();
   refreshAll();
-  if (state.duration > HEAVY_LIMIT && !state.engineMedia) notice('1시간이 넘는 영상입니다. 분석·컷 목록·챕터·EDL/FFmpeg 내보내기는 되지만, 브라우저 안에서의 MP4·숏츠 렌더링은 꺼집니다. 컷본 파일이 필요하면 zip 안의 FFmpeg 스크립트를 쓰세요.', 'warn');
+  if (state.duration > HEAVY_LIMIT && !state.engineMedia && state.audioOnly) notice('1시간이 넘는 음성 파일입니다. 무음 삭제와 음성 파일(MP3 등) 내보내기는 그대로 되고, 브라우저 자동 자막만 꺼집니다.', 'warn');
+  else if (state.duration > HEAVY_LIMIT && !state.engineMedia) notice('1시간이 넘는 영상입니다. 분석·컷 목록·챕터·EDL/FFmpeg 내보내기는 되지만, 브라우저 안에서의 MP4·숏츠 렌더링은 꺼집니다. 컷본 파일이 필요하면 zip 안의 FFmpeg 스크립트를 쓰세요.', 'warn');
   const saved = loadSavedProject();
   if (saved && saved.segments && saved.segments.length) {
     state.autosaveBlocked = true; clearTimeout(autosaveT);
@@ -228,6 +234,7 @@ async function analyzeWithMediabunny(file, onProgress) {
     try { canDecodeVideo = await vTrack.canDecode(); } catch {}
     try { const m = await vTrack.computeFrameRateMetrics({ targetPacketCount: 240 }); fps = m.bestGuessFrameRate || m.averageFrameRate || 30; } catch {}
   }
+  let audioSr = 48000, audioCh = 2; try { audioSr = await aTrack.getSampleRate(); audioCh = await aTrack.getNumberOfChannels(); } catch {}
   const n = Math.ceil(duration / HOP) + 1; const sumSq = new Float64Array(n), cnt = new Float64Array(n);
   const sink = new mb.AudioBufferSink(aTrack);
   let lastUi = 0;
@@ -236,7 +243,7 @@ async function analyzeWithMediabunny(file, onProgress) {
     if (wb.timestamp - lastUi > 2) { lastUi = wb.timestamp; onProgress(Math.min(0.99, wb.timestamp / duration)); await nextFrame(); }
   }
   onProgress(1);
-  return { input, vTrack, aTrack, duration, fps, width, height, rotation, canDecodeVideo, env: energyToDb(sumSq, cnt) };
+  return { input, vTrack, aTrack, duration, fps, width, height, rotation, canDecodeVideo, audioSr, audioCh, env: energyToDb(sumSq, cnt) };
 }
 
 // Local engine (Pro): ffmpeg decodes the audio and returns the same 20 ms envelope, no browser decode needed
@@ -246,7 +253,7 @@ async function analyzeWithEngine(desc, onProgress) {
   if (r.noAudio) throw new Error('noaudio');
   const info = r.info || desc.info || {};
   const env = r.env instanceof Float32Array ? r.env : Float32Array.from(r.env);
-  return { input: null, vTrack: null, aTrack: null, duration: r.duration || info.duration || 0, fps: info.fps || 30, width: info.width || 0, height: info.height || 0, rotation: 0, canDecodeVideo: false, env };
+  return { input: null, vTrack: null, aTrack: null, duration: r.duration || info.duration || 0, fps: info.fps || 30, width: info.width || 0, height: info.height || 0, rotation: 0, canDecodeVideo: false, audioSr: info.sampleRate || 48000, audioCh: info.channels || 2, env };
 }
 
 async function analyzeWithWebAudio(file, onProgress) {
@@ -259,7 +266,7 @@ async function analyzeWithWebAudio(file, onProgress) {
   accumulateEnergy(buf, 0, sumSq, cnt, HOP); onProgress(1);
   let width = 0, height = 0;
   if (state.videoPlayable || els.video.videoWidth) { width = els.video.videoWidth; height = els.video.videoHeight; }
-  return { input: null, vTrack: null, aTrack: null, duration, fps: 30, width, height, rotation: 0, canDecodeVideo: false, env: energyToDb(sumSq, cnt) };
+  return { input: null, vTrack: null, aTrack: null, duration, fps: 30, width, height, rotation: 0, canDecodeVideo: false, audioSr: buf.sampleRate, audioCh: buf.numberOfChannels, env: energyToDb(sumSq, cnt) };
 }
 
 // ===================== PRESETS / PARAMS =====================
@@ -274,7 +281,7 @@ function syncSliders() {
 function applyPreset(name, opts = {}) {
   const p = PRESETS[name]; if (!p) return;
   state.preset = name; lsSet('cutdiet:preset', name);
-  state.params.minSilence = p.minSilence; state.params.pad = p.pad; state.params.threshold = clamp(state.autoThreshold + p.thrOffset, -70, -20);
+  state.params.minSilence = p.minSilence; state.params.pad = p.pad; state.params.threshold = clamp(state.autoThreshold + p.thrOffset, -95, -20);
   syncSliders();
   if (!state.env) return;
   if (state.dirty && !opts.force) { els.btnReanalyze.hidden = false; els.dirtyHint.hidden = false; if (!opts.silent) toast('수동 수정이 있어 "다시 분석"을 눌러야 적용됩니다', 2600); return; }
@@ -518,7 +525,7 @@ function syncBgmPreview(playing) {
 
 let lastTick = 0;
 function tick() {
-  lastTick = performance.now();
+  lastTick = performance.now(); updateAudioMeter();
   const v = els.video; const segs = state.segments;
   if (state.shuttle.dir === -1 && state.hasMedia && state.videoPlayable) {
     const now = performance.now(); const dt = Math.min(0.1, (now - state.shuttle.last) / 1000); state.shuttle.last = now;
@@ -664,15 +671,16 @@ function drawTimeline() {
   if (state.shorts.out > state.shorts.in && !$('#tab-shorts').hidden) { const x0 = (state.shorts.in - t0) * pps, x1 = (state.shorts.out - t0) * pps; ctx.fillStyle = '#FFD166'; ctx.globalAlpha = .18; ctx.fillRect(x0, top, x1 - x0, h); ctx.globalAlpha = 1; ctx.fillRect(x0, top, 2, h); ctx.fillRect(x1 - 2, top, 2, h); }
   if (state.env) {
     const env = state.env; let si = 0; const segs = state.segments; const muted = tracks().origMuted;
+    const lo = Math.min(-72, state.params.threshold - 12); // quiet recordings: stretch the scale so their waveform stays visible
     for (let x = 0; x < W; x++) {
       const ta = t0 + x / pps, tb = t0 + (x + 1) / pps; const i0 = Math.floor(ta / HOP), i1 = Math.max(i0 + 1, Math.ceil(tb / HOP));
       let m = -100; for (let i = Math.max(0, i0); i < i1 && i < env.length; i++) if (env[i] > m) m = env[i];
       if (m <= -99) continue;
-      const a = clamp((m + 72) / 62, 0, 1); const bh = Math.max(1, a * (h - 6));
+      const a = clamp((m - lo) / (-10 - lo), 0, 1); const bh = Math.max(1, a * (h - 6));
       while (si < segs.length - 1 && segs[si].e <= ta) si++;
       ctx.fillStyle = (segs[si] ? segs[si].keep : true) ? C.keep : C.remove; ctx.globalAlpha = muted ? 0.3 : 0.9; ctx.fillRect(x, bottom - 3 - bh, 1, bh); ctx.globalAlpha = 1;
     }
-    const ty = bottom - 3 - clamp((state.params.threshold + 72) / 62, 0, 1) * (h - 6);
+    const ty = bottom - 3 - clamp((state.params.threshold - lo) / (-10 - lo), 0, 1) * (h - 6);
     ctx.setLineDash([3, 4]); ctx.strokeStyle = C.muted; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, ty + .5); ctx.lineTo(W, ty + .5); ctx.stroke(); ctx.setLineDash([]);
   }
   ctx.strokeStyle = C.lineStrong; ctx.lineWidth = 1;
@@ -725,10 +733,10 @@ function headButtons(l) {
 }
 function renderTrackHeads(lay) {
   const box = els.tlHeads; if (!box) return;
-  const sig = JSON.stringify([lay.L.map(l => l.key + l.y + ':' + l.h), tracks(), state.fx.subs.burn, candList().length, candList().filter(c => c.on).length, state.duration > 0]);
+  const sig = JSON.stringify([lay.L.map(l => l.key + l.y + ':' + l.h), tracks(), state.fx.subs.burn, state.audioOnly, candList().length, candList().filter(c => c.on).length, state.duration > 0]);
   if (sig === headSig) return; headSig = sig;
   box.style.height = lay.H + 'px';
-  box.innerHTML = lay.L.filter(l => HEAD_INFO[l.kind]).map(l => { const [ic, name] = HEAD_INFO[l.kind]; const label = l.kind === 'ov' ? `${name} ${l.layer + 1}` : name; const tip = l.kind === 'ov' ? `텍스트·이미지 레이어 ${l.layer + 1} (숫자가 클수록 위에 그려짐)` : name;
+  box.innerHTML = lay.L.filter(l => HEAD_INFO[l.kind]).map(l => { const [ic, name] = HEAD_INFO[l.kind]; const label = l.kind === 'ov' ? `${name} ${l.layer + 1}` : l.kind === 'main' && state.audioOnly ? '음성' : name; const tip = l.kind === 'ov' ? `텍스트·이미지 레이어 ${l.layer + 1} (숫자가 클수록 위에 그려짐)` : name;
     return `<div class="th th-${l.kind}${laneDimmed(l) ? ' dim' : ''}" style="top:${l.y}px;height:${l.h}px" title="${tip}"><span class="th-ic">${ic}</span><span class="th-name">${label}</span><span class="th-btns">${state.duration ? headButtons(l) : ''}</span></div>`; }).join('');
 }
 function toggleTrack(act, key) {
@@ -951,6 +959,7 @@ els.btnShPreview.addEventListener('click', () => { if (!requirePlayable()) retur
 function shortsRanges() { return intersectRanges(keepRanges(state.segments), state.shorts.in, state.shorts.out); }
 function shortsOut() { const r = cropRect(); if (!r) return null; const w = state.shorts.upscale ? 1080 : r.width, h = state.shorts.upscale ? 1920 : r.height; return { w, h, bitrate: bitrateFor(w, h, 'high'), crop: { left: r.left, top: r.top, width: r.width, height: r.height } }; }
 function shortsBlockReason() {
+  if (state.audioOnly) return '음성 파일에는 화면이 없어 숏츠를 만들 수 없습니다';
   const base = renderBlockReason(); if (base) return base;
   if (!cropRect()) return '영상 크기를 아직 알 수 없습니다';
   if (!shortsRanges().length) return '선택한 구간 안에 유지 구간이 없습니다';
@@ -976,6 +985,12 @@ function renderBlockReason() {
   if (!state.hasMedia) return '영상을 먼저 불러오세요';
   if (state.engineMedia) { if (!state.hooks.render) return '로컬 엔진과 연결이 끊겼습니다. 엔진을 다시 실행하세요'; if (state.bgm.decoding) return '배경음악을 아직 읽는 중입니다'; if (!keepRanges(state.segments).length) return '유지 구간이 없습니다'; return null; }
   if (state.mbStatus !== 'ready') return state.mbStatus === 'loading' ? '엔진을 불러오는 중입니다' : '엔진을 불러오지 못해 MP4 렌더링을 쓸 수 없습니다 (②를 이용하세요)';
+  if (state.audioOnly) { // sound only: decoded and encoded as a stream, so no length limit and no video codec needed
+    if (!state.aTrack) return '이 음성 형식은 브라우저에서 바로 내보낼 수 없습니다 (zip 안의 FFmpeg 스크립트를 이용하세요)';
+    if (state.bgm.decoding) return '배경음악을 아직 읽는 중입니다';
+    if (!keepRanges(state.segments).length) return '유지 구간이 없습니다';
+    return null;
+  }
   if (!('VideoEncoder' in window)) return '이 브라우저는 영상 인코딩(WebCodecs)을 지원하지 않습니다. 크롬·엣지 데스크톱에서 열어 주세요';
   if (!state.vTrack) return '영상 트랙이 없는 파일입니다';
   if (!state.canDecodeVideo) return '이 영상 코덱은 브라우저에서 디코딩할 수 없습니다 (②의 FFmpeg 스크립트를 이용하세요)';
@@ -994,11 +1009,63 @@ function qualitySpec() {
 function updateRenderAvailability() {
   const reason = renderBlockReason();
   els.btnRender.disabled = !!reason || !!state.rendering; els.renderChip.textContent = reason ? '사용 불가' : '사용 가능'; els.renderChip.className = 'chip ' + (reason ? 'warn' : 'ok'); els.renderChip.title = reason || '';
+  const boost = boostDb(); els.boostVal.textContent = autoGainLabel(); const xbv = document.getElementById('xBoostVal'); if (xbv) xbv.textContent = els.boostVal.textContent;
   if (reason) { els.renderEstimate.textContent = reason; return; }
+  if (state.audioOnly) {
+    const kept = keptDuration(state.segments); const f = audioFormat(state.audioFmt);
+    els.renderEstimate.textContent = `출력 ${f.label} · 예상 용량 ${fmtBytes(audioOutBytes(state.audioFmt, kept, state.audioSr, state.audioCh))} · 길이 ${fmtClock(kept, false)}${boost ? ` · 소리 +${boost} dB` : ''}${state.bgm.ready ? ' · 배경음악 포함' : ''}${state.engineMedia ? ' · 로컬 엔진(ffmpeg) → 출력 폴더에 저장' : ''}`;
+    return;
+  }
   const qs = qualitySpec(); const kept = keptDuration(state.segments); const size = (qs.bitrate + 192e3) * kept / 8;
   els.renderEstimate.textContent = `출력 ${qs.w}×${qs.h} · 약 ${(qs.bitrate / 1e6).toFixed(1)} Mbps · 예상 용량 ${fmtBytes(size)} · 길이 ${fmtClock(kept, false)}${state.bgm.ready ? ' · 배경음악 포함' : ''}${state.engineMedia ? ' · 로컬 엔진(ffmpeg)으로 렌더 → 출력 폴더에 저장' : state.duration > 1800 ? ' · 30분이 넘어 시간이 오래 걸립니다' : ''}`;
 }
 els.selQuality.addEventListener('change', updateRenderAvailability);
+
+// ---- voice files ----
+// gain applied to the voice on export (and to the preview) when "소리 크기 자동 맞춤" is on; 0 for video or loud recordings
+function boostDb() { return state.audioOnly && els.chkBoost.checked ? autoGainDb(state.env, HOP, state.segments) : 0; }
+function autoGainLabel() { if (!state.audioOnly) return ''; const g = autoGainDb(state.env, HOP, state.segments); return g ? `(+${g} dB)` : '(이미 충분히 큼)'; }
+function setAudioFmt(v) { state.audioFmt = audioFormat(v).ext; lsSet('cutdiet:audioFmt', state.audioFmt); els.selAudioFmt.value = state.audioFmt; const x = document.getElementById('xAudioFmt'); if (x) x.value = state.audioFmt; updateRenderAvailability(); }
+setAudioFmt(lsGet('cutdiet:audioFmt') || 'mp3');
+els.selAudioFmt.addEventListener('change', () => setAudioFmt(els.selAudioFmt.value));
+els.chkBoost.addEventListener('change', () => { const x = document.getElementById('xBoost'); if (x) x.checked = els.chkBoost.checked; updateRenderAvailability(); syncPreviewGain(); });
+// M4A needs the browser's AAC encoder (Chrome/Edge on Windows·Mac have it, Linux usually not); the local engine always can.
+let aacOk = null;
+async function refreshAudioFormats() {
+  if (aacOk === null && state.mb) { try { aacOk = await state.mb.canEncodeAudio('aac', { numberOfChannels: 2, sampleRate: 48000, bitrate: 192000 }); } catch { aacOk = false; } }
+  const ok = aacOk !== false || !!state.engineMedia;
+  for (const sel of [els.selAudioFmt, document.getElementById('xAudioFmt')]) { if (!sel) continue; const o = sel.querySelector('option[value="m4a"]'); o.disabled = !ok; o.textContent = ok ? 'M4A (AAC)' : 'M4A (AAC) · 이 브라우저에서는 불가'; }
+  if (!ok && state.audioFmt === 'm4a') setAudioFmt('mp3');
+}
+function applyAudioMode() {
+  const a = state.audioOnly; if (a) refreshAudioFormats();
+  document.body.classList.toggle('audio-mode', a);
+  els.audioFace.hidden = !a; els.audioFaceName.textContent = a && state.file ? state.file.name : '';
+  els.fldQuality.hidden = a; els.fldAudioFmt.hidden = !a; els.fldBoost.hidden = !a;
+  els.btnRender.textContent = a ? '음성 파일 만들기' : 'MP4 만들기';
+  const cur = document.querySelector('.tab[aria-selected="true"]'); if (a && cur && (cur.dataset.tab === 'shorts' || cur.dataset.tab === 'text')) showTab('segments');
+  updateRenderAvailability(); syncPreviewGain();
+}
+// Preview of a boosted voice file: route the monitor's sound through Web Audio (gain + limiter) so what you hear matches the export.
+let previewAudio = null;
+function syncPreviewGain() {
+  const db = boostDb(); if (!db && !previewAudio) return;
+  try {
+    if (!previewAudio) {
+      const ctx = new AudioContext(); const src = ctx.createMediaElementSource(els.video); const gain = ctx.createGain();
+      const lim = ctx.createDynamicsCompressor(); lim.threshold.value = -3; lim.knee.value = 3; lim.ratio.value = 20; lim.attack.value = 0.003; lim.release.value = 0.15;
+      src.connect(gain).connect(lim).connect(ctx.destination); previewAudio = { ctx, gain };
+    }
+    previewAudio.gain.gain.value = Math.pow(10, db / 20);
+    if (previewAudio.ctx.state === 'suspended' && !els.video.paused) previewAudio.ctx.resume().catch(() => {});
+  } catch (e) { console.warn('preview gain unavailable', e); }
+}
+els.video.addEventListener('play', () => { if (previewAudio && previewAudio.ctx.state === 'suspended') previewAudio.ctx.resume().catch(() => {}); });
+function updateAudioMeter() {
+  if (!state.audioOnly || !state.env) return; const i = Math.floor(state.cur / HOP); let m = -100;
+  if (!els.video.paused) for (let k = Math.max(0, i - 2); k <= i + 2 && k < state.env.length; k++) m = Math.max(m, state.env[k]);
+  const lo = Math.min(-72, state.params.threshold - 12); els.audioMeter.style.width = m <= -99 ? '0%' : (clamp((m + boostDb() - lo) / (-6 - lo), 0, 1) * 100).toFixed(1) + '%';
+}
 
 const JOBS = {
   main: { btn: 'btnRender', cancel: 'btnCancelRender', resave: 'btnResave', progress: 'renderProgress', status: 'renderStatus', last: 'lastRender', suffix: '_cut' },
@@ -1023,10 +1090,12 @@ async function startRender(kind, rerender) {
   if (kind === 'shorts') { const so = shortsOut(); ranges = shortsRanges(); out = { w: so.w, h: so.h, bitrate: so.bitrate }; crop = so.crop; }
   else { const qs = qualitySpec(); ranges = keepRanges(state.segments); out = { w: qs.w, h: qs.h, bitrate: qs.bitrate }; }
   const setProgress = (frac, label) => { frac = clamp(frac, 0, 1); ui.progress.firstElementChild.style.width = (frac * 100).toFixed(1) + '%'; const el = (performance.now() - t0) / 1000; const eta = frac > 0.02 ? el / frac - el : null; ui.status.textContent = `${label || '렌더링'} ${Math.round(frac * 100)}% · 경과 ${fmtClock(el, false)}${eta != null ? ` · 남은 시간 약 ${fmtClock(eta, false)}` : ''}${rerender ? ' · 호환 모드' : ''}`; };
-  const name = kind === 'main' && state.exportTitle ? `${state.exportTitle}.mp4` : `${baseName(state.file.name)}${J.suffix}.mp4`; // title from the export dialog
+  const ext = kind === 'main' && state.audioOnly ? audioFormat(state.audioFmt).ext : 'mp4';
+  const name = kind === 'main' && state.exportTitle ? `${state.exportTitle}.${ext}` : `${baseName(state.file.name)}${J.suffix}.${ext}`; // title from the export dialog
   try {
     if (state.engineMedia && state.hooks.render) { // Pro: ffmpeg in the local engine, written straight into the output folder
-      const r = await state.hooks.render({ kind, ranges, out, crop, quality: els.selQuality.value, fps: state.fps, name, signal: abort.signal, onProgress: setProgress });
+      const audio = kind === 'main' && state.audioOnly ? { format: state.audioFmt, gainDb: boostDb() } : null;
+      const r = await state.hooks.render({ kind, ranges, out, crop, quality: els.selQuality.value, fps: state.fps, name, audio, signal: abort.signal, onProgress: setProgress });
       ui.progress.firstElementChild.style.width = '100%';
       ui.status.textContent = `완료 · ${fmtBytes(r.size || 0)} · ${fmtClock((performance.now() - t0) / 1000, false)} 걸림 · 저장: ${r.out}${r.warnings && r.warnings.length ? ' · ' + r.warnings.join(' · ') : ''}`;
       state.activity.renders++; document.dispatchEvent(new CustomEvent('cutdiet:rendered', { detail: { kind, name: r.out, size: r.size || 0, seconds: (performance.now() - t0) / 1000, engine: true } }));
@@ -1035,7 +1104,7 @@ async function startRender(kind, rerender) {
     const sink = await openRenderSink(name);
     if (sink.canceled) { ui.status.textContent = '저장 위치를 고르지 않아 렌더링을 시작하지 않았습니다.'; ui.progress.hidden = true; return false; }
     if (sink.writable) ui.status.textContent = '렌더링을 시작합니다…';
-    const res = await renderMp4({ ranges, out, crop, forceTransform: rerender, signal: abort.signal, onProgress: setProgress, sink });
+    const res = kind === 'main' && state.audioOnly ? await renderAudio({ ranges, signal: abort.signal, onProgress: setProgress, sink }) : await renderMp4({ ranges, out, crop, forceTransform: rerender, signal: abort.signal, onProgress: setProgress, sink });
     ui.progress.firstElementChild.style.width = '100%';
     const took = fmtClock((performance.now() - t0) / 1000, false);
     if (res.blob) {
@@ -1047,12 +1116,12 @@ async function startRender(kind, rerender) {
     return true;
   } catch (e) {
     if (e && (e.name === 'AbortError' || /abort/i.test(String(e.message)))) { ui.status.textContent = '렌더링을 중단했습니다'; }
-    else if (!rerender) {
+    else if (!rerender && !(kind === 'main' && state.audioOnly)) {
       console.warn('render failed, retrying in compatibility mode', e);
       ui.status.textContent = '일반 모드 실패 → 호환 모드로 다시 시도합니다…';
       state.rendering = null; ui.cancel.hidden = true; updateRenderAvailability(); updateShortsUI();
       await sleep(300); return startRender(kind, true);
-    } else { console.error(e); ui.status.textContent = '렌더링 실패: ' + (e && e.message ? e.message : e) + ' — 더 낮은 화질로 다시 시도하거나 ②의 FFmpeg 스크립트를 이용하세요.'; }
+    } else { console.error(e); ui.status.textContent = '렌더링 실패: ' + (e && e.message ? e.message : e) + (kind === 'main' && state.audioOnly ? ' — 형식을 MP3나 WAV로 바꿔 다시 시도하세요.' : ' — 더 낮은 화질로 다시 시도하거나 ②의 FFmpeg 스크립트를 이용하세요.'); }
     return false;
   } finally {
     state.rendering = null; ui.cancel.hidden = true; updateRenderAvailability(); updateShortsUI();
@@ -1117,46 +1186,81 @@ async function renderMp4({ ranges, out, crop, forceTransform, signal, onProgress
       cursor += r.e - r.s;
     }
   };
-  const duckState = { g: 1 }; const thr = state.params.threshold;
-  const audioPump = async () => {
-    if (!aSource) return; let cursor = 0;
-    if (aTrack) {
-      const sink = new mb.AudioBufferSink(aTrack);
-      for (const r of ranges) {
-        for await (const wb of sink.buffers(r.s, r.e)) {
-          if (signal.aborted) throw abortErr();
-          const sliced = sliceAudio(wb, r.s, r.e); if (!sliced) continue;
-          const srcStart = Math.max(wb.timestamp, r.s); const outStart = cursor + (srcStart - r.s);
-          while (outStart > vProgress + 4 && !signal.aborted) await sleep(40);
-          if (bgm || fxR.sfx.length || origMuted) {
-            const chans = []; for (let c = 0; c < sliced.buffer.numberOfChannels; c++) chans.push(sliced.buffer.getChannelData(c));
-            if (origMuted) for (const ch of chans) ch.fill(0);
-            if (bgm) mixBgmInto(chans, sliced.buffer.sampleRate, outStart, srcStart, bgm, state.env, HOP, thr, total, duckState);
-            if (fxR.sfx.length && decor) mixSfxInto(chans, sliced.buffer.sampleRate, srcStart, fxR.sfx, s => decor.getSfxBuf(s, sliced.buffer.sampleRate));
-          }
-          await aSource.add(sliced.buffer);
-        }
-        cursor += r.e - r.s;
-      }
-    } else {
-      // no voice track: background music (and effects) only
-      for (let outT = 0; outT < total; outT += 1) {
-        if (signal.aborted) throw abortErr();
-        const len = Math.round(Math.min(1, total - outT) * aSr); if (len <= 0) break;
-        const buf = new AudioBuffer({ length: len, sampleRate: aSr, numberOfChannels: aCh });
-        const chans = []; for (let c = 0; c < aCh; c++) chans.push(buf.getChannelData(c));
-        if (bgm) mixBgmInto(chans, aSr, outT, 0, { ...bgm, duck: false }, null, HOP, thr, total, duckState);
-        if (fxR.sfx.length && decor) mixSfxInto(chans, aSr, sourceTimeAtOutput(state.segments, outT), fxR.sfx, s => decor.getSfxBuf(s, aSr));
-        while (outT > vProgress + 4 && !signal.aborted) await sleep(40);
-        await aSource.add(buf);
-      }
-    }
-  };
+  const audioPump = async () => { if (aSource) await pumpAudio({ aSource, aTrack, ranges, total, aSr, aCh, bgm, fxR, origMuted, signal, gate: async outT => { while (outT > vProgress + 4 && !signal.aborted) await sleep(40); } }); };
   try { await Promise.all([videoPump(), audioPump()]); }
   catch (e) { try { await output.cancel(); } catch {} if (direct) { try { await direct.abort(); } catch {} } throw e; }
   await output.finalize();
   if (direct) { await direct.close(); return { size: written, name: sink.name }; }
   return { blob: assembleBlob(parts, 'video/mp4') };
+}
+// Sound of the kept ranges into an encoder source: original voice (optionally boosted), background music, effects.
+// gate(outT) lets the MP4 render hold the audio a few seconds ahead of the video; onProgress is used by audio-only exports.
+async function pumpAudio({ aSource, aTrack, ranges, total, aSr, aCh, bgm, fxR, origMuted, signal, gate, onProgress, gainDb = 0 }) {
+  const abortErr = () => { const e = new Error('aborted'); e.name = 'AbortError'; return e; };
+  const mb = state.mb; const duckState = { g: 1 }; const thr = state.params.threshold; const lin = gainDb ? Math.pow(10, gainDb / 20) : 0;
+  let cursor = 0, lastUi = 0;
+  if (aTrack) {
+    const sink = new mb.AudioBufferSink(aTrack);
+    for (const r of ranges) {
+      for await (const wb of sink.buffers(r.s, r.e)) {
+        if (signal.aborted) throw abortErr();
+        const sliced = sliceAudio(wb, r.s, r.e); if (!sliced) continue;
+        const srcStart = Math.max(wb.timestamp, r.s); const outStart = cursor + (srcStart - r.s);
+        if (gate) await gate(outStart);
+        if (bgm || fxR.sfx.length || origMuted || lin) {
+          const chans = []; for (let c = 0; c < sliced.buffer.numberOfChannels; c++) chans.push(sliced.buffer.getChannelData(c));
+          if (origMuted) for (const ch of chans) ch.fill(0); else if (lin) applyGain(chans, lin);
+          if (bgm) mixBgmInto(chans, sliced.buffer.sampleRate, outStart, srcStart, bgm, state.env, HOP, thr, total, duckState);
+          if (fxR.sfx.length && decor) mixSfxInto(chans, sliced.buffer.sampleRate, srcStart, fxR.sfx, s => decor.getSfxBuf(s, sliced.buffer.sampleRate));
+        }
+        await aSource.add(sliced.buffer);
+        if (onProgress && outStart - lastUi > 1) { lastUi = outStart; onProgress(outStart / total); }
+      }
+      cursor += r.e - r.s;
+    }
+  } else {
+    // no voice track: background music (and effects) only
+    for (let outT = 0; outT < total; outT += 1) {
+      if (signal.aborted) throw abortErr();
+      const len = Math.round(Math.min(1, total - outT) * aSr); if (len <= 0) break;
+      const buf = new AudioBuffer({ length: len, sampleRate: aSr, numberOfChannels: aCh });
+      const chans = []; for (let c = 0; c < aCh; c++) chans.push(buf.getChannelData(c));
+      if (bgm) mixBgmInto(chans, aSr, outT, 0, { ...bgm, duck: false }, null, HOP, thr, total, duckState);
+      if (fxR.sfx.length && decor) mixSfxInto(chans, aSr, sourceTimeAtOutput(state.segments, outT), fxR.sfx, s => decor.getSfxBuf(s, aSr));
+      if (gate) await gate(outT);
+      await aSource.add(buf);
+    }
+  }
+}
+// Voice files: the cut written as MP3 / M4A (AAC) / WAV. Streams like the MP4 render, so long recordings are fine.
+let mp3Registered = false;
+async function renderAudio({ ranges, signal, onProgress, sink }) {
+  const mb = state.mb; const { aTrack } = state; const total = rangesDuration(ranges); const f = audioFormat(state.audioFmt);
+  const aCh = await aTrack.getNumberOfChannels(), aSr = await aTrack.getSampleRate(); const cfg = { numberOfChannels: aCh, sampleRate: aSr };
+  let codec;
+  if (f.ext === 'wav') codec = 'pcm-s16';
+  else if (f.ext === 'mp3') {
+    if (!(await mb.canEncodeAudio('mp3', { ...cfg, bitrate: f.bitrate })) && !mp3Registered) { const { registerMp3Encoder } = await import('@mediabunny/mp3-encoder'); registerMp3Encoder(); mp3Registered = true; }
+    if (!(await mb.canEncodeAudio('mp3', { ...cfg, bitrate: f.bitrate }))) throw new Error(`MP3 인코더가 이 음성(${aSr} Hz, ${aCh}채널)을 지원하지 않습니다`);
+    codec = 'mp3';
+  } else {
+    if (!(await mb.canEncodeAudio('aac', { ...cfg, bitrate: f.bitrate }))) throw new Error('이 브라우저는 AAC(M4A) 인코딩을 지원하지 않습니다');
+    codec = 'aac';
+  }
+  const parts = []; const direct = sink && sink.writable ? sink.writable : null; let written = 0;
+  const target = new mb.StreamTarget(new WritableStream({
+    write: async chunk => { if (direct) { await direct.write({ type: 'write', position: chunk.position, data: chunk.data }); written = Math.max(written, chunk.position + chunk.data.byteLength); } else parts.push({ pos: chunk.position, blob: new Blob([chunk.data]) }); },
+  }), { chunked: true });
+  const output = new mb.Output({ format: f.ext === 'mp3' ? new mb.Mp3OutputFormat() : f.ext === 'wav' ? new mb.WavOutputFormat() : new mb.Mp4OutputFormat(), target });
+  const aSource = new mb.AudioBufferSource(f.bitrate ? { codec, bitrate: f.bitrate } : { codec }); output.addAudioTrack(aSource);
+  const tk = state.fx.tracks || {}; const fxR = liveFx(state.fx);
+  const bgm = state.bgm.ready && !tk.bgmMuted ? { ...state.bgm, offset: outTime(state.segments, state.bgm.start || 0) } : null;
+  await output.start();
+  try { await pumpAudio({ aSource, aTrack, ranges, total, aSr, aCh, bgm, fxR, origMuted: !!tk.origMuted, signal, onProgress, gainDb: boostDb() }); }
+  catch (e) { try { await output.cancel(); } catch {} if (direct) { try { await direct.abort(); } catch {} } throw e; }
+  await output.finalize(); onProgress(1);
+  if (direct) { await direct.close(); return { size: written, name: sink.name }; }
+  return { blob: assembleBlob(parts, f.mime) };
 }
 // returns {buffer} trimmed to [s,e] (a fresh AudioBuffer when partial; the original when whole)
 function sliceAudio(wb, s, e) {
@@ -1197,6 +1301,7 @@ async function grabFrames(times, maxW) {
 function thumbName(t) { return `${baseName(state.file ? state.file.name : 'video')}_thumb_${fmtClock(t, false).replace(/:/g, '-')}.jpg`; }
 async function pickThumbs() {
   if (!state.hasMedia) { toast('먼저 영상을 불러오세요'); return 0; }
+  if (state.audioOnly) { toast('음성 파일에는 화면이 없어 썸네일을 뽑을 수 없습니다'); return 0; }
   const times = pickThumbnailTimes(state.env, HOP, state.segments, 12); if (!times.length) { toast('유지 구간이 없습니다'); return 0; }
   els.btnThumbs.disabled = true; els.thumbsInfo.textContent = '프레임을 꺼내는 중…'; els.thumbGrid.innerHTML = '';
   try {
@@ -1215,7 +1320,7 @@ els.thumbGrid.addEventListener('click', async e => {
   if (act && act.dataset.act === 'save') { act.disabled = true; try { const [full] = await grabFrames([f.t], 0); if (!full || !full.canvas) throw new Error('frame'); await saveFile(thumbName(f.t), await canvasToJpeg(full.canvas)); } catch (err) { toast('프레임을 저장하지 못했습니다'); } finally { act.disabled = false; } return; }
   els.thumbGrid.querySelectorAll('.thumb.sel').forEach(x => x.classList.remove('sel')); d.classList.add('sel'); state.thumbSel = i; seek(f.t);
 });
-els.btnThumbNow.addEventListener('click', async () => { if (!state.hasMedia) { toast('먼저 영상을 불러오세요'); return; } els.btnThumbNow.disabled = true; try { const [full] = await grabFrames([state.cur], 0); if (!full || !full.canvas) throw new Error('frame'); await saveFile(thumbName(state.cur), await canvasToJpeg(full.canvas)); } catch (err) { toast('프레임을 저장하지 못했습니다: ' + (err.message || err)); } finally { els.btnThumbNow.disabled = false; } });
+els.btnThumbNow.addEventListener('click', async () => { if (!state.hasMedia) { toast('먼저 영상을 불러오세요'); return; } if (state.audioOnly) { toast('음성 파일에는 화면이 없습니다'); return; } els.btnThumbNow.disabled = true; try { const [full] = await grabFrames([state.cur], 0); if (!full || !full.canvas) throw new Error('frame'); await saveFile(thumbName(state.cur), await canvasToJpeg(full.canvas)); } catch (err) { toast('프레임을 저장하지 못했습니다: ' + (err.message || err)); } finally { els.btnThumbNow.disabled = false; } });
 async function saveThumbsZip() {
   if (!state.thumbs.length) return false; els.btnThumbsZip.disabled = true; els.thumbsInfo.textContent = '원본 해상도로 다시 꺼내는 중…';
   if (state.engineMedia && state.hooks.saveThumbs) { try { const r = await state.hooks.saveThumbs(state.thumbs.map(f => f.t)); els.thumbsInfo.textContent = `${r.files.length}장을 저장했습니다: ${r.dir}`; return true; } catch (e) { toast('썸네일 저장 실패: ' + e.message); return false; } finally { els.btnThumbsZip.disabled = false; } }
@@ -1226,18 +1331,18 @@ els.btnThumbsZip.addEventListener('click', saveThumbsZip);
 
 // ===================== EXPORT: ZIP / FFMPEG / PROJECT =====================
 function currentFps() { const v = parseFloat(els.fpsInput.value); return v > 0 && v < 1000 ? v : (state.fps || 30); }
-function exportNames() { const inName = state.file ? state.file.name : (state.isDemo ? '예시영상.mp4' : 'video.mp4'); const base = baseName(inName); return { inName, base, outName: `${base}_cut.mp4` }; }
+function exportNames() { const inName = state.file ? state.file.name : (state.isDemo ? '예시영상.mp4' : 'video.mp4'); const base = baseName(inName); return { inName, base, outName: `${base}_cut.${state.audioOnly ? audioFormat(state.audioFmt).ext : 'mp4'}` }; }
 function ffmpegPlan() {
   const ranges = keepRanges(state.segments); const { inName, base, outName } = exportNames(); const b = state.bgm;
   const bgm = b.ready ? { name: b.name, volume: b.volume, duck: b.duck, fade: b.fade, loop: b.loop } : null;
-  return { ranges, inName, base, outName, ff: buildFFmpeg(ranges, inName, outName, { bgm, hasVoice: !!state.aTrack || !state.mb, kept: keptDuration(state.segments) }) };
+  return { ranges, inName, base, outName, ff: buildFFmpeg(ranges, inName, outName, { bgm, hasVoice: !!state.aTrack || !state.mb, kept: keptDuration(state.segments), audio: state.audioOnly ? state.audioFmt : null }) };
 }
 els.btnCopyFfmpeg.addEventListener('click', () => { const { ranges, ff } = ffmpegPlan(); if (!ranges.length) { toast('유지 구간이 없습니다'); return; } copyText(ff.useScript ? ff.scriptCmd + '\n# 필터 파일이 필요합니다. "컷 패키지 저장"의 zip 안에 들어 있습니다.' : ff.inline); });
 els.btnZip.addEventListener('click', async () => {
   const { ranges, inName, base, outName, ff } = ffmpegPlan(); if (!ranges.length) { toast('유지 구간이 없습니다'); return; }
   const fps = currentFps(); const kept = keptDuration(state.segments);
-  const edl = buildEDL(base, ranges, fps, inName);
-  const fcp = buildFCPXML(base, ranges, fps, inName, state.width, state.height, state.duration, !!state.aTrack || !state.mb);
+  const edl = buildEDL(base, ranges, fps, inName, state.audioOnly);
+  const fcp = buildFCPXML(base, ranges, fps, inName, state.width, state.height, state.duration, !!state.aTrack || !state.mb, state.audioOnly);
   const sh = `#!/bin/sh\n# 컷다이어트 — 원본 영상${state.bgm.ready ? '과 음악 파일' : ''}과 같은 폴더에서 실행: sh ffmpeg_cut.sh\ncd "$(dirname "$0")"\n${ff.scriptCmd}\n`;
   const bat = `@echo off\r\nrem 컷다이어트 — 원본 영상${state.bgm.ready ? '과 음악 파일' : ''}과 같은 폴더에서 더블클릭\r\ncd /d "%~dp0"\r\n${ff.scriptCmd}\r\npause\r\n`;
   const readme = [`컷다이어트 컷 패키지`, `원본: ${inName}`, `원본 길이: ${fmtClock(state.duration, false)} → 편집 후: ${fmtClock(kept, false)} (유지 구간 ${ranges.length}개)`, state.bgm.ready ? `배경음악: ${state.bgm.name} (음량 ${Math.round(state.bgm.volume * 100)}%${state.bgm.duck ? ', 덕킹' : ''}${state.bgm.loop ? ', 반복' : ''}, 페이드 ${state.bgm.fade}s) — FFmpeg 스크립트에만 반영됩니다` : '', '',
@@ -1252,7 +1357,7 @@ els.btnZip.addEventListener('click', async () => {
   const files = [
     { name: `${base}.edl`, data: edl }, { name: `${base}.fcpxml`, data: fcp },
     { name: 'ffmpeg_cut.sh', data: sh }, { name: 'ffmpeg_cut.bat', data: bat },
-    { name: 'cut_video_filter.txt', data: ff.filterV }, { name: 'cut_audio_filter.txt', data: ff.filterA },
+    ...(ff.filterV ? [{ name: 'cut_video_filter.txt', data: ff.filterV }] : []), { name: 'cut_audio_filter.txt', data: ff.filterA },
   ];
   if (ff.complex) files.push({ name: 'cut_filter_complex.txt', data: ff.complex }); else files.push({ name: 'ffmpeg_command_inline.txt', data: ff.inline });
   if (state.bgm.ready && state.bgm.file && state.bgm.file.size < 30e6) { try { files.push({ name: state.bgm.name, data: new Uint8Array(await state.bgm.file.arrayBuffer()) }); } catch {} }
@@ -1330,11 +1435,15 @@ document.getElementById('btnTopExport').addEventListener('click', () => openExpo
 // ===================== EXPORT DIALOG (CapCut style) =====================
 // The top "내보내기" opens this: preview + title, quality, burn-in captions, SRT. It drives the same render as the
 // 내보내기 menu (startRender) and mirrors its progress, so both stay in step.
-const X = Object.fromEntries(['exportDlg', 'xClose', 'xThumb', 'xMeta', 'xName', 'xVideo', 'xQuality', 'xFps', 'xBurn', 'xSrt', 'xCapHint', 'xProgWrap', 'xBar', 'xStatus', 'xEstimate', 'xCancel', 'xGo'].map(id => [id, document.getElementById(id)]));
+const X = Object.fromEntries(['xVideoLabel', 'xRowAudioFmt', 'xAudioFmt', 'xRowBoost', 'xBoost', 'xRowQuality', 'xRowFormat', 'xRowFps', 'xBurnRow', 'exportDlg', 'xClose', 'xThumb', 'xMeta', 'xName', 'xVideo', 'xQuality', 'xFps', 'xBurn', 'xSrt', 'xCapHint', 'xProgWrap', 'xBar', 'xStatus', 'xEstimate', 'xCancel', 'xGo'].map(id => [id, document.getElementById(id)]));
 const safeName = s => String(s || '').replace(/[\\/:*?"<>|\x00-\x1f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
 const fileKeyOf = () => (state.file ? `${state.file.name}:${state.file.size}` : '');
 function exportDialogRefresh() {
-  const reason = renderBlockReason(), caps = (captionsOf() || []).length, video = X.xVideo.checked;
+  const reason = renderBlockReason(), caps = (captionsOf() || []).length, video = X.xVideo.checked, a = state.audioOnly;
+  // voice files: the "동영상" section becomes "오디오" (format + loudness), picture-only rows go away
+  X.xVideoLabel.textContent = a ? '오디오' : '동영상'; X.xRowAudioFmt.hidden = X.xRowBoost.hidden = !a; X.xRowQuality.hidden = X.xRowFormat.hidden = X.xRowFps.hidden = X.xBurnRow.hidden = a;
+  X.xAudioFmt.disabled = X.xBoost.disabled = !video; X.xAudioFmt.value = state.audioFmt; X.xBoost.checked = els.chkBoost.checked;
+  if (a) X.xBurn.checked = false;
   X.xQuality.disabled = !video; X.xBurn.disabled = !video || !caps; X.xSrt.disabled = !caps; X.xCapHint.hidden = !!caps;
   if (!caps) { X.xBurn.checked = false; X.xSrt.checked = false; }
   X.xFps.textContent = state.fps ? `원본 ${Math.round(state.fps * 100) / 100}fps` : '원본';
@@ -1346,7 +1455,12 @@ function exportDialogRefresh() {
 function exportDialogThumb() {
   const c = X.xThumb, ctx = c.getContext('2d'); const vw = state.width || 16, vh = state.height || 9;
   c.height = Math.round(c.width * vh / vw); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, c.width, c.height);
-  try { if (els.video.readyState >= 2) ctx.drawImage(els.video, 0, 0, c.width, c.height); } catch {}
+  if (state.audioOnly && state.env) { // no picture: the kept sound, as the waveform after the cut
+    const ranges = keepRanges(state.segments), total = rangesDuration(ranges) || 1, env = state.env, lo = Math.min(-72, state.params.threshold - 12), mid = c.height / 2;
+    const peak = new Float32Array(c.width).fill(-100);
+    let o = 0; for (const r of ranges) { for (let i = Math.floor(r.s / HOP); i < Math.min(env.length, Math.ceil(r.e / HOP)); i++) { const x = Math.min(c.width - 1, Math.floor((o + (i * HOP - r.s)) / total * c.width)); if (env[i] > peak[x]) peak[x] = env[i]; } o += r.e - r.s; }
+    ctx.fillStyle = '#3DBA82'; for (let x = 0; x < c.width; x++) { if (peak[x] <= -99) continue; const hh = Math.max(1, clamp((peak[x] - lo) / (-10 - lo), 0, 1) * mid * 0.9); ctx.fillRect(x, mid - hh, 1, hh * 2); }
+  } else try { if (els.video.readyState >= 2) ctx.drawImage(els.video, 0, 0, c.width, c.height); } catch {}
   X.xMeta.innerHTML = `${escapeHtml(state.file ? state.file.name : '')}<br>원본 ${fmtClock(state.duration, false)} → 편집 후 <b>${fmtClock(keptDuration(state.segments), false)}</b>${state.width ? ` · ${state.width}×${state.height}` : ''}`;
 }
 function openExportDialog() {
@@ -1359,7 +1473,9 @@ function openExportDialog() {
 function closeExportDialog() { X.exportDlg.hidden = true; }
 X.xQuality.addEventListener('change', () => { els.selQuality.value = X.xQuality.value; exportDialogRefresh(); });
 X.xBurn.addEventListener('change', () => { const b = document.getElementById('subBurn'); if (b && b.checked !== X.xBurn.checked) { b.checked = X.xBurn.checked; ['input', 'change'].forEach(t => b.dispatchEvent(new Event(t, { bubbles: true }))); } exportDialogRefresh(); });
-X.xVideo.addEventListener('change', exportDialogRefresh); X.xSrt.addEventListener('change', exportDialogRefresh);
+X.xVideo.addEventListener('change', exportDialogRefresh);
+X.xAudioFmt.addEventListener('change', () => { setAudioFmt(X.xAudioFmt.value); exportDialogRefresh(); });
+X.xBoost.addEventListener('change', () => { els.chkBoost.checked = X.xBoost.checked; els.chkBoost.dispatchEvent(new Event('change')); exportDialogRefresh(); }); X.xSrt.addEventListener('change', exportDialogRefresh);
 X.xClose.addEventListener('click', closeExportDialog);
 X.exportDlg.addEventListener('click', e => { if (e.target === X.exportDlg && !state.rendering) closeExportDialog(); });
 X.exportDlg.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Escape') closeExportDialog(); else if (e.key === 'Enter' && e.target === X.xName && !X.xGo.disabled) X.xGo.click(); });

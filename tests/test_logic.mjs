@@ -27,6 +27,28 @@ assert.ok(segs.every(g => g.e - g.s >= 0.005));
 assert.equal(segs[segs.length - 1].e, 10);
 console.log('applySpan ok');
 
+// quiet voice recording: digital silence between very soft sound (-85..-60 dB). A fixed -40 dB would mark everything as
+// silence and keep the whole file; the auto threshold must sit between the digital floor and the sound.
+{
+  const env = new Float32Array(5000).fill(-100); for (let i = 1000; i < 1300; i++) env[i] = -84 + (i % 7); for (let i = 3000; i < 3100; i++) env[i] = -62;
+  const thr = A.suggestThreshold(env); assert.ok(thr < -85 && thr >= -95, 'quiet threshold ' + thr);
+  const qs = A.detectSegments(env, A.HOP, 100, { threshold: thr, minSilence: 0.6, pad: 0.15, minKeep: 0.25 });
+  const kept = A.keptDuration(qs); assert.ok(kept > 7 && kept < 10, 'quiet kept ' + kept); assert.equal(A.keepRanges(qs).length, 2);
+  // ordinary recording keeps the old behaviour
+  const loud = new Float32Array(5000).fill(-60); for (let i = 0; i < 5000; i += 100) loud.fill(-20, i, i + 60);
+  assert.equal(A.suggestThreshold(loud), -46);
+  // audio-only export: ffmpeg script has no video filter or video map, and uses the chosen codec
+  const ff = A.buildFFmpeg([{ s: 1, e: 2 }, { s: 3, e: 4 }], 'memo.m4a', 'memo_cut.mp3', { audio: 'mp3' });
+  assert.ok(!/-vf|filter_script:v|\[v\]/.test(ff.inline + ff.scriptCmd) && /libmp3lame/.test(ff.inline) && ff.filterV === '', ff.inline);
+  const ffb = A.buildFFmpeg([{ s: 1, e: 2 }], 'memo.m4a', 'memo_cut.wav', { audio: 'wav', bgm: { name: 'bg.mp3', volume: 0.2, duck: true, fade: 0, loop: true }, hasVoice: true, kept: 1 });
+  assert.ok(!/\[0:v\]|-map "\[v\]"/.test(ffb.complex + ffb.scriptCmd) && /pcm_s16le/.test(ffb.scriptCmd), ffb.scriptCmd);
+  assert.ok(A.buildEDL('m', [{ s: 0, e: 1 }], 30, 'm.m4a', true).includes('AA    C') && A.buildFCPXML('m', [{ s: 0, e: 1 }], 30, 'm.m4a', 0, 0, 1, true, true).includes('hasVideo="0"'));
+  const gq = A.autoGainDb(env, A.HOP, qs); assert.ok(gq >= 40 && gq <= 45, 'quiet gain ' + gq); assert.equal(A.autoGainDb(loud, A.HOP, [{ s: 0, e: 100, keep: true }]), 0);
+  const ch = [Float32Array.from([0.001, -0.002, 0.01, -0.5])]; A.applyGain(ch, 100); assert.ok(Math.abs(ch[0][0] - 0.1) < 1e-6 && Math.abs(ch[0][1] + 0.2) < 1e-6 && ch[0][2] > 0.8 && ch[0][2] <= 0.9801 && ch[0][3] >= -0.9801 && ch[0][3] < -0.9);
+  assert.equal(A.audioOutBytes('wav', 10, 48000, 1), 48000 * 2 * 10 + 44); assert.equal(A.audioOutBytes('mp3', 8), 192000);
+}
+console.log('quiet recording + audio export logic ok');
+
 // text logic
 assert.equal(normKo(' 안녕하세요, 여러분! '), '안녕하세요여러분');
 assert.ok(similarity('오늘은날씨가좋네요', '오늘은날씨가좋아요') > 0.85);

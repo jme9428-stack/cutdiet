@@ -1,7 +1,7 @@
 // Pure builder: turns a render request into an ffmpeg argument list + filter graph. Unit-tested in tests/test_engine.mjs.
 // Timeline model: video frames are snapped to a CFR grid (fps filter), cut with select() in SOURCE time, then re-timed with
 // setpts to output time by subtracting the removed durations before each frame, so audio (cut sample-exact with atrim) never drifts.
-import { outTime, keptDuration } from '../../src/cutlogic.js';
+import { outTime, keptDuration, audioFormat } from '../../src/cutlogic.js';
 import { overlayBox as overlayBoxPx, adjustEq } from '../../src/fxlogic.js';
 import { encoderArgs, qualityFor } from './ff.mjs';
 
@@ -56,7 +56,8 @@ export function buildArgs(req, assets, { fontsDir, hasLibass, ffVersion } = {}) 
   const warnings = []; const ranges = req.ranges; const total = req.total ?? ranges.reduce((a, r) => a + r.e - r.s, 0);
   const fps = req.fps || 30; const out = req.out; const inputs = ['-i', req.src]; let idx = 1;
   const lines = [];
-  // ---- video ----
+  // ---- video ---- (skipped for voice files: req.audioOnly)
+  if (!req.audioOnly) {
   let v = `[0:v]fps=${f3(fps)}`;
   if (req.crop) v += `,crop=${req.crop.width}:${req.crop.height}:${req.crop.left}:${req.crop.top}`;
   const zx = zoomExprs(req.fx, ranges);
@@ -79,14 +80,16 @@ export function buildArgs(req, assets, { fontsDir, hasLibass, ffVersion } = {}) 
   if (fade.out > 0) fades.push(`fade=t=out:st=${f3(Math.max(0, total - fade.out))}:d=${f3(fade.out)}`);
   lines.push(`${vl}${fades.length ? fades.join(',') + ',' : ''}format=yuv420p[vout]`);
   if (req.fx && req.fx.transition && req.fx.transition.type === 'dissolve') warnings.push('디졸브 전환은 엔진 렌더에서 지원하지 않아 생략했습니다 (브라우저 렌더에서만 가능)');
+  }
   // ---- audio ----
   const AF = 'aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo';
   let voice = null;
   // 영상 track muted on the timeline: keep the music/effects, drop the original sound
   const voiceOn = req.hasAudio && !(req.fx && req.fx.tracks && req.fx.tracks.origMuted);
+  const gainDb = req.audioOnly && req.audio ? req.audio.gainDb || 0 : 0; // quiet voice memo: lifted before mixing, the limiter below catches peaks
   if (voiceOn) {
     const n = ranges.length; const labels = ranges.map((_, i) => `[c${i}]`);
-    lines.push(`[0:a]${AF},asplit=${n}${ranges.map((_, i) => `[a${i}]`).join('')}`);
+    lines.push(`[0:a]${AF}${gainDb ? `,volume=${f3(gainDb)}dB` : ''},asplit=${n}${ranges.map((_, i) => `[a${i}]`).join('')}`);
     ranges.forEach((r, i) => lines.push(`[a${i}]atrim=${f3(r.s)}:${f3(r.e)},asetpts=PTS-STARTPTS[c${i}]`));
     voice = n === 1 ? '[c0]' : concatChain(labels, 'cc', lines);
   } else { lines.push(`anullsrc=channel_layout=stereo:sample_rate=48000,atrim=0:${f3(total)}[sil]`); voice = '[sil]'; }
@@ -109,6 +112,11 @@ export function buildArgs(req, assets, { fontsDir, hasLibass, ffVersion } = {}) 
     lines.push(`${mix}${labels.join('')}amix=inputs=${labels.length + 1}:duration=first:dropout_transition=0:normalize=0[m2]`); mix = '[m2]';
   }
   lines.push(`${mix}alimiter=limit=0.98:level=false[aout]`);
+  if (req.audioOnly) {
+    const f = audioFormat(req.audio && req.audio.format);
+    const args = ['-hide_banner', '-nostdin', '-loglevel', 'error', '-progress', 'pipe:1', '-y', ...inputs, scriptFlag(ffVersion), '__GRAPH__', '-map', '[aout]', '-vn', '-ac', String(req.audio && req.audio.channels === 1 ? 1 : 2), ...f.ff, '-metadata', 'comment=cutdiet', req.outPath];
+    return { args, graph: lines.join(';\n') + '\n', warnings, total, encoder: f.ff[1], bitrate: f.bitrate };
+  }
   const q = qualityFor(req.quality || 'high', out.w, out.h, fps);
   const enc = encoderArgs(req.encoder || 'libx264', q);
   const args = ['-hide_banner', '-nostdin', '-loglevel', 'error', '-progress', 'pipe:1', '-y', ...inputs, scriptFlag(ffVersion), '__GRAPH__', '-map', '[vout]', '-map', '[aout]', ...enc,

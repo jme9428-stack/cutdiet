@@ -57,7 +57,7 @@ function boot() {
     $('btnRunQueue').disabled = queueRunning || !queue.some(q => q.status === 'wait');
     $('btnStopQueue').hidden = !queueRunning; $('btnClearQueue').disabled = queueRunning;
   };
-  const addFiles = files => { const list = [...files].filter(f => f.engine || /^(video|audio)\//.test(f.type) || /\.(mp4|mov|mkv|webm|m4a|mp3|wav|m4v|avi|mts)$/i.test(f.name)); if (!list.length) { toast('영상·음성 파일이 아닙니다'); return; } const tasks = defaults.tasks; const planned = planQueue(list, tasks); const base = queue.length; planned.forEach(p => { p.idx = base + p.idx; }); queue = queue.concat(planned); renderQueue(); toast(`${list.length}개를 큐에 넣었습니다. Shift+Enter로 실행`); };
+  const addFiles = files => { const list = [...files].filter(f => f.engine || /^(video|audio)\//.test(f.type) || /\.(mp4|mov|mkv|webm|m4a|m4b|mp3|wav|aac|ogg|oga|opus|flac|m4v|avi|mts)$/i.test(f.name)); if (!list.length) { toast('영상·음성 파일이 아닙니다'); return; } const tasks = defaults.tasks; const planned = planQueue(list, tasks); const base = queue.length; planned.forEach(p => { p.idx = base + p.idx; }); queue = queue.concat(planned); renderQueue(); toast(`${list.length}개를 큐에 넣었습니다. Shift+Enter로 실행`); };
   $('queueInput').addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
   $('btnQueueAdd').addEventListener('click', () => $('queueInput').click());
   $('btnClearQueue').addEventListener('click', () => { queue = queue.filter(q => q.status === 'run'); renderQueue(); });
@@ -79,8 +79,9 @@ function boot() {
         q.progress = 0.25; const steps = q.steps.filter(s => s !== 'analyze'); let si = 0;
         for (const s of steps) {
           if (queueAbort) break;
-          q.step = { render: 'MP4 렌더', shorts: '숏츠 렌더', thumbs: '썸네일', project: '프로젝트' }[s]; renderQueue();
-          if (s === 'render') { if (C.renderBlockReason()) q.error += 'MP4 불가 · '; else { const r = await C.startRender('main', false); if (!r) q.error += 'MP4 실패 · '; } }
+          q.step = { render: state.audioOnly ? '음성 파일' : 'MP4 렌더', shorts: '숏츠 렌더', thumbs: '썸네일', project: '프로젝트' }[s]; renderQueue();
+          if (state.audioOnly && (s === 'shorts' || s === 'thumbs')) { /* voice file: nothing to show */ }
+          else if (s === 'render') { if (C.renderBlockReason()) q.error += 'MP4 불가 · '; else { const r = await C.startRender('main', false); if (!r) q.error += 'MP4 실패 · '; } }
           else if (s === 'shorts') { C.resetShortsRange(); state.shorts.pos = defaults.shortsPos; if (C.shortsBlockReason()) q.error += '숏츠 불가 · '; else { const r = await C.startRender('shorts', false); if (!r) q.error += '숏츠 실패 · '; } }
           else if (s === 'thumbs') { const n = await C.pickThumbs(); if (n) await C.saveThumbsZip(); }
           else if (s === 'project') await C.saveProjectFile();
