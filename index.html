@@ -439,7 +439,8 @@ details.sect > :not(summary){margin-bottom:8px}
         <label for="rngPad">말 앞뒤 여백</label><span class="val" id="valPad">0.15 s</span>
         <input type="range" id="rngPad" min="0" max="0.5" step="0.01" value="0.15">
       </div>
-      <label class="switch" title="녹음 중간에 마이크 거리나 주변 소음이 바뀌어도 30초 구간마다 기준을 맞춥니다. 소리가 고른 영상은 결과가 같습니다"><input type="checkbox" id="chkAdaptive" checked>음량이 바뀌면 기준도 따라가기 <span class="mono muted small" id="adaptiveInfo"></span></label>
+      <label class="switch" title="녹음 중간에 마이크 거리나 주변 소음이 바뀌어도 30초 구간마다 기준을 맞춥니다. 소리가 고른 영상은 결과가 같습니다"><input type="checkbox" id="chkAdaptive" checked>음량이 바뀌면 기준도 따라가기</label>
+      <p class="hint" id="adaptiveInfo" style="margin:2px 0 0 21px"></p>
       <div class="ctl-actions">
         <button class="btn sm" id="btnAuto">추천 기준값으로</button>
         <button class="btn sm primary" id="btnReanalyze" hidden>다시 분석 (수동 수정 초기화)</button>

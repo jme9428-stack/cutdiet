@@ -284,7 +284,7 @@ function detect() { return detectSegments(state.env, HOP, state.duration, { ...s
 function updateLevelShift() {
   state.levelShift = state.env ? levelShift(state.env, HOP, state.autoThreshold) : null;
   let lo = 0, hi = 0; if (state.levelShift) for (const v of state.levelShift) { if (v < lo) lo = v; if (v > hi) hi = v; }
-  els.adaptiveInfo.textContent = state.levelShift ? `(구간별 ${Math.round(lo)}~+${Math.round(hi)} dB)` : '(이 파일은 음량이 고름)';
+  els.adaptiveInfo.textContent = state.levelShift ? `30초 구간마다 기준을 ${Math.round(lo)} ~ +${Math.round(hi)} dB 조정 중` : '이 파일은 음량이 고르게 녹음되어 조정할 곳이 없습니다';
 }
 function applyPreset(name, opts = {}) {
   const p = PRESETS[name]; if (!p) return;
