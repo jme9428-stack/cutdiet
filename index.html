@@ -439,6 +439,7 @@ details.sect > :not(summary){margin-bottom:8px}
         <label for="rngPad">말 앞뒤 여백</label><span class="val" id="valPad">0.15 s</span>
         <input type="range" id="rngPad" min="0" max="0.5" step="0.01" value="0.15">
       </div>
+      <label class="switch" title="녹음 중간에 마이크 거리나 주변 소음이 바뀌어도 30초 구간마다 기준을 맞춥니다. 소리가 고른 영상은 결과가 같습니다"><input type="checkbox" id="chkAdaptive" checked>음량이 바뀌면 기준도 따라가기 <span class="mono muted small" id="adaptiveInfo"></span></label>
       <div class="ctl-actions">
         <button class="btn sm" id="btnAuto">추천 기준값으로</button>
         <button class="btn sm primary" id="btnReanalyze" hidden>다시 분석 (수동 수정 초기화)</button>
@@ -630,7 +631,7 @@ details.sect > :not(summary){margin-bottom:8px}
       <label for="selAudioFmt">형식</label>
       <select id="selAudioFmt"><option value="mp3">MP3 · 어디서나 재생</option><option value="m4a">M4A (AAC)</option><option value="wav">WAV · 무손실 (용량 큼)</option></select>
     </div>
-    <label class="switch" id="fldBoost" hidden><input type="checkbox" id="chkBoost">소리 크기 자동 맞춤 <span class="mono muted small" id="boostVal"></span></label>
+    <label class="switch" id="fldBoost" hidden title="말소리를 유튜브(-14 LUFS)·팟캐스트(-16 LUFS) 기준 음량으로 맞추고, 큰 소리는 리미터로 눌러 줍니다"><input type="checkbox" id="chkBoost">음량 맞춤 <span class="mono muted small" id="boostVal"></span></label>
     <p class="hint" id="renderEstimate"></p>
     <div class="row">
       <button class="btn primary" id="btnRender">MP4 만들기</button>
@@ -797,6 +798,7 @@ details.sect > :not(summary){margin-bottom:8px}
         <button class="btn sm ghost" id="btnMarkOut" title="범위 끝 (O)">O⟧</button>
         <button class="btn sm ghost" id="btnMarkDel" title="I~O 범위 삭제 (Delete) · Esc 해제" disabled>범위 삭제</button>
         <button class="btn sm ghost" id="btnChapter" title="현재 위치에 챕터 (M)">◆ 챕터</button>
+        <button class="btn sm ghost" id="btnReview" title="다음 컷 앞뒤 1.5초를 들어보기 (P · 이전 Shift+P) · 말이 잘렸으면 R로 되살리기">▶ 컷 검토</button>
       </div>
       <div class="tgroup zoom">
         <button class="btn icon sm ghost" id="btnZoomOut" title="축소">−</button>
@@ -834,7 +836,7 @@ details.sect > :not(summary){margin-bottom:8px}
         <div class="xrow"><label for="xName">제목</label><input type="text" id="xName" spellcheck="false"></div>
         <div class="xsec"><label class="switch"><input type="checkbox" id="xVideo" checked><span id="xVideoLabel">동영상</span></label></div>
         <div class="xrow" id="xRowAudioFmt" hidden><label for="xAudioFmt">형식</label><select id="xAudioFmt"><option value="mp3">MP3 · 어디서나 재생</option><option value="m4a">M4A (AAC)</option><option value="wav">WAV · 무손실 (용량 큼)</option></select></div>
-        <div class="xrow" id="xRowBoost" hidden><label for="xBoost">소리 크기</label><label class="switch"><input type="checkbox" id="xBoost">자동 맞춤 <span class="mono muted small" id="xBoostVal"></span></label></div>
+        <div class="xrow" id="xRowBoost" hidden><label for="xBoost">음량</label><label class="switch"><input type="checkbox" id="xBoost">음량 맞춤 <span class="mono muted small" id="xBoostVal"></span></label></div>
         <div class="xrow" id="xRowQuality"><label for="xQuality">해상도·화질</label><select id="xQuality"><option value="high">고화질 · 원본 해상도</option><option value="std">표준 · 원본 해상도 (용량 절약)</option><option value="1080">1080p</option><option value="720">720p (빠른 확인용)</option></select></div>
         <div class="xrow" id="xRowFormat"><label>형식</label><span class="val">MP4 (H.264 · AAC)</span></div>
         <div class="xrow" id="xRowFps"><label>프레임 속도</label><span class="val" id="xFps">원본</span></div>

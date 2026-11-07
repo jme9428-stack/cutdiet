@@ -150,6 +150,21 @@ console.log('shorts crop ok');
   }
 }
 console.log('voice file (mp3/m4a/wav) ok');
+// cut joins: a continuous tone cut at arbitrary points must not jump at the joins (audible tick)
+{
+  const tone = path.join(tmp, 'tone.wav'); r = await run(ffbin.path, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=220:sample_rate=48000', '-t', '6', '-ac', '1', tone]); assert.equal(r.code, 0);
+  const outT = path.join(tmp, 'tone_cut.wav'); const tr = [{ s: 0.5, e: 1.2037 }, { s: 2.3011, e: 3.0 }, { s: 4.1234, e: 5.0 }];
+  const pt = buildArgs({ src: tone, ranges: tr, duration: 6, fps: 30, width: 0, height: 0, hasAudio: true, out: { w: 0, h: 0 }, crop: null, quality: 'high', encoder: 'libx264', fx: null, audioOnly: true, audio: { format: 'wav', gainDb: 0, channels: 1 }, outPath: outT }, { images: [], sfx: [] }, { ffVersion: ffbin.version });
+  fs.writeFileSync(graphFile, pt.graph); r = await run(ffbin.path, pt.args.map(x => x === '__GRAPH__' ? graphFile : x)); assert.equal(r.code, 0, r.stderr);
+  const raw = (await run(ffbin.path, ['-loglevel', 'error', '-i', outT, '-f', 'f32le', '-ac', '1', 'pipe:1'])).stdout; const xs = new Float32Array(raw.buffer, raw.byteOffset, raw.length / 4);
+  let peak = 0, jump = 0; for (let i = 1; i < xs.length; i++) { peak = Math.max(peak, Math.abs(xs[i])); jump = Math.max(jump, Math.abs(xs[i] - xs[i - 1])); }
+  const normal = peak * 2 * Math.PI * 220 / 48000; assert.ok(jump < normal * 2, `join jump ${jump} vs normal ${normal}`);
+}
+{ // loudness matching reaches video renders too (gain on the voice before mixing, limiter after)
+  const pv = buildArgs({ src: 'in.mp4', ranges: [{ s: 0, e: 1 }, { s: 2, e: 3 }], duration: 4, fps: 30, width: 640, height: 360, hasAudio: true, out: { w: 640, h: 360 }, crop: null, quality: 'high', encoder: 'libx264', fx: null, gainDb: 6, outPath: 'o.mp4' }, { images: [], sfx: [] }, { ffVersion: '7' });
+  assert.ok(pv.graph.includes('volume=6.000dB') && pv.graph.includes('[vout]') && pv.graph.includes('alimiter'), pv.graph);
+}
+console.log('cut join fades ok');
 assert.ok(uniquePath(tmp, 'out', '.mp4').endsWith('out (2).mp4'));
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log('ALL ENGINE TESTS PASSED');

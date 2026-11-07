@@ -79,6 +79,13 @@ try {
     // ~4.6 s kept at 192 kb/s ≈ 110 KB; MP3 frames start with 0xFF 0xFB/0xF3 or an ID3 tag
     assert.ok(vr.ok && vr.total > 60000 && vr.total < 200000 && (vr.first[0] === 0xFF || String.fromCharCode(...vr.first.slice(0, 3)) === 'ID3'), 'voice mp3 ' + JSON.stringify(vr));
     console.log('member: voice file → mp3 ok', vr.status);
+    // cut review: P plays the next cut (from 1.5 s before), R revives it
+    const before = await page.evaluate(() => { window.cutdiet.seek(0); return window.cutdiet.state.segments.filter(g => !g.keep).length; });
+    await page.click('#tl', { position: { x: 5, y: 5 } }); await page.evaluate(() => window.cutdiet.seek(0)); await page.keyboard.press('KeyP'); await page.waitForTimeout(400);
+    const rv = await page.evaluate(() => ({ review: window.cutdiet.state.review, playing: !document.getElementById('video').paused }));
+    await page.keyboard.press('KeyR'); const after = await page.evaluate(() => window.cutdiet.state.segments.filter(g => !g.keep).length);
+    assert.ok(rv.review && rv.playing && after === before - 1, 'review/revive ' + JSON.stringify({ rv, before, after }));
+    console.log('member: cut review (P/R) ok');
   }
   // ---------- Pro page + engine ----------
   const page2 = await ctx.newPage(); page2.on('pageerror', e => console.log('PRO PAGE ERROR', e.message));

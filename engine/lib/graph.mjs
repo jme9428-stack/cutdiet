@@ -1,7 +1,7 @@
 // Pure builder: turns a render request into an ffmpeg argument list + filter graph. Unit-tested in tests/test_engine.mjs.
 // Timeline model: video frames are snapped to a CFR grid (fps filter), cut with select() in SOURCE time, then re-timed with
 // setpts to output time by subtracting the removed durations before each frame, so audio (cut sample-exact with atrim) never drifts.
-import { outTime, keptDuration, audioFormat } from '../../src/cutlogic.js';
+import { outTime, keptDuration, audioFormat, JOIN_FADE } from '../../src/cutlogic.js';
 import { overlayBox as overlayBoxPx, adjustEq } from '../../src/fxlogic.js';
 import { encoderArgs, qualityFor } from './ff.mjs';
 
@@ -86,11 +86,12 @@ export function buildArgs(req, assets, { fontsDir, hasLibass, ffVersion } = {}) 
   let voice = null;
   // 영상 track muted on the timeline: keep the music/effects, drop the original sound
   const voiceOn = req.hasAudio && !(req.fx && req.fx.tracks && req.fx.tracks.origMuted);
-  const gainDb = req.audioOnly && req.audio ? req.audio.gainDb || 0 : 0; // quiet voice memo: lifted before mixing, the limiter below catches peaks
+  const gainDb = req.gainDb ?? (req.audio && req.audio.gainDb) ?? 0; // loudness matching: voice lifted/lowered before mixing, the limiter below catches peaks
   if (voiceOn) {
     const n = ranges.length; const labels = ranges.map((_, i) => `[c${i}]`);
     lines.push(`[0:a]${AF}${gainDb ? `,volume=${f3(gainDb)}dB` : ''},asplit=${n}${ranges.map((_, i) => `[a${i}]`).join('')}`);
-    ranges.forEach((r, i) => lines.push(`[a${i}]atrim=${f3(r.s)}:${f3(r.e)},asetpts=PTS-STARTPTS[c${i}]`));
+    // short fades at every join (not at the very start/end): without them each cut is an audible tick
+    ranges.forEach((r, i) => { const fx = []; const len = r.e - r.s; if (i > 0 && len > 4 * JOIN_FADE) fx.push(`afade=t=in:st=0:d=${f3(JOIN_FADE)}`); if (i < n - 1 && len > 4 * JOIN_FADE) fx.push(`afade=t=out:st=${f3(len - JOIN_FADE)}:d=${f3(JOIN_FADE)}`); lines.push(`[a${i}]atrim=${f3(r.s)}:${f3(r.e)},asetpts=PTS-STARTPTS${fx.length ? ',' + fx.join(',') : ''}[c${i}]`); });
     voice = n === 1 ? '[c0]' : concatChain(labels, 'cc', lines);
   } else { lines.push(`anullsrc=channel_layout=stereo:sample_rate=48000,atrim=0:${f3(total)}[sil]`); voice = '[sil]'; }
   let mix = voice;

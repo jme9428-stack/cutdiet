@@ -14,7 +14,7 @@ import { writeWav, nativePick, openFolder, openBrowser, defaultOutDir, uniquePat
 import { ensureFonts, BASE_FAMILIES } from './lib/fonts.mjs';
 import { extractAudio16k, transcribeAudio, ASR_MODELS, resolveModel } from './lib/asr.mjs';
 import { synthSfx } from '../src/fxlogic.js';
-import { HOP, PRESETS, detectSegments, suggestThreshold, keepRanges, keptDuration, countRemoveRuns, clamp, audioFormat, autoGainDb } from '../src/cutlogic.js';
+import { HOP, PRESETS, detectSegments, suggestThreshold, levelShift, keepRanges, keptDuration, countRemoveRuns, clamp, audioFormat, loudnessGainDb, LOUDNESS_TARGET } from '../src/cutlogic.js';
 
 export const VERSION = '1.0.0';
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -99,8 +99,8 @@ async function startRender(body) {
     (fxCopy.overlays || []).forEach((o, i) => { if (o.type === 'image') { if (!o.path && o.dataUrl) o.path = dataUrlToFile(o.dataUrl, dir, 'img' + i); delete o.dataUrl; if (o.path && !fs.existsSync(o.path)) o.path = null; } });
     fxCopy.overlays = (fxCopy.overlays || []).filter(o => o.type === 'text' ? !!o.text : !!o.path);
   }
-  const req = { src: m.path, ranges, duration: info.duration, fps: body.fps || info.fps || 30, width: info.width, height: info.height, hasAudio: !!info.hasAudio, out, crop: body.crop || null, quality: body.quality || settings.quality, encoder: resolveEncoder(), fx: fxCopy, captions: body.captions || [], outPath: '' };
-  if (audioOnly) { req.audioOnly = true; req.audio = { format: audioFormat(body.audio && body.audio.format).ext, gainDb: clamp(Number(body.audio && body.audio.gainDb) || 0, 0, 60), channels: info.channels === 1 ? 1 : 2 }; req.captions = []; if (req.fx) { req.fx.overlays = []; if (req.fx.subs) req.fx.subs.burn = false; } }
+  const req = { src: m.path, ranges, duration: info.duration, fps: body.fps || info.fps || 30, width: info.width, height: info.height, hasAudio: !!info.hasAudio, out, crop: body.crop || null, quality: body.quality || settings.quality, encoder: resolveEncoder(), fx: fxCopy, captions: body.captions || [], outPath: '', gainDb: clamp(Number(body.gainDb ?? (body.audio && body.audio.gainDb)) || 0, -20, 60) };
+  if (audioOnly) { req.audioOnly = true; req.audio = { format: audioFormat(body.audio && body.audio.format).ext, channels: info.channels === 1 ? 1 : 2 }; req.captions = []; if (req.fx) { req.fx.overlays = []; if (req.fx.subs) req.fx.subs.burn = false; } }
   const mapped = mapOverlaysAndCaptions(req);
   const assets = { ass: null, bgm: null, images: mapped.images, sfx: [] };
   const burn = fxCopy && fxCopy.subs && fxCopy.subs.burn && mapped.captions.length;
@@ -174,11 +174,11 @@ async function autoProcess(p) {
     const a = await analyzeFile(ff.bin, p, { signal: j.abort.signal, onProgress: f => { j.progress = f * 0.2; } });
     m.info = a.info; m.env = a.env; j.meta.duration = a.duration;
     const pr = PRESETS[settings.preset] || PRESETS.lecture; const params = { threshold: clamp(suggestThreshold(a.env) + pr.thrOffset, -95, -20), minSilence: pr.minSilence, pad: pr.pad, minKeep: 0.25 };
-    const segs = detectSegments(a.env, HOP, a.duration, params); const ranges = keepRanges(segs);
+    const segs = detectSegments(a.env, HOP, a.duration, { ...params, shift: levelShift(a.env, HOP, params.threshold - pr.thrOffset) }); const ranges = keepRanges(segs);
     j.meta.kept = keptDuration(segs); j.meta.cuts = countRemoveRuns(segs);
     if (settings.watch.tasks.project !== false) { const pj = { app: 'cutdiet', version: 2, savedAt: new Date().toISOString(), file: { name: m.name, size: m.size }, duration: a.duration, fps: a.info.fps, preset: settings.preset, params, dirty: false, segments: segs.map(g => [Math.round(g.s * 1000) / 1000, Math.round(g.e * 1000) / 1000, g.keep ? 1 : 0]), chapters: [], bgm: { name: '', volume: 0.18, duck: true, fade: 1.5, loop: true }, shorts: { in: 0, out: 0, pos: 0.5, upscale: true }, fx: null, engine: { source: p } }; fs.mkdirSync(settings.outDir, { recursive: true }); fs.writeFileSync(uniquePath(settings.outDir, baseName(m.name), '.cutdiet.json'), JSON.stringify(pj, null, 1)); }
     if (settings.watch.tasks.render !== false) {
-      j.step = '렌더링'; const gain = autoGainDb(a.env, HOP, segs); const r = await startRender({ token: m.token, ranges, quality: settings.quality, audio: { format: 'mp3', gainDb: gain >= 6 ? gain : 0 } });
+      j.step = '렌더링'; const gain = loudnessGainDb(a.env, HOP, segs, a.info.hasVideo ? LOUDNESS_TARGET.video : LOUDNESS_TARGET.voice); const r = await startRender({ token: m.token, ranges, quality: settings.quality, gainDb: gain >= 4 ? gain : 0, audio: { format: 'mp3' } });
       await new Promise(res => { const t = setInterval(() => { j.progress = 0.2 + 0.8 * r.progress; if (r.status !== 'run') { clearInterval(t); res(); } }, 500); });
       if (r.status !== 'done') throw new Error(r.error || '렌더 실패');
       j.out = r.out; j.meta.encoder = r.meta.encoder;

@@ -2,7 +2,7 @@ import { initTranscribe } from './transcribe.js';
 import { initDecorate, makeCompositor, preloadFonts } from './decorate.js';
 import { initInspector } from './inspector.js';
 import { defaultFx, defaultTracks, fxActive, fxToJSON, fxFromJSON, mixSfxInto, liveFx, layerCount } from './fxlogic.js';
-import { HOP, clamp, PRESETS, detectSegments, suggestThreshold, keepRanges, intersectRanges, rangesDuration, keptDuration, applySpan, countRemoveRuns, outTime, sourceTimeAtOutput, segIndexAt, fmtClock, ytStamp, tcFromSeconds, buildEDL, buildFCPXML, buildFFmpeg, chapterLines, validateChapters, pickThumbnailTimes, mixBgmInto, buildZip, assembleBlob, accumulateEnergy, energyToDb, demoEnvelope, audioFormat, audioOutBytes, autoGainDb, applyGain } from './cutlogic.js';
+import { HOP, clamp, PRESETS, detectSegments, suggestThreshold, levelShift, keepRanges, intersectRanges, rangesDuration, keptDuration, applySpan, countRemoveRuns, snapBoundary, outTime, sourceTimeAtOutput, segIndexAt, fmtClock, ytStamp, tcFromSeconds, buildEDL, buildFCPXML, buildFFmpeg, chapterLines, validateChapters, pickThumbnailTimes, mixBgmInto, buildZip, assembleBlob, accumulateEnergy, energyToDb, demoEnvelope, audioFormat, audioOutBytes, loudnessGainDb, LOUDNESS_TARGET, applyGain, fadeJoins } from './cutlogic.js';
 const LS_PREFIX = 'cutdiet:v1:';
 const HEAVY_LIMIT = 3600; // seconds: above this only light features
 
@@ -18,7 +18,7 @@ const state = {
   // voice files (no picture): cut and exported as audio (MP3/M4A/WAV); audioSr/audioCh describe the source sound
   audioOnly: false, audioSr: 48000, audioCh: 2, audioFmt: 'mp3',
   duration: 0, fps: 30, width: 0, height: 0, rotation: 0,
-  env: null, params: { threshold: -42, minSilence: 0.6, pad: 0.15, minKeep: 0.25 }, autoThreshold: -42, preset: 'lecture',
+  env: null, levelShift: null, params: { threshold: -42, minSilence: 0.6, pad: 0.15, minKeep: 0.25, adaptive: true }, autoThreshold: -42, preset: 'lecture',
   segments: [], chapters: [], dirty: false,
   cur: 0, skip: true, zoom: 1, scroll: 0, hoverT: null, previewStop: null,
   shuttle: { dir: 0, speed: 1, last: 0 }, rate: 1, marks: { in: null, out: null },
@@ -43,7 +43,7 @@ const ids = ['drop','fileInput','filebar','fileName','fileMeta','btnOtherFile','
   'btnThumbs','btnThumbNow','btnThumbsZip','thumbsInfo','thumbGrid',
   'renderChip','selQuality','renderEstimate','btnRender','btnCancelRender','btnResave','renderProgress','renderStatus','fpsInput','btnZip','btnCopyFfmpeg',
   'btnSaveProject','btnSaveProject2','btnLoadProject','btnLoadProject2','projectInput','btnHelp','onb','onbStart','onbGuide','toast',
-  'audioFace','audioFaceName','audioMeter','fldQuality','fldAudioFmt','selAudioFmt','fldBoost','chkBoost','boostVal'];
+  'audioFace','audioFaceName','audioMeter','fldQuality','fldAudioFmt','selAudioFmt','fldBoost','chkBoost','boostVal','chkAdaptive','adaptiveInfo','btnReview'];
 const els = {}; for (const id of ids) els[id] = document.getElementById(id);
 
 // ===================== UTIL =====================
@@ -190,12 +190,12 @@ async function openFile(file) {
   Object.assign(state, result);
   if (!state.duration && state.videoPlayable && isFinite(els.video.duration)) state.duration = els.video.duration;
   state.audioOnly = !state.vTrack && !state.width; // a voice recording: cut it and export it as an audio file
-  state.autoThreshold = suggestThreshold(state.env);
+  state.autoThreshold = suggestThreshold(state.env); updateLevelShift();
   if (PRESETS[state.preset]) applyPreset(state.preset, { silent: true });
-  else { state.params.threshold = state.autoThreshold; syncSliders(); state.segments = detectSegments(state.env, HOP, state.duration, state.params); }
+  else { state.params.threshold = state.autoThreshold; syncSliders(); state.segments = detect(); }
   state.analyzing = false;
   els.hudState.textContent = state.videoPlayable ? (state.audioOnly ? '미리듣기' : '미리보기') : '미리보기 불가';
-  els.chkBoost.checked = autoGainDb(state.env, HOP, state.segments) >= 6; applyAudioMode();
+  els.chkBoost.checked = loudnessGainDb(state.env, HOP, state.segments, loudTarget()) >= 4; applyAudioMode(); // quiet recordings: on by default
   if (state.width) { els.hudRes.hidden = false; els.hudRes.textContent = `${state.width}×${state.height} · ${state.fps.toFixed(2).replace(/\.?0+$/, '')}fps`; } else els.hudRes.hidden = true;
   els.fpsInput.value = String(Math.round(state.fps * 1000) / 1000);
   if (!state.videoPlayable) { els.audioFace.hidden = true; els.monitorEmpty.hidden = false; els.monitorEmpty.querySelector('.me-title').textContent = state.audioOnly ? '이 브라우저에서 재생할 수 없는 음성 형식입니다' : '이 브라우저에서 재생할 수 없는 영상 형식입니다'; els.monitorEmpty.querySelector('p').textContent = '분석과 내보내기는 그대로 할 수 있습니다. 미리 들어보려면 MP4(H.264)로 변환한 파일을 여세요.'; }
@@ -271,12 +271,20 @@ async function analyzeWithWebAudio(file, onProgress) {
 
 // ===================== PRESETS / PARAMS =====================
 function syncSliders() {
+  els.chkAdaptive.checked = state.params.adaptive !== false;
   els.rngThreshold.value = state.params.threshold; els.rngMinSilence.value = state.params.minSilence; els.rngPad.value = state.params.pad;
   els.valThreshold.textContent = `${state.params.threshold} dB`; els.valMinSilence.textContent = `${Number(state.params.minSilence).toFixed(2)} s`; els.valPad.textContent = `${Number(state.params.pad).toFixed(2)} s`;
   els.advSummary.textContent = `${state.params.threshold} dB · ${Number(state.params.minSilence).toFixed(2)} s · ${Number(state.params.pad).toFixed(2)} s`;
   document.querySelectorAll('.preset').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.preset === state.preset)));
   const p = PRESETS[state.preset];
-  els.presetNote.textContent = p ? p.note : '직접 설정 중입니다. 프리셋을 누르면 기본값으로 돌아갑니다.';
+  els.presetNote.textContent = p ? (state.audioOnly ? p.note.replace('토킹헤드·화면 녹화용', '혼자 말하는 강의·설명 녹음용').replace('현장음이 있어', '현장 소리가 있어') : p.note) : '직접 설정 중입니다. 프리셋을 누르면 기본값으로 돌아갑니다.';
+}
+// cut detection with the threshold following level changes (levelShift) when "음량이 바뀌면 기준도 따라가기" is on
+function detect() { return detectSegments(state.env, HOP, state.duration, { ...state.params, shift: state.params.adaptive !== false ? state.levelShift : null }); }
+function updateLevelShift() {
+  state.levelShift = state.env ? levelShift(state.env, HOP, state.autoThreshold) : null;
+  let lo = 0, hi = 0; if (state.levelShift) for (const v of state.levelShift) { if (v < lo) lo = v; if (v > hi) hi = v; }
+  els.adaptiveInfo.textContent = state.levelShift ? `(구간별 ${Math.round(lo)}~+${Math.round(hi)} dB)` : '(이 파일은 음량이 고름)';
 }
 function applyPreset(name, opts = {}) {
   const p = PRESETS[name]; if (!p) return;
@@ -287,7 +295,7 @@ function applyPreset(name, opts = {}) {
   if (state.dirty && !opts.force) { els.btnReanalyze.hidden = false; els.dirtyHint.hidden = false; if (!opts.silent) toast('수동 수정이 있어 "다시 분석"을 눌러야 적용됩니다', 2600); return; }
   if (!opts.silent) pushUndo();
   state.dirty = false; els.btnReanalyze.hidden = true; els.dirtyHint.hidden = true;
-  state.segments = detectSegments(state.env, HOP, state.duration, state.params); refreshAll();
+  state.segments = detect(); refreshAll();
   if (!opts.silent) toast(`${p.label} 프리셋 적용`, 1400);
 }
 document.querySelectorAll('.preset').forEach(b => b.addEventListener('click', () => applyPreset(b.dataset.preset)));
@@ -296,11 +304,12 @@ function onParamInput() {
   state.params.threshold = Number(els.rngThreshold.value); state.params.minSilence = Number(els.rngMinSilence.value); state.params.pad = Number(els.rngPad.value);
   state.preset = 'custom'; syncSliders();
   if (state.dirty || !state.env) { els.btnReanalyze.hidden = !state.env; els.dirtyHint.hidden = !state.dirty; return; }
-  clearTimeout(paramT); paramT = setTimeout(() => { state.segments = detectSegments(state.env, HOP, state.duration, state.params); refreshAll(); }, 120);
+  clearTimeout(paramT); paramT = setTimeout(() => { state.segments = detect(); refreshAll(); }, 120);
 }
+els.chkAdaptive.addEventListener('change', () => { state.params.adaptive = els.chkAdaptive.checked; onParamInput(); });
 ['input', 'change'].forEach(ev => { els.rngThreshold.addEventListener(ev, onParamInput); els.rngMinSilence.addEventListener(ev, onParamInput); els.rngPad.addEventListener(ev, onParamInput); });
-els.btnAuto.addEventListener('click', () => { state.params.threshold = state.autoThreshold; state.preset = 'custom'; syncSliders(); if (!state.dirty && state.env) { state.segments = detectSegments(state.env, HOP, state.duration, state.params); refreshAll(); } else onParamInput(); toast(`추천 기준값 ${state.autoThreshold} dB 적용`); });
-els.btnReanalyze.addEventListener('click', () => { if (!state.env) return; pushUndo(); state.dirty = false; state.segments = detectSegments(state.env, HOP, state.duration, state.params); els.btnReanalyze.hidden = true; els.dirtyHint.hidden = true; refreshAll(); toast('자동 감지로 다시 분석했습니다'); });
+els.btnAuto.addEventListener('click', () => { state.params.threshold = state.autoThreshold; state.preset = 'custom'; syncSliders(); if (!state.dirty && state.env) { state.segments = detect(); refreshAll(); } else onParamInput(); toast(`추천 기준값 ${state.autoThreshold} dB 적용`); });
+els.btnReanalyze.addEventListener('click', () => { if (!state.env) return; pushUndo(); state.dirty = false; state.segments = detect(); els.btnReanalyze.hidden = true; els.dirtyHint.hidden = true; refreshAll(); toast('자동 감지로 다시 분석했습니다'); });
 
 // ===================== UNDO =====================
 const undo = { stack: [], redo: [] };
@@ -593,6 +602,8 @@ document.addEventListener('keydown', e => {
     case 'KeyO': setMark('out', state.cur); break;
     case 'KeyF': toggleFullscreen(); break;
     case 'Escape': if (state.marks.in != null || state.marks.out != null) clearMarks(); else return; break;
+    case 'KeyP': reviewCut(e.shiftKey ? -1 : 1); break;
+    case 'KeyR': reviveReviewed(); break;
     case 'BracketLeft': jumpCut(-1); break;
     case 'BracketRight': jumpCut(1); break;
     case 'Home': e.preventDefault(); seek(0); break;
@@ -680,8 +691,12 @@ function drawTimeline() {
       while (si < segs.length - 1 && segs[si].e <= ta) si++;
       ctx.fillStyle = (segs[si] ? segs[si].keep : true) ? C.keep : C.remove; ctx.globalAlpha = muted ? 0.3 : 0.9; ctx.fillRect(x, bottom - 3 - bh, 1, bh); ctx.globalAlpha = 1;
     }
-    const ty = bottom - 3 - clamp((state.params.threshold - lo) / (-10 - lo), 0, 1) * (h - 6);
-    ctx.setLineDash([3, 4]); ctx.strokeStyle = C.muted; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, ty + .5); ctx.lineTo(W, ty + .5); ctx.stroke(); ctx.setLineDash([]);
+    // threshold line: follows the per-section offset when the level-following option is on
+    const sh = state.params.adaptive !== false ? state.levelShift : null; const thrY = v => bottom - 3 - clamp((v - lo) / (-10 - lo), 0, 1) * (h - 6) + .5;
+    ctx.setLineDash([3, 4]); ctx.strokeStyle = C.muted; ctx.lineWidth = 1; ctx.beginPath();
+    if (sh) { for (let x = 0; x <= W; x += 4) { const i = clamp(Math.floor((t0 + x / pps) / HOP), 0, sh.length - 1); const y = thrY(state.params.threshold + sh[i]); if (x) ctx.lineTo(x, y); else ctx.moveTo(x, y); } }
+    else { const y = thrY(state.params.threshold); ctx.moveTo(0, y); ctx.lineTo(W, y); }
+    ctx.stroke(); ctx.setLineDash([]);
   }
   ctx.strokeStyle = C.lineStrong; ctx.lineWidth = 1;
   for (let i = 1; i < state.segments.length; i++) { const x = Math.round((state.segments[i].s - t0) * pps) + .5; if (x < 0 || x > W) continue; ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke(); }
@@ -710,6 +725,7 @@ function drawTimeline() {
   // chapters
   ctx.font = '10px ' + cssVar('--font-body'); const my = marks.y;
   for (const c of state.chapters) { const x = (c.t - t0) * pps; if (x < -40 || x > W + 10) continue; ctx.fillStyle = C.accent; ctx.beginPath(); ctx.moveTo(x, my + 2); ctx.lineTo(x + 6, my + 7); ctx.lineTo(x, my + 12); ctx.closePath(); ctx.fill(); ctx.fillStyle = C.fg; ctx.fillText((c.title || '').slice(0, 14), x + 9, my + 12); }
+  if (state.snapGuide != null) { const x = Math.round((state.snapGuide - t0) * pps) + .5; ctx.strokeStyle = C.accent; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, RULER); ctx.lineTo(x, my); ctx.stroke(); ctx.lineWidth = 1; }
   if (state.hoverT != null) { const x = Math.round((state.hoverT - t0) * pps) + .5; ctx.strokeStyle = C.muted; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(x, RULER); ctx.lineTo(x, my); ctx.stroke(); ctx.setLineDash([]); ctx.font = '10px ' + cssVar('--font-mono'); ctx.fillStyle = C.fg; ctx.textAlign = x > W - 60 ? 'right' : 'left'; ctx.fillText(fmtClock(state.hoverT), x + (x > W - 60 ? -4 : 4), RULER + 11); ctx.textAlign = 'left'; }
   const px = (state.cur - t0) * pps;
   if (px >= -1 && px <= W + 1) { ctx.fillStyle = C.play; ctx.fillRect(Math.round(px) - 1, 0, 2, my); ctx.beginPath(); ctx.moveTo(px - 6, 0); ctx.lineTo(px + 6, 0); ctx.lineTo(px, 7); ctx.closePath(); ctx.fill(); }
@@ -794,7 +810,12 @@ els.tl.addEventListener('pointerdown', e => {
 });
 els.tl.addEventListener('pointermove', e => {
   if (!state.duration) return; const { x, y, t } = eventTime(e);
-  if (pointer && pointer.mode === 'boundary') { setBoundary(pointer.idx, t); state.hoverT = null; drawTimeline(); return; }
+  if (pointer && pointer.mode === 'boundary') {
+    // magnet: playhead / caption edges / the quietest spot within 8 px; hold Alt to place freely
+    const { pps } = timelineGeometry(); const marks = [state.cur, ...(captionsOf() || []).flatMap(l => [l.s, l.e])];
+    const sn = e.altKey ? { t, kind: null } : snapBoundary(t, 8 / pps, state.env, HOP, marks);
+    setBoundary(pointer.idx, sn.t); state.snapGuide = sn.kind ? sn.t : null; state.hoverT = null; drawTimeline(); return;
+  }
   if (pointer && pointer.mode === 'scrub') { seek(t); return; }
   if (pointer && pointer.mode === 'clip') {
     const p = pointer, c = p.clip; const { pps } = timelineGeometry(); let dt = t - p.tStart; if (!p.moved && Math.abs(dt) * pps < 3 && Math.abs(y - p.yStart) < 5) return; p.moved = true; if (Math.abs(dt) * pps < 3) dt = 0;
@@ -815,7 +836,7 @@ els.tl.addEventListener('pointermove', e => {
 });
 function endPointer() {
   const p = pointer; pointer = null; if (!p) return;
-  if (p.mode === 'boundary') { markDirty(); refreshAll(); return; }
+  if (p.mode === 'boundary') { state.snapGuide = null; markDirty(); refreshAll(); return; }
   if (p.mode !== 'clip') return;
   if (!p.moved) { popUndoSilently(); return; }
   const k = p.clip.kind;
@@ -857,6 +878,22 @@ if (window.matchMedia) { try { window.matchMedia('(prefers-color-scheme: dark)')
 new MutationObserver(drawTimeline).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
 // play a candidate with a little context before and after (stops by itself)
+// ---- cut review: hear every cut once (1.5 s before → 1.5 s after the join) and revive the ones that clipped a word ----
+function reviewCut(dir) {
+  if (!requirePlayable()) return;
+  const rem = state.segments.filter(g => !g.keep); if (!rem.length) { toast('삭제 구간이 없습니다'); return; }
+  const r = state.review; const near = r && state.cur >= r.s - 2.5 && state.cur <= r.e + 2.5; const ref = near ? r.s : state.cur;
+  let g = dir > 0 ? rem.find(x => x.s > ref + 1e-3) : [...rem].reverse().find(x => x.s < ref - 1e-3);
+  if (!g) { toast(dir > 0 ? '마지막 컷까지 들었습니다 · Shift+P로 이전 컷' : '첫 컷입니다'); return; }
+  state.review = { s: g.s, e: g.e }; previewSpan(g.s - 0.7, g.e + 1.0); drawTimeline();
+  toast(`컷 ${rem.indexOf(g) + 1}/${rem.length} · ${(g.e - g.s).toFixed(1)}초 삭제 · 말이 잘렸으면 R로 되살리기 · 다음 P`, 3200);
+}
+function reviveReviewed() {
+  const r = state.review; const g = r && state.segments.find(x => !x.keep && Math.abs(x.s - r.s) < 1e-6);
+  if (!g) { toast('P로 컷을 먼저 들어보세요'); return; }
+  toggleSegmentAt((g.s + g.e) / 2); state.review = null; toast('되살렸습니다 · 다음 컷은 P', 1800);
+}
+els.btnReview && els.btnReview.addEventListener('click', () => reviewCut(1));
 function previewSpan(s, e) { if (!requirePlayable()) return; seek(Math.max(0, s - 0.8)); state.previewStop = Math.min(state.duration, e + 0.5); els.video.playbackRate = state.rate; els.video.play().catch(() => {}); }
 
 // ===================== MINI PLAYER =====================
@@ -1013,18 +1050,20 @@ function updateRenderAvailability() {
   if (reason) { els.renderEstimate.textContent = reason; return; }
   if (state.audioOnly) {
     const kept = keptDuration(state.segments); const f = audioFormat(state.audioFmt);
-    els.renderEstimate.textContent = `출력 ${f.label} · 예상 용량 ${fmtBytes(audioOutBytes(state.audioFmt, kept, state.audioSr, state.audioCh))} · 길이 ${fmtClock(kept, false)}${boost ? ` · 소리 +${boost} dB` : ''}${state.bgm.ready ? ' · 배경음악 포함' : ''}${state.engineMedia ? ' · 로컬 엔진(ffmpeg) → 출력 폴더에 저장' : ''}`;
+    els.renderEstimate.textContent = `출력 ${f.label} · 예상 용량 ${fmtBytes(audioOutBytes(state.audioFmt, kept, state.audioSr, state.audioCh))} · 길이 ${fmtClock(kept, false)}${boost ? ` · 소리 ${boost > 0 ? '+' : ''}${boost} dB` : ''}${state.bgm.ready ? ' · 배경음악 포함' : ''}${state.engineMedia ? ' · 로컬 엔진(ffmpeg) → 출력 폴더에 저장' : ''}`;
     return;
   }
   const qs = qualitySpec(); const kept = keptDuration(state.segments); const size = (qs.bitrate + 192e3) * kept / 8;
-  els.renderEstimate.textContent = `출력 ${qs.w}×${qs.h} · 약 ${(qs.bitrate / 1e6).toFixed(1)} Mbps · 예상 용량 ${fmtBytes(size)} · 길이 ${fmtClock(kept, false)}${state.bgm.ready ? ' · 배경음악 포함' : ''}${state.engineMedia ? ' · 로컬 엔진(ffmpeg)으로 렌더 → 출력 폴더에 저장' : state.duration > 1800 ? ' · 30분이 넘어 시간이 오래 걸립니다' : ''}`;
+  els.renderEstimate.textContent = `출력 ${qs.w}×${qs.h} · 약 ${(qs.bitrate / 1e6).toFixed(1)} Mbps · 예상 용량 ${fmtBytes(size)} · 길이 ${fmtClock(kept, false)}${boost ? ` · 소리 ${boost > 0 ? '+' : ''}${boost} dB` : ''}${state.bgm.ready ? ' · 배경음악 포함' : ''}${state.engineMedia ? ' · 로컬 엔진(ffmpeg)으로 렌더 → 출력 폴더에 저장' : state.duration > 1800 ? ' · 30분이 넘어 시간이 오래 걸립니다' : ''}`;
 }
 els.selQuality.addEventListener('change', updateRenderAvailability);
 
 // ---- voice files ----
 // gain applied to the voice on export (and to the preview) when "소리 크기 자동 맞춤" is on; 0 for video or loud recordings
-function boostDb() { return state.audioOnly && els.chkBoost.checked ? autoGainDb(state.env, HOP, state.segments) : 0; }
-function autoGainLabel() { if (!state.audioOnly) return ''; const g = autoGainDb(state.env, HOP, state.segments); return g ? `(+${g} dB)` : '(이미 충분히 큼)'; }
+// 음량 맞춤: video → YouTube level (-14 LUFS), voice files → podcast level (-16 LUFS); 0 when off or already there
+function loudTarget() { return state.audioOnly ? LOUDNESS_TARGET.voice : LOUDNESS_TARGET.video; }
+function boostDb() { return state.hasMedia && els.chkBoost.checked ? loudnessGainDb(state.env, HOP, state.segments, loudTarget()) : 0; }
+function autoGainLabel() { if (!state.hasMedia || !state.env) return ''; const g = loudnessGainDb(state.env, HOP, state.segments, loudTarget()); return `${loudTarget()} LUFS · ${g ? (g > 0 ? '+' : '') + g + ' dB' : '이미 맞음'}`; }
 function setAudioFmt(v) { state.audioFmt = audioFormat(v).ext; lsSet('cutdiet:audioFmt', state.audioFmt); els.selAudioFmt.value = state.audioFmt; const x = document.getElementById('xAudioFmt'); if (x) x.value = state.audioFmt; updateRenderAvailability(); }
 setAudioFmt(lsGet('cutdiet:audioFmt') || 'mp3');
 els.selAudioFmt.addEventListener('change', () => setAudioFmt(els.selAudioFmt.value));
@@ -1041,8 +1080,12 @@ function applyAudioMode() {
   const a = state.audioOnly; if (a) refreshAudioFormats();
   document.body.classList.toggle('audio-mode', a);
   els.audioFace.hidden = !a; els.audioFaceName.textContent = a && state.file ? state.file.name : '';
-  els.fldQuality.hidden = a; els.fldAudioFmt.hidden = !a; els.fldBoost.hidden = !a;
+  els.fldQuality.hidden = a; els.fldAudioFmt.hidden = !a; els.fldBoost.hidden = !state.hasMedia;
   els.btnRender.textContent = a ? '음성 파일 만들기' : 'MP4 만들기';
+  // preset cards and note in words that fit a recording (no camera, no screen)
+  const card = (k, b, sp) => { const el = document.querySelector(`.preset[data-preset="${k}"]`); if (el) { el.querySelector('b').textContent = b; el.querySelector('span').textContent = sp; } };
+  card('lecture', '강의형', a ? '강의·설명 녹음' : '토킹헤드 · 화면 녹화'); card('talk', '토크·인터뷰', a ? '통화·대화 간격은 남김' : '대화 간격은 남김'); card('vlog', a ? '현장 녹음' : '브이로그', a ? '주변 소리 · 보수적' : '현장음 · 보수적');
+  if (PRESETS[state.preset]) els.presetNote.textContent = a ? PRESETS[state.preset].note.replace('토킹헤드·화면 녹화용', '혼자 말하는 강의·설명 녹음용').replace('현장음이 있어', '현장 소리가 있어') : PRESETS[state.preset].note;
   const hint = document.getElementById('exportHint'); if (hint) hint.textContent = a ? '저장 위치를 먼저 고르면 그 파일로 바로 저장됩니다. MP3는 휴대폰·카카오톡·팟캐스트 어디서나 재생되고, 캡컷에 넣으면 오디오 트랙으로 들어갑니다.' : '저장 위치를 먼저 고르면 그 파일로 바로 저장됩니다. 캡컷에서 이어 편집하려면 이 MP4를 가져가세요.';
   const cur = document.querySelector('.tab[aria-selected="true"]'); if (a && cur && (cur.dataset.tab === 'shorts' || cur.dataset.tab === 'text')) showTab('segments');
   updateRenderAvailability(); syncPreviewGain();
@@ -1095,8 +1138,8 @@ async function startRender(kind, rerender) {
   const name = kind === 'main' && state.exportTitle ? `${state.exportTitle}.${ext}` : `${baseName(state.file.name)}${J.suffix}.${ext}`; // title from the export dialog
   try {
     if (state.engineMedia && state.hooks.render) { // Pro: ffmpeg in the local engine, written straight into the output folder
-      const audio = kind === 'main' && state.audioOnly ? { format: state.audioFmt, gainDb: boostDb() } : null;
-      const r = await state.hooks.render({ kind, ranges, out, crop, quality: els.selQuality.value, fps: state.fps, name, audio, signal: abort.signal, onProgress: setProgress });
+      const audio = kind === 'main' && state.audioOnly ? { format: state.audioFmt } : null;
+      const r = await state.hooks.render({ kind, ranges, out, crop, quality: els.selQuality.value, fps: state.fps, name, audio, gainDb: boostDb(), signal: abort.signal, onProgress: setProgress });
       ui.progress.firstElementChild.style.width = '100%';
       ui.status.textContent = `완료 · ${fmtBytes(r.size || 0)} · ${fmtClock((performance.now() - t0) / 1000, false)} 걸림 · 저장: ${r.out}${r.warnings && r.warnings.length ? ' · ' + r.warnings.join(' · ') : ''}`;
       state.activity.renders++; document.dispatchEvent(new CustomEvent('cutdiet:rendered', { detail: { kind, name: r.out, size: r.size || 0, seconds: (performance.now() - t0) / 1000, engine: true } }));
@@ -1187,7 +1230,7 @@ async function renderMp4({ ranges, out, crop, forceTransform, signal, onProgress
       cursor += r.e - r.s;
     }
   };
-  const audioPump = async () => { if (aSource) await pumpAudio({ aSource, aTrack, ranges, total, aSr, aCh, bgm, fxR, origMuted, signal, gate: async outT => { while (outT > vProgress + 4 && !signal.aborted) await sleep(40); } }); };
+  const audioPump = async () => { if (aSource) await pumpAudio({ aSource, aTrack, ranges, total, aSr, aCh, bgm, fxR, origMuted, signal, gainDb: boostDb(), gate: async outT => { while (outT > vProgress + 4 && !signal.aborted) await sleep(40); } }); };
   try { await Promise.all([videoPump(), audioPump()]); }
   catch (e) { try { await output.cancel(); } catch {} if (direct) { try { await direct.abort(); } catch {} } throw e; }
   await output.finalize();
@@ -1202,14 +1245,16 @@ async function pumpAudio({ aSource, aTrack, ranges, total, aSr, aCh, bgm, fxR, o
   let cursor = 0, lastUi = 0;
   if (aTrack) {
     const sink = new mb.AudioBufferSink(aTrack);
-    for (const r of ranges) {
+    for (let ri = 0; ri < ranges.length; ri++) {
+      const r = ranges[ri];
       for await (const wb of sink.buffers(r.s, r.e)) {
         if (signal.aborted) throw abortErr();
         const sliced = sliceAudio(wb, r.s, r.e); if (!sliced) continue;
         const srcStart = Math.max(wb.timestamp, r.s); const outStart = cursor + (srcStart - r.s);
         if (gate) await gate(outStart);
-        if (bgm || fxR.sfx.length || origMuted || lin) {
+        {
           const chans = []; for (let c = 0; c < sliced.buffer.numberOfChannels; c++) chans.push(sliced.buffer.getChannelData(c));
+          fadeJoins(chans, sliced.buffer.sampleRate, srcStart, r, ri === 0, ri === ranges.length - 1);
           if (origMuted) for (const ch of chans) ch.fill(0); else if (lin) applyGain(chans, lin);
           if (bgm) mixBgmInto(chans, sliced.buffer.sampleRate, outStart, srcStart, bgm, state.env, HOP, thr, total, duckState);
           if (fxR.sfx.length && decor) mixSfxInto(chans, sliced.buffer.sampleRate, srcStart, fxR.sfx, s => decor.getSfxBuf(s, sliced.buffer.sampleRate));
@@ -1409,7 +1454,7 @@ els.btnHelp.addEventListener('click', openOnboarding);
 // ===================== DEMO / BOOT =====================
 function bootDemo() {
   const d = demoEnvelope(HOP); state.env = d.env; state.duration = d.duration; state.fps = 30; state.width = 1920; state.height = 1080; state.isDemo = true;
-  state.autoThreshold = suggestThreshold(state.env);
+  state.autoThreshold = suggestThreshold(state.env); updateLevelShift();
   const savedPreset = lsGet('cutdiet:preset'); if (savedPreset && PRESETS[savedPreset]) state.preset = savedPreset;
   applyPreset(state.preset, { silent: true });
   state.chapters = [{ t: 1.2, title: '인트로' }, { t: 33.6, title: '핵심 개념' }, { t: 73.5, title: '정리' }];
@@ -1442,7 +1487,7 @@ const fileKeyOf = () => (state.file ? `${state.file.name}:${state.file.size}` : 
 function exportDialogRefresh() {
   const reason = renderBlockReason(), caps = (captionsOf() || []).length, video = X.xVideo.checked, a = state.audioOnly;
   // voice files: the "동영상" section becomes "오디오" (format + loudness), picture-only rows go away
-  X.xVideoLabel.textContent = a ? '오디오' : '동영상'; X.xRowAudioFmt.hidden = X.xRowBoost.hidden = !a; X.xRowQuality.hidden = X.xRowFormat.hidden = X.xRowFps.hidden = X.xBurnRow.hidden = a;
+  X.xVideoLabel.textContent = a ? '오디오' : '동영상'; X.xRowAudioFmt.hidden = !a; X.xRowBoost.hidden = false; X.xRowQuality.hidden = X.xRowFormat.hidden = X.xRowFps.hidden = X.xBurnRow.hidden = a;
   X.xAudioFmt.disabled = X.xBoost.disabled = !video; X.xAudioFmt.value = state.audioFmt; X.xBoost.checked = els.chkBoost.checked;
   if (a) X.xBurn.checked = false;
   X.xQuality.disabled = !video; X.xBurn.disabled = !video || !caps; X.xSrt.disabled = !caps; X.xCapHint.hidden = !!caps;
@@ -1504,6 +1549,6 @@ window.cutdiet = {
   keptDuration, countRemoveRuns, keepRanges, outTime, chapterLines, buildZip, showTab, seek, refreshAll, renderBlockReason, shortsBlockReason, heavyReason, loadBgm, clearBgm, resetShortsRange,
   notice, escapeHtml, fsAccess, updateRenderAvailability, pickThumbnailTimes: (count = 12) => pickThumbnailTimes(state.env, HOP, state.segments, count), captionsOf: () => captionsOf(),
   undoDepth: () => undo.stack.length,
-  actions: { play: togglePlay, rev: () => setShuttle(-1), stop: () => setShuttle(0), fwd: () => setShuttle(1), toggle: () => toggleSegmentAt(state.cur), split: () => splitAt(state.cur), trimL: () => trimDelete('left'), trimR: () => trimDelete('right'), del: () => { if (!deleteSelectedClip()) deleteCurrent(); }, chapter: () => addChapterAt(state.cur), undo: doUndo, redo: doRedo, prevCut: () => jumpCut(-1), nextCut: () => jumpCut(1), home: () => seek(0), end: () => seek(state.duration), back1: () => seek(state.cur - 1), fwd1: () => seek(state.cur + 1), frameBack: () => seek(state.cur - 1 / (state.fps || 30)), frameFwd: () => seek(state.cur + 1 / (state.fps || 30)), markIn: () => setMark('in', state.cur), markOut: () => setMark('out', state.cur), fullscreen: toggleFullscreen },
+  actions: { play: togglePlay, rev: () => setShuttle(-1), stop: () => setShuttle(0), fwd: () => setShuttle(1), toggle: () => toggleSegmentAt(state.cur), split: () => splitAt(state.cur), trimL: () => trimDelete('left'), trimR: () => trimDelete('right'), del: () => { if (!deleteSelectedClip()) deleteCurrent(); }, chapter: () => addChapterAt(state.cur), undo: doUndo, redo: doRedo, prevCut: () => jumpCut(-1), nextCut: () => jumpCut(1), home: () => seek(0), end: () => seek(state.duration), back1: () => seek(state.cur - 1), fwd1: () => seek(state.cur + 1), frameBack: () => seek(state.cur - 1 / (state.fps || 30)), frameFwd: () => seek(state.cur + 1 / (state.fps || 30)), markIn: () => setMark('in', state.cur), markOut: () => setMark('out', state.cur), fullscreen: toggleFullscreen, review: () => reviewCut(1), reviewPrev: () => reviewCut(-1), revive: () => reviveReviewed() },
 };
 document.dispatchEvent(new CustomEvent('cutdiet:ready'));
