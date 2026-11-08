@@ -92,7 +92,7 @@
     </div>
     <div class="hero"><img src="shots/02_editor.jpg" alt="편집 화면"></div>
   </div>
-  <div class="foot"><span>2026년 11월 · v2.6</span><span>문제가 생기면 마지막 장 "피드백 보내는 법"대로 한 줄만 보내 주세요</span></div>
+  <div class="foot"><span>2026년 11월 · v2.7</span><span>문제가 생기면 마지막 장 "피드백 보내는 법"대로 한 줄만 보내 주세요</span></div>
 </section>
 
 <section>
@@ -123,6 +123,14 @@
     <tr><td class="k">파일 형식</td><td>영상: MP4, MOV, WebM, MKV. 음성: M4A, MP3, WAV, AAC, OGG, OPUS, FLAC — 휴대폰 녹음·통화 녹음도 그대로 넣으면 됩니다(9장)</td></tr>
     <tr><td class="k">컴퓨터 사양</td><td>메모리 8GB 이상 권장. 자동 자막은 처음 한 번 음성 인식 모델(약 760MB)을 내려받습니다</td></tr>
     <tr><td class="k">영상은 어디로</td><td>어디에도 올라가지 않습니다. 결과 파일은 내가 고른 위치(또는 다운로드 폴더)에만 저장됩니다</td></tr>
+  </table>
+  <h3>비용·데이터·저장 공간</h3>
+  <table>
+    <tr><th>항목</th><th>내용</th></tr>
+    <tr><td class="k">비용</td><td><b>무료</b>입니다. 회원가입·결제·광고가 없고, 쓴다고 요금이 나가는 곳이 없습니다(서버 없이 내 컴퓨터가 처리)</td></tr>
+    <tr><td class="k">인터넷 사용량</td><td>처음 열 때 프로그램 약 1MB. <b>자동 자막</b>을 처음 만들 때만 음성 인식 모델을 한 번 내려받습니다(가장 정확 약 760MB · 빠름 190MB · 가장 빠름 60MB). 휴대폰 핫스팟·데이터 요금제라면 <b>와이파이에서</b> 처음 실행하세요. 그다음부터는 브라우저에 저장된 모델을 씁니다</td></tr>
+    <tr><td class="k">내 컴퓨터 저장 공간</td><td>음성 인식 모델(최대 약 760MB)이 브라우저 저장소에 남습니다. 지우려면 브라우저 설정 → 사이트 데이터에서 cutdiet.vercel.app 삭제(다음에 자막을 만들 때 다시 받습니다). 클립을 이어 붙이면 이어 붙인 파일이 잠시 브라우저 안에 저장되고 12시간이 지나면 다음 실행 때 지워집니다</td></tr>
+    <tr><td class="k">컴퓨터 부담</td><td>렌더링·자동 자막 중에는 CPU를 많이 써서 팬 소리가 커지고 노트북이 뜨거워질 수 있습니다. 노트북은 충전기를 꽂고 쓰세요</td></tr>
   </table>
   <figure class="half"><img src="shots/00_onboarding.jpg" alt="처음 안내"><figcaption>처음 열면 3단계 안내가 한 번 뜹니다. 뒤의 화면은 예시 데이터이고, 내 영상을 넣으면 바뀝니다.</figcaption></figure>
 </section>
@@ -253,7 +261,7 @@
     <tr><th>결과물</th><th>쓰는 곳</th></tr>
     <tr><td class="k">MP4</td><td>유튜브 업로드, 캡컷 가져오기. 화질은 "고화질 · 원본 해상도" 권장</td></tr>
     <tr><td class="k">잡음 제거</td><td>끄기 / 약하게 / 보통 / 강하게. 잘라 내는 쉬는 구간에서 잡음(에어컨·선풍기 웅 소리, 쉬익 소리)을 배워 목소리에서 빼 줍니다. <b>▶ 원본</b> / <b>▶ 제거 후</b>로 재생 위치부터 6초를 비교해 들어 보고 고르세요. 너무 세게 하면 목소리가 물속처럼 들릴 수 있습니다. 쉬는 구간이 완전 무음인 파일은 배울 잡음이 없어 건너뜁니다</td></tr>
-    <tr><td class="k">음량 맞춤</td><td>내보내기 창·메뉴의 체크 하나. 말소리를 <b>유튜브 기준 음량(-14 LUFS)</b>으로 맞추고 큰 소리는 리미터로 눌러 줍니다. 괄호 안에 키우는(줄이는) 양이 나오고, 마이크가 작게 녹음된 영상은 자동으로 켜집니다. 미리보기에도 같은 크기로 들립니다</td></tr>
+    <tr><td class="k">음량 맞춤</td><td>내보내기 창·메뉴의 체크 하나. 말소리를 <b>유튜브 기준 음량(-14 LUFS)</b>으로 맞추고 큰 소리는 리미터로 눌러 줍니다. 옆에 키우는(줄이는) 양이 나오고, 마이크가 많이 작게 녹음된 영상(기준보다 8 dB 이상)은 자동으로 켜집니다. 미리보기에도 같은 크기로 들립니다</td></tr>
     <tr><td class="k">SRT 자막</td><td>유튜브 자막 업로드, 캡컷 자막 가져오기 (편집 후 시간으로 딱 맞음)</td></tr>
     <tr><td class="k">유튜브 챕터</td><td>설명란에 붙여 넣는 타임스탬프 (첫 챕터 0:00, 3개 이상, 10초 간격을 자동 검사)</td></tr>
     <tr><td class="k">썸네일 후보</td><td>목소리에 힘이 있는 순간의 프레임 → JPG</td></tr>
@@ -272,7 +280,7 @@
   <h3>나눠 찍은 클립 이어 붙이기</h3>
   <p>휴대폰으로 여러 번 끊어 찍었다면, 파일을 고를 때 <b>여러 개를 한꺼번에</b> 고르거나 끌어 놓으세요. 이름 순(1부·2부… 숫자 순서)으로 정렬된 창이 뜨고, ↑↓로 순서를 바꾼 뒤 <b>이어 붙여 열기</b>를 누르면 하나로 이어진 영상이 열립니다. 첫 클립의 크기·프레임 속도에 맞춰 다시 인코딩하므로 길이의 10~30% 정도 걸립니다. 화면 없는 음성 파일끼리는 음성 파일 하나로 이어집니다.</p>
   <figure class="half"><img src="shots/25_join.jpg" alt="클립 이어 붙이기"><figcaption>파일을 여러 개 고르면 뜨는 창. 이어 붙인 파일은 이 브라우저 안에만 임시로 저장됩니다(원본은 그대로).</figcaption></figure>
-  <figure class="half"><img src="shots/14_export.jpg" alt="내보내기"><figcaption>내보내기 메뉴. 대부분은 MP4 만들기 하나면 됩니다.</figcaption></figure>
+  <figure class="half"><img src="shots/14_export.jpg" alt="내보내기"><figcaption>내보내기 메뉴. 화질 · 음량 맞춤 · 잡음 제거를 고르고 MP4 만들기. 대부분은 그대로 MP4 만들기만 누르면 됩니다.</figcaption></figure>
 </section>
 
 <section>
@@ -384,7 +392,7 @@
 예) 12분 강의 영상, 자동 자막에서 "5A"가 "오에이"로 나옴, 11분 걸림</pre>
   <p>증상은 해석하지 말고 보인 그대로 적어 주세요. 화면의 안내 문구나 오류 메시지가 있으면 그 문장도 같이. 어떤 브라우저(크롬/엣지)인지도 한 단어로.</p>
   <p>보낼 곳: ____________________ (카톡방 / 댓글 등 채널)</p>
-  <p class="small muted" style="margin-top:30px">컷다이어트 v2.6 · cutdiet.vercel.app · 영상은 업로드되지 않고 내 브라우저 안에서만 처리됩니다. 음성 인식에는 Whisper(MIT), 영상 처리에는 mediabunny(MPL-2.0)·transformers.js(Apache-2.0)가 쓰였습니다. 자막 길이 기준은 Netflix Korean Timed Text Style Guide를 참고했습니다.</p>
+  <p class="small muted" style="margin-top:30px">컷다이어트 v2.7 · cutdiet.vercel.app · 영상은 업로드되지 않고 내 브라우저 안에서만 처리됩니다. 음성 인식에는 Whisper(MIT), 영상 처리에는 mediabunny(MPL-2.0)·transformers.js(Apache-2.0)가 쓰였습니다. 자막 길이 기준은 Netflix Korean Timed Text Style Guide를 참고했습니다.</p>
 </section>
 
 </body>
