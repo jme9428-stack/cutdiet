@@ -67,6 +67,35 @@ try {
     const dims = await page.evaluate(() => ({ w: window.cutdiet.state.width, h: window.cutdiet.state.height, rot: window.cutdiet.state.rotation }));
     assert.ok(dims.w === 360 && dims.h === 640, 'rotated display dims ' + JSON.stringify(dims)); console.log('member: rotated video dims ok', JSON.stringify(dims));
   } else console.log('member: rotation metadata not written by this ffmpeg, skipping');
+  // voice file: a quiet Opus-in-M4A memo (digital silence between soft sound), like a phone recording
+  {
+    const memo = path.join(tmp, 'memo.m4a');
+    const rm = await run(ff.path, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', "sine=frequency=300:sample_rate=48000,volume=volume='if(between(t,1,3)+between(t,6,8),0.004,0)':eval=frame", '-t', '10', '-c:a', 'libopus', '-b:a', '16k', '-f', 'mp4', memo]);
+    assert.equal(rm.code, 0, rm.stderr);
+    const p3 = waitAnalyzed(); await page.setInputFiles('#fileInput', memo); assert.equal(await p3, true);
+    const vs = await page.evaluate(() => { const C = window.cutdiet, s = C.state; return { audioOnly: s.audioOnly, ranges: C.keepRanges(s.segments).length, block: C.renderBlockReason(), shorts: C.shortsBlockReason(), boost: document.getElementById('chkBoost').checked, face: !document.getElementById('audioFace').hidden, label: document.getElementById('btnRender').textContent }; });
+    assert.ok(vs.audioOnly && vs.ranges === 2 && vs.block === null && /음성/.test(vs.shorts) && vs.boost && vs.face && vs.label === '음성 파일 만들기', 'voice state ' + JSON.stringify(vs));
+    const vr = await page.evaluate(async () => { window.__sink = { chunks: [], closed: false, aborted: false }; const C = window.cutdiet; C.state.fx.sfx.length = 0; document.getElementById('selAudioFmt').value = 'mp3'; document.getElementById('selAudioFmt').dispatchEvent(new Event('change')); const ok = await C.startRender('main', false); return { ok, status: document.getElementById('renderStatus').textContent, total: Math.max(...window.__sink.chunks.map(c => c.pos + c.len)), first: window.__sink.chunks[0] && window.__sink.chunks[0].data }; });
+    // ~4.6 s kept at 192 kb/s ≈ 110 KB; MP3 frames start with 0xFF 0xFB/0xF3 or an ID3 tag
+    assert.ok(vr.ok && vr.total > 60000 && vr.total < 200000 && (vr.first[0] === 0xFF || String.fromCharCode(...vr.first.slice(0, 3)) === 'ID3'), 'voice mp3 ' + JSON.stringify(vr));
+    console.log('member: voice file → mp3 ok', vr.status);
+    // cut review: P plays the next cut (from 1.5 s before), R revives it
+    const before = await page.evaluate(() => { window.cutdiet.seek(0); return window.cutdiet.state.segments.filter(g => !g.keep).length; });
+    await page.click('#tl', { position: { x: 5, y: 5 } }); await page.evaluate(() => window.cutdiet.seek(0)); await page.keyboard.press('KeyP'); await page.waitForTimeout(400);
+    const rv = await page.evaluate(() => ({ review: window.cutdiet.state.review, playing: !document.getElementById('video').paused }));
+    await page.keyboard.press('KeyR'); const after = await page.evaluate(() => window.cutdiet.state.segments.filter(g => !g.keep).length);
+    assert.ok(rv.review && rv.playing && after === before - 1, 'review/revive ' + JSON.stringify({ rv, before, after }));
+    console.log('member: cut review (P/R) ok');
+    // join clips: two files picked at once → order dialog → one file opened
+    const j1 = path.join(tmp, 'join1.mp4'), j2 = path.join(tmp, 'join2.mp4');
+    await mk(j1, ['-t', '3']); await run(ff.path, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=25', '-f', 'lavfi', '-i', 'sine=frequency=600:sample_rate=44100', '-t', '2', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', j2]);
+    await page.setInputFiles('#fileInput', [j2, j1]); await page.waitForSelector('#joinDlg:not([hidden])');
+    const order = await page.$$eval('#joinList .nm', n => n.map(x => x.textContent)); assert.deepEqual(order, ['join1.mp4', 'join2.mp4'], 'natural order');
+    const pj = waitAnalyzed(); await page.click('#joinGo'); assert.equal(await pj, true);
+    const js = await page.evaluate(() => { const s = window.cutdiet.state; return { name: s.file.name, dur: s.duration, w: s.width, h: s.height }; });
+    assert.ok(/외 1개\.mp4$/.test(js.name) && Math.abs(js.dur - 5) < 0.2 && js.w === 640 && js.h === 360, 'joined ' + JSON.stringify(js));
+    console.log('member: join clips ok', JSON.stringify(js));
+  }
   // ---------- Pro page + engine ----------
   const page2 = await ctx.newPage(); page2.on('pageerror', e => console.log('PRO PAGE ERROR', e.message));
   await page2.goto(base + '/pro.html'); await page2.waitForFunction(() => window.cutdiet && window.cutdiet.state.mbStatus === 'ready' && window.cutdietEngine, null, { timeout: 30000 });

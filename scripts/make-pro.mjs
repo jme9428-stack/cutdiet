@@ -22,7 +22,7 @@ const probar = `
         <button class="btn sm" id="btnRunQueue" disabled title="Shift+Enter">큐 실행</button>
         <button class="btn sm" id="btnStopQueue" hidden>중지</button>
         <button class="btn sm ghost" id="btnClearQueue">비우기</button>
-        <input type="file" id="queueInput" class="sr" tabindex="-1" multiple accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.m4a,.mp3,.wav">
+        <input type="file" id="queueInput" class="sr" tabindex="-1" multiple accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.m4a,.m4b,.mp3,.wav,.aac,.ogg,.oga,.opus,.flac">
       </div>
       <div class="tasks">
         <span class="muted small">파일마다:</span>

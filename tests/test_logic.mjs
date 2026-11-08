@@ -27,6 +27,81 @@ assert.ok(segs.every(g => g.e - g.s >= 0.005));
 assert.equal(segs[segs.length - 1].e, 10);
 console.log('applySpan ok');
 
+// quiet voice recording: digital silence between very soft sound (-85..-60 dB). A fixed -40 dB would mark everything as
+// silence and keep the whole file; the auto threshold must sit between the digital floor and the sound.
+{
+  const env = new Float32Array(5000).fill(-100); for (let i = 1000; i < 1300; i++) env[i] = -84 + (i % 7); for (let i = 3000; i < 3100; i++) env[i] = -62;
+  const thr = A.suggestThreshold(env); assert.ok(thr < -85 && thr >= -95, 'quiet threshold ' + thr);
+  const qs = A.detectSegments(env, A.HOP, 100, { threshold: thr, minSilence: 0.6, pad: 0.15, minKeep: 0.25 });
+  const kept = A.keptDuration(qs); assert.ok(kept > 7 && kept < 10, 'quiet kept ' + kept); assert.equal(A.keepRanges(qs).length, 2);
+  // ordinary recording keeps the old behaviour
+  const loud = new Float32Array(5000).fill(-60); for (let i = 0; i < 5000; i += 100) loud.fill(-20, i, i + 60);
+  assert.equal(A.suggestThreshold(loud), -46);
+  // audio-only export: ffmpeg script has no video filter or video map, and uses the chosen codec
+  const ff = A.buildFFmpeg([{ s: 1, e: 2 }, { s: 3, e: 4 }], 'memo.m4a', 'memo_cut.mp3', { audio: 'mp3' });
+  assert.ok(!/-vf|filter_script:v|\[v\]/.test(ff.inline + ff.scriptCmd) && /libmp3lame/.test(ff.inline) && ff.filterV === '', ff.inline);
+  const ffb = A.buildFFmpeg([{ s: 1, e: 2 }], 'memo.m4a', 'memo_cut.wav', { audio: 'wav', bgm: { name: 'bg.mp3', volume: 0.2, duck: true, fade: 0, loop: true }, hasVoice: true, kept: 1 });
+  assert.ok(!/\[0:v\]|-map "\[v\]"/.test(ffb.complex + ffb.scriptCmd) && /pcm_s16le/.test(ffb.scriptCmd), ffb.scriptCmd);
+  assert.ok(A.buildEDL('m', [{ s: 0, e: 1 }], 30, 'm.m4a', true).includes('AA    C') && A.buildFCPXML('m', [{ s: 0, e: 1 }], 30, 'm.m4a', 0, 0, 1, true, true).includes('hasVideo="0"'));
+  const gq = A.loudnessGainDb(env, A.HOP, qs, A.LOUDNESS_TARGET.voice); assert.ok(gq >= 40 && gq <= 45, 'quiet gain ' + gq);
+  // loudness = gated mean energy (pauses gated out) minus the K-weighting offset
+  const all = [{ s: 0, e: 100, keep: true }]; assert.ok(Math.abs(A.keptLoudnessDb(loud, A.HOP, all) + 23) < 0.01); // -20 dB RMS ≈ -23 LUFS
+  assert.equal(A.loudnessGainDb(loud, A.HOP, all, -14), 9); assert.equal(A.loudnessGainDb(loud, A.HOP, all, -23), 0);
+  const hot = new Float32Array(5000).fill(-6); assert.equal(A.loudnessGainDb(hot, A.HOP, all, -14), -5); assert.equal(A.loudnessGainDb(new Float32Array(5000).fill(-100), A.HOP, all), 0);
+  const ch = [Float32Array.from([0.001, -0.002, 0.01, -0.5])]; A.applyGain(ch, 100); assert.ok(Math.abs(ch[0][0] - 0.1) < 1e-6 && Math.abs(ch[0][1] + 0.2) < 1e-6 && ch[0][2] > 0.8 && ch[0][2] <= 0.9801 && ch[0][3] >= -0.9801 && ch[0][3] < -0.9);
+  assert.equal(A.audioOutBytes('wav', 10, 48000, 1), 48000 * 2 * 10 + 44); assert.equal(A.audioOutBytes('mp3', 8), 192000);
+}
+console.log('quiet recording + audio export logic ok');
+// cut joins fade to zero at the join and leave the middle untouched; output start/end are not faded
+{
+  const sr = 1000, r = { s: 1, e: 2 }; const ch = [new Float32Array(1000).fill(1)];
+  A.fadeJoins(ch, sr, 1, r, false, false); assert.ok(ch[0][0] < 0.1 && ch[0][999] < 0.1 && ch[0][500] === 1 && ch[0][4] > 0.4 && ch[0][4] < 0.7, Array.from(ch[0].slice(0, 9)).join(','));
+  const c2 = [new Float32Array(1000).fill(1)]; A.fadeJoins(c2, sr, 1, r, true, true); assert.ok(c2[0].every(v => v === 1));
+  const c3 = [new Float32Array(100).fill(1)]; A.fadeJoins(c3, sr, 1.5, r, false, false); assert.ok(c3[0].every(v => v === 1)); // buffer in the middle: untouched
+}
+console.log('join fades ok');
+// level changes in a long recording: first 2 min in a noisy room (speech -20, pauses -50), then the mic is far away
+// (speech -55, pauses -80). One global threshold keeps the noisy pauses or drops the far speech; the shift fixes both.
+{
+  const hop = A.HOP, n = Math.round(240 / hop); const env = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const t = i * hop, talk = (t % 4) < 2.5, far = t >= 120; env[i] = far ? (talk ? -55 : -80) : (talk ? -20 : -50); }
+  const g = A.suggestThreshold(env); const p = { threshold: g, minSilence: 0.6, pad: 0.15, minKeep: 0.25 };
+  const removedIn = (segs, a, b) => { let r = 0; for (const s of segs) if (!s.keep) r += Math.max(0, Math.min(b, s.e) - Math.max(a, s.s)); return r; };
+  const plain = A.detectSegments(env, hop, 240, p);
+  const shift = A.levelShift(env, hop, g); assert.ok(shift, 'shift computed');
+  const adapt = A.detectSegments(env, hop, 240, { ...p, shift });
+  // pauses are 1.5 s of every 4 s → ~45 s removable per 2 min (minus padding)
+  const goodNear = removedIn(adapt, 10, 110), goodFar = removedIn(adapt, 130, 230);
+  assert.ok(goodNear > 25 && goodFar > 25, `adaptive removes pauses in both halves ${goodNear} ${goodFar} (global ${g})`);
+  assert.ok(Math.min(removedIn(plain, 10, 110), removedIn(plain, 130, 230)) < 5 || removedIn(plain, 130, 230) > 90, 'a single global threshold fails one half');
+  // steady recording: no shift at all, so results are exactly as before
+  const steady = new Float32Array(n); for (let i = 0; i < n; i++) steady[i] = (i * hop) % 4 < 2.5 ? -20 : -60;
+  assert.equal(A.levelShift(steady, hop, A.suggestThreshold(steady)), null);
+  assert.equal(A.stretchThreshold(new Float32Array(100).fill(-30)), null);
+}
+console.log('adaptive threshold ok');
+{ // boundary magnet
+  const env = new Float32Array(500).fill(-20); env.fill(-70, 200, 205); // a short gap at 4.0–4.1 s
+  assert.equal(A.snapBoundary(4.3, 0.4, env, A.HOP).kind, 'quiet'); assert.ok(Math.abs(A.snapBoundary(4.3, 0.4, env, A.HOP).t - 4.25) > 0.1 && A.snapBoundary(4.3, 0.4, env, A.HOP).t < 4.11);
+  assert.deepEqual(A.snapBoundary(4.3, 0.4, env, A.HOP, [4.35]), { t: 4.35, kind: 'mark' }); // playhead/caption edge wins
+  assert.equal(A.snapBoundary(6, 0.2, env, A.HOP).kind, null); assert.equal(A.snapBoundary(6, 0.2, env, A.HOP).t, 6); // flat: stays put
+}
+console.log('boundary snap ok');
+{ // text-based editing helpers
+  const T = await import('../src/textlogic.js');
+  const ws = [{ text: '안녕하세요', s: 1, e: 1.6 }, { text: '음', s: 1.9, e: 2.1 }, { text: '오늘은', s: 2.4, e: 2.9 }, { text: '컷편집', s: 3.0, e: 3.6 }];
+  const sp = T.wordSpans(ws, 1, 1)[0]; assert.ok(Math.abs(sp.s - 1.82) < 1e-9 && Math.abs(sp.e - 2.18) < 1e-9, JSON.stringify(sp));
+  const sp2 = T.wordSpans(ws, 3, 2)[0]; assert.ok(Math.abs(sp2.s - 2.32) < 1e-9 && Math.abs(sp2.e - 3.68) < 1e-9); // reversed selection, last word gets the margin
+  const tight = [{ text: 'a', s: 0, e: 1 }, { text: 'b', s: 1.02, e: 2 }, { text: 'c', s: 2.01, e: 3 }]; const t2 = T.wordSpans(tight, 1, 1)[0]; assert.ok(t2.s === 1 && t2.e === 2.01, 'never into neighbours ' + JSON.stringify(t2));
+  const segs = [{ s: 0, e: 1.8, keep: true }, { s: 1.8, e: 2.2, keep: false }, { s: 2.2, e: 5, keep: true }];
+  assert.deepEqual(ws.map(w => T.wordIsCut(w, segs)), [false, true, false, false]);
+  const lines = [{ s: 1, e: 2.2, text: '안녕하세요 음' }, { s: 2.4, e: 3.6, text: '오늘은 컷편집' }];
+  const ap = T.editableWords([], true, lines); assert.equal(ap.length, 4); assert.ok(ap[0].approx && ap[0].s === 1 && Math.abs(ap[1].e - 2.2) < 1e-9);
+  const out = T.stripFromLines(lines, T.wordStripCands(lines, [ws[1], ws[3]])); assert.deepEqual(out.map(l => l.text), ['안녕하세요', '오늘은']);
+  assert.deepEqual(T.stripFromLines(lines, T.wordStripCands(lines, [ws[0], ws[1]])).map(l => l.text), ['오늘은 컷편집']); // whole line gone
+}
+console.log('text editing helpers ok');
+
 // text logic
 assert.equal(normKo(' 안녕하세요, 여러분! '), '안녕하세요여러분');
 assert.ok(similarity('오늘은날씨가좋네요', '오늘은날씨가좋아요') > 0.85);

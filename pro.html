@@ -112,6 +112,15 @@ kbd{font-family:var(--font-mono);font-size:11px;border:1px solid var(--line-stro
 .vol{display:inline-flex;align-items:center;gap:2px}
 .vol input[type=range]{width:70px;accent-color:var(--accent)}
 .tgroup select{font:inherit;font-size:12px;padding:3px 4px;border:1px solid var(--line-strong);border-radius:7px;background:var(--surface);color:var(--fg)}
+.txed{max-height:320px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface);margin-top:8px;padding:10px 12px;font-size:14px;line-height:1.9;caret-color:transparent;outline:none;word-break:keep-all}
+.txed:focus{border-color:var(--accent)}
+.txed:empty::before{content:"자동 자막을 만들거나 SRT를 불러오면 여기에 말이 글자로 나옵니다";color:var(--muted);font-size:12px}
+.txed p{margin:0 0 6px}
+.txed .w{border-radius:3px;cursor:pointer;padding:0 1px}
+.txed .w:hover{background:var(--surface-2)}
+.txed .w.cut{text-decoration:line-through;color:var(--remove);opacity:.7}
+.txed .w.now{background:var(--accent-soft);color:var(--fg)}
+.txed .w.approx{border-bottom:1px dotted var(--line-strong)}
 .caplist{max-height:360px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface);margin-top:8px}
 .caprow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:5px 8px;border-bottom:1px solid var(--line);font-size:12.5px}
 .caprow:last-child{border-bottom:0}
@@ -144,6 +153,15 @@ kbd{font-family:var(--font-mono);font-size:11px;border:1px solid var(--line-stro
 .monitor.mini{position:fixed;right:16px;bottom:16px;width:min(400px,46vw);height:auto;z-index:60;box-shadow:0 12px 32px rgba(0,0,0,.45);border:2px solid var(--line-strong);min-height:0}
 .monitor.mini .mini-close{display:block;position:absolute;right:6px;top:6px;z-index:7;width:24px;height:24px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;cursor:pointer;font-size:12px}
 .monitor.mini .monitor-empty{display:none}
+/* voice files: no picture, so the monitor shows the file name and a live level meter instead */
+.audio-face{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:20px;text-align:center;color:#C8D0DA;pointer-events:none}
+.audio-face .af-icon{width:64px;height:64px;border-radius:50%;background:rgba(143,166,255,.16);color:#8FA6FF;display:flex;align-items:center;justify-content:center;font-size:30px}
+.audio-face .af-name{font-size:15px;font-weight:600;color:#F2F5F8;max-width:90%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.audio-face .af-meter{width:min(320px,70%);height:6px;border-radius:3px;background:rgba(255,255,255,.12);overflow:hidden}
+.audio-face .af-meter i{display:block;height:100%;width:0;background:#3DBA82;transition:width .08s linear}
+.audio-face .af-hint{font-size:12px;color:#8B96A5}
+.monitor.mini .audio-face .af-hint,.monitor.mini .audio-face .af-name{display:none}
+body.audio-mode .rail .tab[data-tab="shorts"],body.audio-mode .rail .tab[data-tab="text"],body.audio-mode #sectThumbs{display:none}
 .legend-cand{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:var(--muted);margin-left:6px;flex-wrap:wrap}
 .legend-cand i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-left:4px}
 #aiCandBody tr.on td{background:var(--remove-soft)}
@@ -280,6 +298,11 @@ td.ttl input:focus{border-color:var(--accent);background:var(--surface)}
 .onb-steps li::before{counter-increment:s;content:counter(s);width:28px;height:28px;border-radius:50%;background:var(--accent);color:var(--accent-fg);font-family:var(--font-mono);font-weight:600;display:flex;align-items:center;justify-content:center;font-size:13px}
 .onb-steps b{display:block;font-weight:600}
 .onb .foot{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.joinlist{margin:0;padding:0;list-style:none;max-height:45vh;overflow:auto;display:flex;flex-direction:column;gap:6px}
+.joinlist li{display:flex;align-items:center;gap:8px;font-size:13px}
+.joinlist li .no{width:22px;height:22px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-family:var(--font-mono);font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:none}
+.joinlist li .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.joinlist li .sz{color:var(--muted);font-family:var(--font-mono);font-size:11px}
 
 #toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(20px);background:var(--fg);color:var(--bg);padding:9px 14px;border-radius:8px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;max-width:calc(100vw - 32px);z-index:40;text-align:center}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -379,7 +402,7 @@ details.sect > :not(summary){margin-bottom:8px}
   <header class="top">
     <div class="brand">
       <span class="name">컷다이어트 <span class="chip ok">Pro</span></span>
-      <div class="filebar" id="filebar" hidden><span class="fname" id="fileName"></span> <span class="fmeta" id="fileMeta"></span><button class="btn sm ghost" id="btnOtherFile">다른 영상</button></div>
+      <div class="filebar" id="filebar" hidden><span class="fname" id="fileName"></span> <span class="fmeta" id="fileMeta"></span><button class="btn sm ghost" id="btnOtherFile">다른 파일</button></div>
     </div>
     <div class="top-actions">
       <button class="btn sm ghost" id="btnLoadProject" title="저장해 둔 프로젝트(.json) 열기">불러오기</button>
@@ -422,7 +445,7 @@ details.sect > :not(summary){margin-bottom:8px}
       <summary><span>세부 설정</span><span class="mono muted small" id="advSummary"></span></summary>
       <div class="ctl">
         <label for="rngThreshold">말소리 기준</label><span class="val" id="valThreshold">-42 dB</span>
-        <input type="range" id="rngThreshold" min="-70" max="-20" step="1" value="-42">
+        <input type="range" id="rngThreshold" min="-95" max="-20" step="1" value="-42">
         <span class="desc">말이 잘리면 내리고(-48), 숨소리까지 남으면 올리세요(-36).</span>
       </div>
       <div class="ctl">
@@ -433,6 +456,8 @@ details.sect > :not(summary){margin-bottom:8px}
         <label for="rngPad">말 앞뒤 여백</label><span class="val" id="valPad">0.15 s</span>
         <input type="range" id="rngPad" min="0" max="0.5" step="0.01" value="0.15">
       </div>
+      <label class="switch" title="녹음 중간에 마이크 거리나 주변 소음이 바뀌어도 30초 구간마다 기준을 맞춥니다. 소리가 고른 영상은 결과가 같습니다"><input type="checkbox" id="chkAdaptive" checked>음량이 바뀌면 기준도 따라가기</label>
+      <p class="hint" id="adaptiveInfo" style="margin:2px 0 0 21px"></p>
       <div class="ctl-actions">
         <button class="btn sm" id="btnAuto">추천 기준값으로</button>
         <button class="btn sm primary" id="btnReanalyze" hidden>다시 분석 (수동 수정 초기화)</button>
@@ -488,6 +513,10 @@ details.sect > :not(summary){margin-bottom:8px}
       <label class="switch small"><input type="checkbox" id="capFollow" checked>재생 위치 따라가기</label>
     </div>
     <div class="caplist" id="capList"></div>
+    <h3 class="sh">텍스트로 편집 <span class="chip" id="txChip">자막을 만들면 사용</span></h3>
+    <p class="hint">말을 드래그해 고르고 <kbd>Delete</kbd>를 누르면 그 말이 영상에서 잘립니다. 단어를 클릭하면 그 위치로 갑니다. 잘린 말은 줄이 그어지고, 다시 골라 <b>되살리기</b>로 살립니다. <kbd>Ctrl</kbd>+<kbd>Z</kbd> 되돌리기 · <kbd>Space</kbd> 재생.</p>
+    <div class="capbar"><button class="btn sm primary" id="btnTxDel" disabled>선택한 말 지우기</button><button class="btn sm" id="btnTxKeep" disabled>되살리기</button><label class="switch small"><input type="checkbox" id="txStrip" checked>자막 글자에서도 지우기</label></div>
+    <div class="txed" id="txEdit" contenteditable="true" spellcheck="false" role="textbox" aria-multiline="true" aria-label="텍스트로 편집: 말을 골라 Delete로 자르기"></div>
     <details class="sect">
       <summary>찾아 바꾸기 · 텍스트로 한 번에 고치기</summary>
       <div class="capbar"><input type="text" id="capFind" placeholder="찾을 말" aria-label="찾을 말"><input type="text" id="capReplace" placeholder="바꿀 말 (비우면 삭제)" aria-label="바꿀 말"><button class="btn sm" id="btnCapReplace">모두 바꾸기</button></div>
@@ -611,7 +640,7 @@ details.sect > :not(summary){margin-bottom:8px}
 
   <section class="tabpanel" id="tab-export" role="tabpanel" hidden>
     <h2 class="ph">내보내기 <span class="chip" id="renderChip">확인 중</span></h2>
-    <div class="field">
+    <div class="field" id="fldQuality">
       <label for="selQuality">화질</label>
       <select id="selQuality">
         <option value="high">고화질 · 원본 해상도</option>
@@ -620,6 +649,13 @@ details.sect > :not(summary){margin-bottom:8px}
         <option value="720">720p (빠른 확인용)</option>
       </select>
     </div>
+    <div class="field" id="fldAudioFmt" hidden>
+      <label for="selAudioFmt">형식</label>
+      <select id="selAudioFmt"><option value="mp3">MP3 · 어디서나 재생</option><option value="m4a">M4A (AAC)</option><option value="wav">WAV · 무손실 (용량 큼)</option></select>
+    </div>
+    <label class="switch" id="fldBoost" hidden title="말소리를 유튜브(-14 LUFS)·팟캐스트(-16 LUFS) 기준 음량으로 맞추고, 큰 소리는 리미터로 눌러 줍니다"><input type="checkbox" id="chkBoost">음량 맞춤 <span class="mono muted small" id="boostVal"></span></label>
+    <div class="field" id="fldDenoise"><label for="selDenoise">잡음 제거</label><select id="selDenoise"><option value="off">끄기</option><option value="low">약하게</option><option value="mid">보통</option><option value="high">강하게</option></select><button class="btn sm" id="btnDnOrig" title="재생 위치부터 6초, 원본">▶ 원본</button><button class="btn sm" id="btnDnClean" title="재생 위치부터 6초, 잡음 제거 후">▶ 제거 후</button></div>
+    <p class="hint" id="dnInfo">쉬는 구간의 잡음(웅·쉬익·선풍기 소리)을 배워 목소리에서 빼 줍니다. 재생 위치부터 6초를 비교해 들어 보세요.</p>
     <p class="hint" id="renderEstimate"></p>
     <div class="row">
       <button class="btn primary" id="btnRender">MP4 만들기</button>
@@ -628,7 +664,7 @@ details.sect > :not(summary){margin-bottom:8px}
     </div>
     <div class="progress" id="renderProgress" hidden><i></i></div>
     <p class="hint" id="renderStatus"></p>
-    <p class="hint">저장 위치를 먼저 고르면 그 파일로 바로 저장됩니다. 캡컷에서 이어 편집하려면 이 MP4를 가져가세요.</p>
+    <p class="hint" id="exportHint">저장 위치를 먼저 고르면 그 파일로 바로 저장됩니다. 캡컷에서 이어 편집하려면 이 MP4를 가져가세요.</p>
 
     <details class="sect">
       <summary>유튜브 챕터</summary>
@@ -638,7 +674,7 @@ details.sect > :not(summary){margin-bottom:8px}
       <div class="row"><button class="btn sm primary" id="btnCopyChapters">복사</button><span class="hint" id="chValid"></span></div>
       <textarea id="chText2" readonly aria-label="챕터 타임스탬프 텍스트" hidden></textarea><button class="btn sm" id="btnCopyChapters2" hidden>복사</button>
     </details>
-    <details class="sect">
+    <details class="sect" id="sectThumbs">
       <summary>썸네일 후보</summary>
       <div class="row">
         <button class="btn sm primary" id="btnThumbs">후보 12장 뽑기</button>
@@ -671,7 +707,7 @@ details.sect > :not(summary){margin-bottom:8px}
         <button class="btn sm" id="btnRunQueue" disabled title="Shift+Enter">큐 실행</button>
         <button class="btn sm" id="btnStopQueue" hidden>중지</button>
         <button class="btn sm ghost" id="btnClearQueue">비우기</button>
-        <input type="file" id="queueInput" class="sr" tabindex="-1" multiple accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.m4a,.mp3,.wav">
+        <input type="file" id="queueInput" class="sr" tabindex="-1" multiple accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.m4a,.m4b,.mp3,.wav,.aac,.ogg,.oga,.opus,.flac">
       </div>
       <div class="tasks">
         <span class="muted small">파일마다:</span>
@@ -733,7 +769,7 @@ details.sect > :not(summary){margin-bottom:8px}
           <li><b>영상 열기</b> — 무음·NG 뒤 정적이 자동으로 빨갛게 잡힙니다.</li>
           <li><b>들으며 고치기</b> — 재생하면 빨간 곳을 건너뜁니다. 어색한 곳만 <kbd>Q</kbd> <kbd>W</kbd> <kbd>X</kbd>로.</li>
           <li><b>NG 정리 · 자막</b> — 추임새·버벅임을 지우고 자동 자막을 만듭니다.</li>
-          <li><b>내보내기</b> — MP4 또는 편집 프로그램용 파일.</li>
+          <li><b>내보내기</b> — MP4 또는 편집 프로그램용 파일. 음성 파일(녹음·통화)은 MP3·M4A·WAV로.</li>
         </ol>
       </div>
       <div class="card">
@@ -775,13 +811,19 @@ details.sect > :not(summary){margin-bottom:8px}
     </div>
 
     <section class="stage">
-      <div class="drop" id="drop" role="button" tabindex="0" aria-label="영상 파일 선택">
-        <div class="big">＋ 영상 가져오기</div>
-        <div class="hint">여기에 놓거나 클릭 · 영상은 업로드되지 않고 이 브라우저 안에서만 처리됩니다</div>
-        <input type="file" id="fileInput" accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.m4a,.mp3,.wav">
+      <div class="drop" id="drop" role="button" tabindex="0" aria-label="영상·음성 파일 선택">
+        <div class="big">＋ 영상·음성 가져오기</div>
+        <div class="hint">영상(MP4·MOV…)이나 음성(M4A·MP3·WAV…)을 여기에 놓거나 클릭 · 여러 개를 고르면 이어 붙여서 엽니다 · 업로드되지 않고 이 브라우저 안에서만 처리됩니다</div>
+        <input type="file" id="fileInput" multiple accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.m4a,.m4b,.mp3,.wav,.aac,.ogg,.oga,.opus,.flac,.weba">
       </div>
       <div class="monitor" id="monitor">
         <video id="video" playsinline preload="metadata"></video>
+        <div class="audio-face" id="audioFace" hidden aria-live="off">
+          <div class="af-icon" aria-hidden="true">♪</div>
+          <div class="af-name" id="audioFaceName"></div>
+          <div class="af-meter" aria-hidden="true"><i id="audioMeter"></i></div>
+          <div class="af-hint">음성 파일 · 재생하면 빨간(삭제) 구간을 건너뛰며 들립니다</div>
+        </div>
         <div class="monitor-empty" id="monitorEmpty">
           <div class="me-title">영상을 불러오면 여기서 컷 결과를 미리 봅니다</div>
           <p>삭제 구간을 건너뛰며 재생돼서, 완성본의 흐름을 들어볼 수 있습니다.</p>
@@ -842,6 +884,7 @@ details.sect > :not(summary){margin-bottom:8px}
         <button class="btn sm ghost" id="btnMarkOut" title="범위 끝 (O)">O⟧</button>
         <button class="btn sm ghost" id="btnMarkDel" title="I~O 범위 삭제 (Delete) · Esc 해제" disabled>범위 삭제</button>
         <button class="btn sm ghost" id="btnChapter" title="현재 위치에 챕터 (M)">◆ 챕터</button>
+        <button class="btn sm ghost" id="btnReview" title="다음 컷 앞뒤 1.5초를 들어보기 (P · 이전 Shift+P) · 말이 잘렸으면 R로 되살리기">▶ 컷 검토</button>
       </div>
       <div class="tgroup zoom">
         <button class="btn icon sm ghost" id="btnZoomOut" title="축소">−</button>
@@ -877,18 +920,33 @@ details.sect > :not(summary){margin-bottom:8px}
       <div class="xleft"><canvas id="xThumb" width="640" height="360" aria-label="미리보기"></canvas><div class="xmeta" id="xMeta"></div></div>
       <div class="xright">
         <div class="xrow"><label for="xName">제목</label><input type="text" id="xName" spellcheck="false"></div>
-        <div class="xsec"><label class="switch"><input type="checkbox" id="xVideo" checked>동영상</label></div>
-        <div class="xrow"><label for="xQuality">해상도·화질</label><select id="xQuality"><option value="high">고화질 · 원본 해상도</option><option value="std">표준 · 원본 해상도 (용량 절약)</option><option value="1080">1080p</option><option value="720">720p (빠른 확인용)</option></select></div>
-        <div class="xrow"><label>형식</label><span class="val">MP4 (H.264 · AAC)</span></div>
-        <div class="xrow"><label>프레임 속도</label><span class="val" id="xFps">원본</span></div>
+        <div class="xsec"><label class="switch"><input type="checkbox" id="xVideo" checked><span id="xVideoLabel">동영상</span></label></div>
+        <div class="xrow" id="xRowAudioFmt" hidden><label for="xAudioFmt">형식</label><select id="xAudioFmt"><option value="mp3">MP3 · 어디서나 재생</option><option value="m4a">M4A (AAC)</option><option value="wav">WAV · 무손실 (용량 큼)</option></select></div>
+        <div class="xrow" id="xRowBoost" hidden><label for="xBoost">음량</label><label class="switch"><input type="checkbox" id="xBoost">음량 맞춤 <span class="mono muted small" id="xBoostVal"></span></label></div>
+        <div class="xrow" id="xRowDenoise"><label for="xDenoise">잡음 제거</label><select id="xDenoise"><option value="off">끄기</option><option value="low">약하게</option><option value="mid">보통</option><option value="high">강하게</option></select></div>
+        <div class="xrow" id="xRowQuality"><label for="xQuality">해상도·화질</label><select id="xQuality"><option value="high">고화질 · 원본 해상도</option><option value="std">표준 · 원본 해상도 (용량 절약)</option><option value="1080">1080p</option><option value="720">720p (빠른 확인용)</option></select></div>
+        <div class="xrow" id="xRowFormat"><label>형식</label><span class="val">MP4 (H.264 · AAC)</span></div>
+        <div class="xrow" id="xRowFps"><label>프레임 속도</label><span class="val" id="xFps">원본</span></div>
         <div class="xsec">자막</div>
-        <label class="switch"><input type="checkbox" id="xBurn">자막을 영상에 굽기</label>
+        <label class="switch" id="xBurnRow"><input type="checkbox" id="xBurn">자막을 영상에 굽기</label>
         <label class="switch"><input type="checkbox" id="xSrt">자막 파일(SRT)도 저장</label>
         <p class="hint" id="xCapHint" hidden>자막이 없습니다. 왼쪽 자막 메뉴에서 만들 수 있습니다.</p>
       </div>
     </div>
     <div class="xprog" id="xProgWrap" hidden><div class="progress"><i id="xBar"></i></div><p class="hint" id="xStatus"></p></div>
     <div class="xfoot"><p class="hint" id="xEstimate"></p><span class="xbtns"><button class="btn" id="xCancel">취소</button><button class="btn primary" id="xGo">내보내기</button></span></div>
+  </div>
+</div>
+<div class="onb" id="joinDlg" hidden role="dialog" aria-modal="true" aria-labelledby="joinTitle">
+  <div class="onb-card">
+    <h2 id="joinTitle">클립 이어 붙이기</h2>
+    <p class="hint">고른 파일을 이 순서대로 하나로 이어 붙인 뒤 엽니다. ↑↓로 순서를 바꾸세요. 영상은 첫 클립의 크기·프레임 속도에 맞추고(남는 곳은 검은 여백), 소리 없는 클립은 무음, 화면 없는 음성은 검은 화면으로 채웁니다.</p>
+    <ol class="joinlist" id="joinList"></ol>
+    <p class="hint" id="joinInfo"></p>
+    <div class="foot">
+      <button class="btn primary" id="joinGo">이어 붙여 열기</button>
+      <span><button class="btn ghost" id="joinFirst">첫 파일만 열기</button><button class="btn ghost" id="joinCancel">취소</button></span>
+    </div>
   </div>
 </div>
 <div class="keysheet" id="keysheet" hidden role="dialog" aria-modal="true" aria-label="단축키"><div class="onb-card"><h2>단축키</h2><div class="kgrid" id="sheetGrid"></div><div class="foot"><span class="hint">Esc 또는 / 로 닫기 · 단축키 탭에서 바꿀 수 있습니다</span></div></div></div>

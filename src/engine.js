@@ -37,7 +37,7 @@ export async function initEngine(C, { addFiles } = {}) {
   state.hooks.frames = async (times, maxW) => { const out = []; for (const t of times) { try { const img = new Image(); img.decoding = 'async'; await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error('frame')); img.src = `/api/frame?token=${state.engineMedia.token}&t=${t.toFixed(3)}&w=${maxW || 0}&_=${Date.now()}`; }); const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight; c.getContext('2d').drawImage(img, 0, 0); out.push({ t, canvas: c }); } catch { out.push({ t, canvas: null }); } } return out; };
   state.hooks.saveThumbs = async times => api('/thumbs', { token: state.engineMedia.token, times });
   state.hooks.saveFile = async (name, data) => { const blob = data instanceof Blob ? data : new Blob([data]); let body; if (/\.(txt|srt|json|csv|edl|fcpxml|sh|bat)$/i.test(name) || (typeof data === 'string')) body = { name, text: typeof data === 'string' ? data : await blob.text() }; else { const b64 = await new Promise(res => { const rd = new FileReader(); rd.onload = () => res(String(rd.result).split(',')[1]); rd.readAsDataURL(blob); }); body = { name, base64: b64 }; } const r = await api('/save', body); toast(`출력 폴더에 저장: ${r.path.split(/[\\/]/).pop()}`, 3000); return true; };
-  state.hooks.render = async ({ kind, ranges, out, crop, quality, fps, name, signal, onProgress }) => {
+  state.hooks.render = async ({ kind, ranges, out, crop, quality, fps, name, audio, gainDb, denoise, signal, onProgress }) => {
     const b = state.bgm; let bgm = null;
     const tk = state.fx.tracks || {};
     if (b.ready && b.file && !tk.bgmMuted) { onProgress(0, '배경음악 전송'); bgm = { path: await uploadAsset(b.file), volume: b.volume, duck: b.duck, fade: b.fade, loop: b.loop, offset: C.outTime(state.segments, b.start || 0) }; }
@@ -46,10 +46,19 @@ export async function initEngine(C, { addFiles } = {}) {
     for (const o of live.overlays) { const c = { id: o.id, type: o.type, s: o.s, e: o.e, layer: o.layer || 0, pos: o.pos, x: o.x, y: o.y, w: o.w, opacity: o.opacity, fade: o.fade, text: o.text, style: o.style, ratio: o.ratio, name: o.name }; if (o.type === 'image') { if (o.file) c.path = await uploadAsset(o.file); else c.dataUrl = o.dataUrl; } fx.overlays.push(c); }
     for (const s of live.sfx) { const c = { id: s.id, t: s.t, kind: s.kind, volume: s.volume, name: s.name }; if (s.kind === 'custom') { if (!s.file) continue; c.path = await uploadAsset(s.file); } fx.sfx.push(c); }
     const captions = state.fx.subs.burn ? (C.captionsOf() || []).map(l => ({ s: l.s, e: l.e, text: l.text })) : [];
-    const job = await api('/render', { token: state.engineMedia.token, kind, ranges, out, crop, quality, fps, filename: name, bgm, fx, captions });
+    const job = await api('/render', { token: state.engineMedia.token, kind, ranges, out, crop, quality, fps, filename: name, bgm, fx, captions, audio, gainDb, denoise });
     const done = await waitJob(job.id, { signal, onProgress: j => onProgress(j.progress, `엔진 렌더링(${j.meta && j.meta.encoder ? j.meta.encoder : 'ffmpeg'})`) });
     refreshJobs();
     return { out: done.out, size: (done.meta && done.meta.size) || 0, warnings: done.warnings };
+  };
+  // 클립 이어 붙이기 through ffmpeg; the joined file lands in the output folder and is opened
+  state.hooks.join = async descs => {
+    try {
+      const job = await api('/join', { tokens: descs.map(d => d.token) });
+      await waitJob(job.id, { onProgress: j => C.notice(`로컬 엔진(ffmpeg)이 클립 ${descs.length}개를 이어 붙이는 중…`, '', j.progress) });
+      const r = await api(`/jobs/${job.id}/result`); C.notice(null); refreshJobs();
+      await C.openFile({ engine: true, token: r.token, path: r.path, name: r.name, size: r.size, mediaUrl: r.mediaUrl, info: r.info });
+    } catch (e) { C.notice('이어 붙이지 못했습니다: ' + C.escapeHtml(String(e.message || e)), 'err'); }
   };
   state.hooks.transcribe = async ({ model, signal, onProgress }) => {
     const job = await api('/transcribe', { token: state.engineMedia.token, model });
@@ -66,7 +75,7 @@ export async function initEngine(C, { addFiles } = {}) {
     const regs = await api('/register', { paths }); const descs = [];
     for (const r of regs) { if (r.error) { toast(`${r.path.split(/[\\/]/).pop()}: ${r.error}`, 4000); continue; } descs.push({ engine: true, token: r.token, path: r.path, name: r.name, size: r.size, mediaUrl: r.mediaUrl, info: r.info }); }
     if (!descs.length) return [];
-    if (queue || descs.length > 1) { if (addFiles) addFiles(descs); } else await C.openFile(descs[0]);
+    if (queue) { if (addFiles) addFiles(descs); } else if (descs.length > 1) await C.openFiles(descs); else await C.openFile(descs[0]); // several from '영상 열기' → join dialog
     renderRecent();
     return descs;
   }

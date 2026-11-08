@@ -84,4 +84,25 @@ assert.equal(fxFromJSON({ adjust: { brightness: 999 } }).adjust.brightness, 50);
   const back = fxFromJSON(JSON.parse(JSON.stringify(fxToJSON(f)))); assert.deepEqual(back.tracks.hidden, ['ov1']); assert.equal(back.tracks.sfxMuted, true); assert.equal(back.overlays[1].layer, 1);
   assert.deepEqual(fxFromJSON({}).tracks, defaultTracks()); assert.deepEqual(fxFromJSON({ tracks: { hidden: 'x', locked: [1, 'cap'] } }).tracks.locked, ['cap']);
 }
+{ // noise reduction: tone + hiss → hiss down a lot, tone kept, same length, no time shift, any chunk sizes
+  const { Denoiser, noiseProfile, fftSize } = await import('../src/denoise.js');
+  const sr = 48000; let seed = 1; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 * 2 - 1; };
+  const noiseOnly = Float32Array.from({ length: sr * 2 }, () => 0.05 * rnd());
+  const n = sr * 3; const tone = Float32Array.from({ length: n }, (_, i) => 0.3 * Math.sin(2 * Math.PI * 440 * i / sr)); const hiss = Float32Array.from({ length: n }, () => 0.05 * rnd());
+  const mix = tone.map((v, i) => v + hiss[i]);
+  const prof = noiseProfile(noiseOnly, sr); assert.equal(prof.N, fftSize(sr)); assert.equal(fftSize(16000), 512);
+  const d = new Denoiser(sr, 1, prof, 'mid'); const out = []; let at = 0; const sizes = [1000, 4800, 17, 9000, 2048];
+  for (let k = 0; at < n; k++) { const len = Math.min(sizes[k % sizes.length], n - at); out.push(...d.push([mix.subarray(at, at + len)])[0]); at += len; }
+  out.push(...d.flush()[0]); assert.equal(out.length, n, 'same length');
+  const y = Float32Array.from(out); const a = 4800, b = n - 4800; // skip the edges
+  const dot = (p, q) => { let r = 0; for (let i = a; i < b; i++) r += p[i] * q[i]; return r; };
+  const gainTone = dot(y, tone) / dot(tone, tone); // tone kept (no shift: projection onto the original tone is ~1)
+  const resid = Float32Array.from(y, (v, i) => v - gainTone * tone[i]); const noiseIn = dot(hiss, hiss), noiseOut = dot(resid, resid);
+  const reduction = 10 * Math.log10(noiseIn / noiseOut);
+  assert.ok(gainTone > 0.85 && gainTone < 1.05, 'tone kept ' + gainTone); assert.ok(reduction > 8, 'noise reduced by ' + reduction.toFixed(1) + ' dB');
+  // noise-free input passes through practically unchanged
+  const d2 = new Denoiser(sr, 1, noiseProfile(new Float32Array(sr), sr), 'high'); const y2 = [...d2.push([tone])[0], ...d2.flush()[0]];
+  let err = 0; for (let i = a; i < b; i++) err = Math.max(err, Math.abs(y2[i] - tone[i])); assert.ok(y2.length === n && err < 1e-3, 'clean pass ' + err);
+  console.log('denoise ok', reduction.toFixed(1) + ' dB less hiss, tone x' + gainTone.toFixed(3));
+}
 console.log('ALL FX TESTS PASSED');

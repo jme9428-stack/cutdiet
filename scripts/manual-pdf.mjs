@@ -12,7 +12,7 @@ const shots = path.join(root, 'docs/manual/shots');
 
 // The site edition: drop the Pro-only chapter and its table-of-contents line, then number the chapters 1, 2, 3… again
 export function siteEdition(html) {
-  let out = html.replace(/<section data-only="pro">[\s\S]*?<\/section>\s*/g, '').replace(/<div data-only="pro">[\s\S]*?<\/div>\s*/g, '');
+  let out = html.replace(/<section data-only="pro">[\s\S]*?<\/section>\s*/g, '').replace(/<div data-only="pro">[\s\S]*?<\/div>\s*/g, '').replace(/<span data-only="pro">[\s\S]*?<\/span>/g, '');
   let n = 0; out = out.replace(/<span class="num">(\d+)<\/span>/g, (m, d) => (d === '0' ? m : `<span class="num">${++n}</span>`));
   let k = 0; out = out.replace(/<span class="n">\d+<\/span>/g, () => `<span class="n">${++k}</span>`);
   return out;

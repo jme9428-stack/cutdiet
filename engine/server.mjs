@@ -8,13 +8,13 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { findFfmpeg, probe, detectEncoders, hasLibass, run, ENCODER_LABELS } from './lib/ff.mjs';
 import { analyzeFile, envToArray } from './lib/analyze.mjs';
-import { buildArgs, mapOverlaysAndCaptions, segsFromRanges } from './lib/graph.mjs';
+import { buildArgs, buildJoinArgs, mapOverlaysAndCaptions, segsFromRanges } from './lib/graph.mjs';
 import { buildASS } from './lib/ass.mjs';
 import { writeWav, nativePick, openFolder, openBrowser, defaultOutDir, uniquePath, baseName, loadJSON, saveJSON, randomToken, MEDIA_RE } from './lib/util.mjs';
 import { ensureFonts, BASE_FAMILIES } from './lib/fonts.mjs';
 import { extractAudio16k, transcribeAudio, ASR_MODELS, resolveModel } from './lib/asr.mjs';
 import { synthSfx } from '../src/fxlogic.js';
-import { HOP, PRESETS, detectSegments, suggestThreshold, keepRanges, keptDuration, countRemoveRuns, clamp } from '../src/cutlogic.js';
+import { HOP, PRESETS, detectSegments, suggestThreshold, levelShift, gapNoiseDb, keepRanges, keptDuration, countRemoveRuns, clamp, audioFormat, loudnessGainDb, LOUDNESS_TARGET } from '../src/cutlogic.js';
 
 export const VERSION = '1.0.0';
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -87,6 +87,8 @@ async function startRender(body) {
   const ranges = (body.ranges || []).map(r => ({ s: Math.max(0, +r.s), e: Math.min(info.duration || +r.e, +r.e) })).filter(r => r.e - r.s > 0.01);
   if (!ranges.length) throw new Error('유지 구간이 없습니다');
   const kind = body.kind === 'shorts' ? 'shorts' : 'render';
+  const audioOnly = !info.hasVideo; // voice file: the cut is written as an audio file (MP3 / M4A / WAV)
+  if (audioOnly && kind === 'shorts') throw new Error('음성 파일에는 화면이 없어 숏츠를 만들 수 없습니다');
   const j = newJob(kind, { name: m.name, duration: info.duration, kept: ranges.reduce((a, r) => a + r.e - r.s, 0), cuts: Math.max(0, ranges.length - 1) });
   const dir = path.join(TMP, 'job-' + j.id); fs.mkdirSync(dir, { recursive: true });
   const out = body.out && body.out.w ? { w: Math.round(body.out.w / 2) * 2, h: Math.round(body.out.h / 2) * 2 } : { w: info.width, h: info.height };
@@ -97,7 +99,8 @@ async function startRender(body) {
     (fxCopy.overlays || []).forEach((o, i) => { if (o.type === 'image') { if (!o.path && o.dataUrl) o.path = dataUrlToFile(o.dataUrl, dir, 'img' + i); delete o.dataUrl; if (o.path && !fs.existsSync(o.path)) o.path = null; } });
     fxCopy.overlays = (fxCopy.overlays || []).filter(o => o.type === 'text' ? !!o.text : !!o.path);
   }
-  const req = { src: m.path, ranges, duration: info.duration, fps: body.fps || info.fps || 30, width: info.width, height: info.height, hasAudio: !!info.hasAudio, out, crop: body.crop || null, quality: body.quality || settings.quality, encoder: resolveEncoder(), fx: fxCopy, captions: body.captions || [], outPath: '' };
+  const req = { src: m.path, ranges, duration: info.duration, fps: body.fps || info.fps || 30, width: info.width, height: info.height, hasAudio: !!info.hasAudio, out, crop: body.crop || null, quality: body.quality || settings.quality, encoder: resolveEncoder(), fx: fxCopy, captions: body.captions || [], outPath: '', denoise: ['low', 'mid', 'high'].includes(body.denoise) ? body.denoise : null, noiseDb: m.env ? gapNoiseDb(m.env, HOP, ranges, info.duration) : null, gainDb: clamp(Number(body.gainDb ?? (body.audio && body.audio.gainDb)) || 0, -20, 60) };
+  if (audioOnly) { req.audioOnly = true; req.audio = { format: audioFormat(body.audio && body.audio.format).ext, channels: info.channels === 1 ? 1 : 2 }; req.captions = []; if (req.fx) { req.fx.overlays = []; if (req.fx.subs) req.fx.subs.burn = false; } }
   const mapped = mapOverlaysAndCaptions(req);
   const assets = { ass: null, bgm: null, images: mapped.images, sfx: [] };
   const burn = fxCopy && fxCopy.subs && fxCopy.subs.burn && mapped.captions.length;
@@ -110,7 +113,7 @@ async function startRender(body) {
   if (body.bgm && body.bgm.path && fs.existsSync(body.bgm.path)) assets.bgm = { path: body.bgm.path, volume: +body.bgm.volume || 0.18, duck: body.bgm.duck !== false, fade: +body.bgm.fade || 0, loop: body.bgm.loop !== false, offset: Math.max(0, +body.bgm.offset || 0) };
   fs.mkdirSync(settings.outDir, { recursive: true });
   const base = body.filename ? baseName(body.filename) : baseName(m.name) + (kind === 'shorts' ? '_shorts' : '_cut');
-  req.outPath = uniquePath(settings.outDir, base, '.mp4');
+  req.outPath = uniquePath(settings.outDir, base, audioOnly ? '.' + req.audio.format : '.mp4');
   const plan = buildArgs(req, assets, { fontsDir: ff.fonts.have.length ? FONTS : null, hasLibass: ff.libass, ffVersion: ff.version });
   const graphFile = path.join(dir, 'graph.txt'); fs.writeFileSync(graphFile, plan.graph);
   const args = plan.args.map(a => a === '__GRAPH__' ? graphFile : a);
@@ -164,18 +167,37 @@ function watchTick() {
     if (prev.stable >= 2 && Date.now() - st.mtimeMs > 3000 && !isBusy()) { prev.done = true; autoProcess(p).catch(e => log('자동 처리 실패', n, e.message)); }
   }
 }
+// 클립 이어 붙이기: ffmpeg joins the registered files into one in the output folder; the job's result is the new media
+async function startJoin(body) {
+  const ms = (body.tokens || []).map(t => media.get(t)).filter(Boolean); if (ms.length < 2) throw new Error('이어 붙일 파일을 두 개 이상 고르세요');
+  for (const m of ms) await ensureInfo(m);
+  const j = newJob('join', { name: `${ms[0].name} 외 ${ms.length - 1}개`, duration: ms.reduce((a, m) => a + (m.info.duration || 0), 0) });
+  const dir = path.join(TMP, 'job-' + j.id); fs.mkdirSync(dir, { recursive: true }); fs.mkdirSync(settings.outDir, { recursive: true });
+  const probe = buildJoinArgs(ms.map(m => ({ path: m.path, info: m.info })), 'x', {});
+  const outPath = uniquePath(settings.outDir, `${baseName(ms[0].name)} 외 ${ms.length - 1}개`, probe.ext);
+  const plan = buildJoinArgs(ms.map(m => ({ path: m.path, info: m.info })), outPath, { encoder: resolveEncoder(), ffVersion: ff.version });
+  const graphFile = path.join(dir, 'graph.txt'); fs.writeFileSync(graphFile, plan.graph); j.step = '이어 붙이는 중'; j.meta.out = outPath; let errTail = '';
+  run(ff.bin, plan.args.map(a => a === '__GRAPH__' ? graphFile : a), { signal: j.abort.signal, onStdout: d => { const mt = String(d).match(/out_time=(\d+):(\d+):(\d+(?:\.\d+)?)/g); if (mt) { const x = mt.pop().match(/(\d+):(\d+):(\d+(?:\.\d+)?)/); j.progress = Math.min(0.99, (+x[1] * 3600 + +x[2] * 60 + +x[3]) / Math.max(0.1, plan.total)); } }, onStderr: s => { errTail = (errTail + s).slice(-1500); } })
+    .then(async r => {
+      if (j.abort.signal.aborted) { finishJob(j, { status: 'cancel', error: '중단됨' }); try { fs.rmSync(outPath, { force: true }); } catch {} }
+      else if (r.code === 0 && fs.existsSync(outPath)) { const m = registerPath(outPath); await ensureInfo(m); j.progress = 1; finishJob(j, { status: 'done', out: outPath, result: { token: m.token, path: m.path, name: m.name, size: m.size, info: m.info, mediaUrl: `/api/media/${m.token}` } }); log(`이어 붙이기 완료 ${path.basename(outPath)}`); }
+      else finishJob(j, { status: 'err', error: (errTail.trim().split('\n').slice(-3).join(' ') || `ffmpeg 종료 코드 ${r.code}`).slice(0, 400) });
+      cleanupLater(dir);
+    }).catch(e => { finishJob(j, { status: 'err', error: e.message }); cleanupLater(dir); });
+  return j;
+}
 function isBusy() { for (const j of jobs.values()) if (j.status === 'run' && j.kind !== 'transcribe') return true; return false; }
 async function autoProcess(p) {
   const m = registerPath(p); const j = newJob('auto', { name: m.name }); j.step = '분석';
   try {
     const a = await analyzeFile(ff.bin, p, { signal: j.abort.signal, onProgress: f => { j.progress = f * 0.2; } });
     m.info = a.info; m.env = a.env; j.meta.duration = a.duration;
-    const pr = PRESETS[settings.preset] || PRESETS.lecture; const params = { threshold: clamp(suggestThreshold(a.env) + pr.thrOffset, -70, -20), minSilence: pr.minSilence, pad: pr.pad, minKeep: 0.25 };
-    const segs = detectSegments(a.env, HOP, a.duration, params); const ranges = keepRanges(segs);
+    const pr = PRESETS[settings.preset] || PRESETS.lecture; const params = { threshold: clamp(suggestThreshold(a.env) + pr.thrOffset, -95, -20), minSilence: pr.minSilence, pad: pr.pad, minKeep: 0.25 };
+    const segs = detectSegments(a.env, HOP, a.duration, { ...params, shift: levelShift(a.env, HOP, params.threshold - pr.thrOffset) }); const ranges = keepRanges(segs);
     j.meta.kept = keptDuration(segs); j.meta.cuts = countRemoveRuns(segs);
     if (settings.watch.tasks.project !== false) { const pj = { app: 'cutdiet', version: 2, savedAt: new Date().toISOString(), file: { name: m.name, size: m.size }, duration: a.duration, fps: a.info.fps, preset: settings.preset, params, dirty: false, segments: segs.map(g => [Math.round(g.s * 1000) / 1000, Math.round(g.e * 1000) / 1000, g.keep ? 1 : 0]), chapters: [], bgm: { name: '', volume: 0.18, duck: true, fade: 1.5, loop: true }, shorts: { in: 0, out: 0, pos: 0.5, upscale: true }, fx: null, engine: { source: p } }; fs.mkdirSync(settings.outDir, { recursive: true }); fs.writeFileSync(uniquePath(settings.outDir, baseName(m.name), '.cutdiet.json'), JSON.stringify(pj, null, 1)); }
     if (settings.watch.tasks.render !== false) {
-      j.step = '렌더링'; const r = await startRender({ token: m.token, ranges, quality: settings.quality });
+      j.step = '렌더링'; const gain = loudnessGainDb(a.env, HOP, segs, a.info.hasVideo ? LOUDNESS_TARGET.video : LOUDNESS_TARGET.voice); const r = await startRender({ token: m.token, ranges, quality: settings.quality, gainDb: gain >= 4 ? gain : 0, audio: { format: 'mp3' } });
       await new Promise(res => { const t = setInterval(() => { j.progress = 0.2 + 0.8 * r.progress; if (r.status !== 'run') { clearInterval(t); res(); } }, 500); });
       if (r.status !== 'done') throw new Error(r.error || '렌더 실패');
       j.out = r.out; j.meta.encoder = r.meta.encoder;
@@ -212,6 +234,7 @@ async function api(req, res, u) {
     case '/pick': { const paths = await nativePick({ kind: body.kind || 'files', title: body.title || (body.kind === 'dir' ? '폴더 선택' : '영상 파일 선택') }); return send(res, 200, { paths }); }
     case '/register': { const out = []; for (const pth of body.paths || []) { try { const m = registerPath(pth); await ensureInfo(m); out.push({ token: m.token, path: m.path, name: m.name, size: m.size, info: m.info, mediaUrl: `/api/media/${m.token}` }); } catch (e) { out.push({ path: pth, error: e.message }); } } return send(res, 200, out); }
     case '/analyze': { const m = media.get(body.token); if (!m) return send(res, 404, { error: 'unknown media' }); try { const a = await analyzeFile(ff.bin, m.path); m.info = a.info; m.env = a.env; return send(res, 200, { token: m.token, info: a.info, duration: a.duration, env: envToArray(a.env) }); } catch (e) { if (/noaudio/.test(e.message)) { m.info = e.info || m.info; return send(res, 200, { token: m.token, info: m.info, duration: m.info ? m.info.duration : 0, env: null, noAudio: true }); } return send(res, 500, { error: e.message }); } }
+    case '/join': { try { const j = await startJoin(body); return send(res, 200, publicJob(j)); } catch (e) { return send(res, 400, { error: e.message }); } }
     case '/render': { try { const j = await startRender(body); return send(res, 200, publicJob(j)); } catch (e) { return send(res, 400, { error: e.message }); } }
     case '/transcribe': { try { const j = await startTranscribe(body); return send(res, 200, publicJob(j)); } catch (e) { return send(res, 400, { error: e.message }); } }
     case '/thumbs': { const m = media.get(body.token); if (!m) return send(res, 404, { error: 'unknown media' }); const dir = path.join(settings.outDir, baseName(m.name) + '_썸네일'); fs.mkdirSync(dir, { recursive: true }); const files = []; for (const t of (body.times || []).slice(0, 40)) { try { const jpg = await grabFrame(m, t, 0); const f = path.join(dir, `${baseName(m.name)}_${String(Math.floor(t / 60)).padStart(2, '0')}-${String(Math.floor(t % 60)).padStart(2, '0')}.jpg`); fs.writeFileSync(f, jpg); files.push(f); } catch {} } return send(res, 200, { dir, files }); }

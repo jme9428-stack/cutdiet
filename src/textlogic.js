@@ -293,3 +293,35 @@ export function resampleInto(target, targetSr, chans, srcSr, t0) {
   }
   return end;
 }
+
+// ---- text-based editing: delete words in the transcript to cut them from the video ----
+// Words to show: Whisper's word timings, or (SRT import / no word timings) each caption's words spread over the line by length.
+export function editableWords(words, wordLevel, lines) {
+  if (words && words.length && wordLevel !== false) return words.map(w => ({ text: String(w.text).trim(), s: w.s, e: w.e })).filter(w => w.text);
+  const out = [];
+  for (const l of lines || []) {
+    const toks = String(l.text || '').split(/\s+/).filter(Boolean); if (!toks.length) continue;
+    const total = toks.reduce((a, t) => a + t.length + 1, 0); let acc = 0;
+    for (const t of toks) { const s = l.s + (l.e - l.s) * acc / total; acc += t.length + 1; out.push({ text: t, s, e: l.s + (l.e - l.s) * acc / total, approx: true }); }
+  }
+  return out;
+}
+// Spans to cut for words i..j (inclusive): a little margin around the words, never into the neighbouring words.
+export function wordSpans(words, i, j, margin = 0.08) {
+  if (i > j) [i, j] = [j, i]; const a = words[i], b = words[j]; if (!a || !b) return [];
+  const prev = words[i - 1], next = words[j + 1];
+  const s = Math.max(0, prev ? Math.max(prev.e, a.s - margin) : a.s - margin), e = next ? Math.min(next.s, b.e + margin) : b.e + margin;
+  return e > s ? [{ s, e }] : [];
+}
+// true when the middle of the word falls in a removed (keep:false) segment
+export function wordIsCut(w, segs) {
+  const t = (w.s + w.e) / 2; let lo = 0, hi = segs.length - 1;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (segs[m].e <= t) lo = m + 1; else if (segs[m].s > t) hi = m - 1; else return !segs[m].keep; }
+  return false;
+}
+// The deleted words grouped by the caption line they belong to, as stripFromLines() candidates (removes them from the text)
+export function wordStripCands(lines, picked) {
+  const groups = new Map();
+  for (const w of picked) { const l = lines.find(x => x.s <= w.s + 0.08 && x.e >= w.e - 0.08); if (!l) continue; if (!groups.has(l)) groups.set(l, []); groups.get(l).push(w); }
+  return [...groups.values()].map(ws => ({ kind: 'filler', s: ws[0].s, e: ws[ws.length - 1].e, text: ws.map(w => w.text).join(' ') }));
+}

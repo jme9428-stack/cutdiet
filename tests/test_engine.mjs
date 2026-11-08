@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { parseProbe, findFfmpeg, run, qualityFor } from '../engine/lib/ff.mjs';
-import { buildArgs, scriptFlag, selectExpr, retimeExpr, zoomExprs, segsFromRanges, mapOverlaysAndCaptions } from '../engine/lib/graph.mjs';
+import { buildArgs, buildJoinArgs, scriptFlag, selectExpr, retimeExpr, zoomExprs, segsFromRanges, mapOverlaysAndCaptions } from '../engine/lib/graph.mjs';
 import { buildASS, assTime, assText, styleLine, captionTags, overlayAnchor } from '../engine/lib/ass.mjs';
 import { fontFamilyName, woffToSfnt } from '../engine/lib/fonts.mjs';
 import zlib from 'node:zlib';
@@ -13,7 +13,7 @@ import { analyzeFile } from '../engine/lib/analyze.mjs';
 import { transcribeAudio } from '../engine/lib/asr.mjs';
 import { uniquePath, writeWav } from '../engine/lib/util.mjs';
 import { SUB_PRESETS } from '../src/fxlogic.js';
-import { detectSegments, keepRanges, HOP, outTime } from '../src/cutlogic.js';
+import { detectSegments, keepRanges, HOP, outTime, suggestThreshold, keptDuration, gapNoiseDb } from '../src/cutlogic.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -132,6 +132,67 @@ const plan3 = buildArgs({ src, ranges: [kr[0]], duration: a.duration, fps: 30, w
 fs.writeFileSync(graphFile, plan3.graph); r = await run(ffbin.path, plan3.args.map(x => x === '__GRAPH__' ? graphFile : x)); assert.equal(r.code, 0, r.stderr);
 const ps = parseProbe((await run(ffbin.path, ['-hide_banner', '-i', shorts])).stderr); assert.equal(ps.width, 540); assert.equal(ps.height, 960);
 console.log('shorts crop ok');
+// voice file: a quiet audio-only source cut to MP3 / M4A / WAV with the auto gain, no video stream in the output
+{
+  const memo = path.join(tmp, 'memo.m4a');
+  r = await run(ffbin.path, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', "sine=frequency=300:sample_rate=48000,volume=volume='if(between(t,1,3)+between(t,6,8),0.003,0)':eval=frame", '-t', '10', '-c:a', 'aac', memo]); assert.equal(r.code, 0, r.stderr);
+  const am = await analyzeFile(ffbin.path, memo); assert.equal(am.info.hasVideo, false);
+  const thr = suggestThreshold(am.env); const msegs = detectSegments(am.env, HOP, am.duration, { threshold: thr, minSilence: 0.6, pad: 0.15, minKeep: 0.25 }); const mr = keepRanges(msegs);
+  assert.equal(mr.length, 2, 'memo ranges ' + JSON.stringify(mr) + ' thr ' + thr);
+  for (const fmt of ['mp3', 'm4a', 'wav']) {
+    const outA = path.join(tmp, 'memo_cut.' + fmt);
+    const pa = buildArgs({ src: memo, ranges: mr, duration: am.duration, fps: 30, width: 0, height: 0, hasAudio: true, out: { w: 0, h: 0 }, crop: null, quality: 'high', encoder: 'libx264', fx: null, audioOnly: true, audio: { format: fmt, gainDb: 30 }, outPath: outA }, { images: [], sfx: [] }, { ffVersion: ffbin.version });
+    assert.ok(!pa.graph.includes('[0:v]') && !pa.args.includes('[vout]'), pa.graph);
+    fs.writeFileSync(graphFile, pa.graph); r = await run(ffbin.path, pa.args.map(x => x === '__GRAPH__' ? graphFile : x)); assert.equal(r.code, 0, fmt + ' ' + r.stderr + pa.graph);
+    const po = parseProbe((await run(ffbin.path, ['-hide_banner', '-i', outA])).stderr);
+    assert.ok(!po.hasVideo && po.hasAudio && Math.abs(po.duration - keptDuration(msegs)) < 0.2, fmt + ' ' + JSON.stringify(po));
+    const ao = await analyzeFile(ffbin.path, outA); const peak = Math.max(...ao.env), srcPeak = Math.max(...am.env); assert.ok(peak > srcPeak + 25, fmt + ' boosted peak ' + peak + ' vs ' + srcPeak);
+  }
+}
+console.log('voice file (mp3/m4a/wav) ok');
+// cut joins: a continuous tone cut at arbitrary points must not jump at the joins (audible tick)
+{
+  const tone = path.join(tmp, 'tone.wav'); r = await run(ffbin.path, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=220:sample_rate=48000', '-t', '6', '-ac', '1', tone]); assert.equal(r.code, 0);
+  const outT = path.join(tmp, 'tone_cut.wav'); const tr = [{ s: 0.5, e: 1.2037 }, { s: 2.3011, e: 3.0 }, { s: 4.1234, e: 5.0 }];
+  const pt = buildArgs({ src: tone, ranges: tr, duration: 6, fps: 30, width: 0, height: 0, hasAudio: true, out: { w: 0, h: 0 }, crop: null, quality: 'high', encoder: 'libx264', fx: null, audioOnly: true, audio: { format: 'wav', gainDb: 0, channels: 1 }, outPath: outT }, { images: [], sfx: [] }, { ffVersion: ffbin.version });
+  fs.writeFileSync(graphFile, pt.graph); r = await run(ffbin.path, pt.args.map(x => x === '__GRAPH__' ? graphFile : x)); assert.equal(r.code, 0, r.stderr);
+  const raw = (await run(ffbin.path, ['-loglevel', 'error', '-i', outT, '-f', 'f32le', '-ac', '1', 'pipe:1'])).stdout; const xs = new Float32Array(raw.buffer, raw.byteOffset, raw.length / 4);
+  let peak = 0, jump = 0; for (let i = 1; i < xs.length; i++) { peak = Math.max(peak, Math.abs(xs[i])); jump = Math.max(jump, Math.abs(xs[i] - xs[i - 1])); }
+  const normal = peak * 2 * Math.PI * 220 / 48000; assert.ok(jump < normal * 2, `join jump ${jump} vs normal ${normal}`);
+}
+{ // loudness matching reaches video renders too (gain on the voice before mixing, limiter after)
+  const pv = buildArgs({ src: 'in.mp4', ranges: [{ s: 0, e: 1 }, { s: 2, e: 3 }], duration: 4, fps: 30, width: 640, height: 360, hasAudio: true, out: { w: 640, h: 360 }, crop: null, quality: 'high', encoder: 'libx264', fx: null, gainDb: 6, outPath: 'o.mp4' }, { images: [], sfx: [] }, { ffVersion: '7' });
+  assert.ok(pv.graph.includes('volume=6.000dB') && pv.graph.includes('[vout]') && pv.graph.includes('alimiter'), pv.graph);
+}
+{ // 잡음 제거 in the engine: hiss under a tone drops, the tone stays
+  const noisy = path.join(tmp, 'noisy.wav'); r = await run(ffbin.path, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', "sine=frequency=440:sample_rate=48000,volume='if(lt(mod(t,4),2.5),0.3,0)':eval=frame", '-f', 'lavfi', '-i', 'anoisesrc=color=white:amplitude=0.03:sample_rate=48000', '-filter_complex', '[0:a][1:a]amix=inputs=2:duration=first:normalize=0', '-t', '12', '-ac', '1', noisy]); assert.equal(r.code, 0, r.stderr);
+  const level = async (file, from, to) => { const rr = await run(ffbin.path, ['-hide_banner', '-nostats', '-ss', String(from), '-t', String(to - from), '-i', file, '-af', 'volumedetect', '-f', 'null', '-']); return Number((rr.stderr.match(/mean_volume: (-?[\d.]+)/) || [])[1]); };
+  const an = await analyzeFile(ffbin.path, noisy); const outs = {};
+  for (const dn of [null, 'high']) {
+    const o = path.join(tmp, `dn_${dn || 'off'}.wav`);
+    const pd = buildArgs({ src: noisy, ranges: [{ s: 0, e: 12 }], duration: 12, fps: 30, width: 0, height: 0, hasAudio: true, out: { w: 0, h: 0 }, crop: null, quality: 'high', encoder: 'libx264', fx: null, audioOnly: true, audio: { format: 'wav', channels: 1 }, denoise: dn, noiseDb: gapNoiseDb(an.env, HOP, [{ s: 0, e: 2.5 }, { s: 4, e: 6.5 }, { s: 8, e: 10.5 }], 12), outPath: o }, { images: [], sfx: [] }, { ffVersion: ffbin.version });
+    assert.equal(!!dn, pd.graph.includes('afftdn'));
+    fs.writeFileSync(graphFile, pd.graph); r = await run(ffbin.path, pd.args.map(x => x === '__GRAPH__' ? graphFile : x)); assert.equal(r.code, 0, r.stderr + pd.graph);
+    outs[dn || 'off'] = { pause: await level(o, 2.8, 3.8), tone: await level(o, 4.5, 6) };
+  }
+  assert.ok(outs.off.pause - outs.high.pause > 10 && Math.abs(outs.off.tone - outs.high.tone) < 1.5, 'engine denoise ' + JSON.stringify(outs));
+  console.log('engine denoise ok', JSON.stringify(outs));
+}
+{ // 클립 이어 붙이기: two videos of different size/rate + a voice-only clip → one 640x360 video, parts in order
+  const c1 = path.join(tmp, 'j1.mp4'), c2 = path.join(tmp, 'j2.mp4'), c3 = path.join(tmp, 'j3.m4a');
+  await run(ffbin.path, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=640x360:rate=30', '-f', 'lavfi', '-i', 'sine=frequency=300:sample_rate=48000', '-t', '3', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', c1]);
+  await run(ffbin.path, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=25', '-f', 'lavfi', '-i', 'sine=frequency=600:sample_rate=44100', '-t', '2', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', c2]);
+  await run(ffbin.path, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=900:sample_rate=48000', '-t', '2', '-ac', '1', '-c:a', 'aac', c3]);
+  const clips = []; for (const f of [c1, c3, c2]) clips.push({ path: f, info: parseProbe((await run(ffbin.path, ['-hide_banner', '-i', f])).stderr) });
+  const jo = path.join(tmp, 'joined.mp4'); const pj = buildJoinArgs(clips, jo, { encoder: 'libx264', ffVersion: ffbin.version });
+  fs.writeFileSync(graphFile, pj.graph); r = await run(ffbin.path, pj.args.map(x => x === '__GRAPH__' ? graphFile : x)); assert.equal(r.code, 0, r.stderr + pj.graph);
+  const pjo = parseProbe((await run(ffbin.path, ['-hide_banner', '-i', jo])).stderr); assert.ok(pjo.width === 640 && pjo.height === 360 && Math.abs(pjo.duration - 7) < 0.15 && pjo.hasAudio, JSON.stringify(pjo));
+  const hz = async t => { const raw = (await run(ffbin.path, ['-loglevel', 'error', '-ss', String(t), '-t', '0.4', '-i', jo, '-f', 'f32le', '-ac', '1', '-ar', '48000', 'pipe:1'])).stdout; const x = new Float32Array(raw.buffer, raw.byteOffset, raw.length / 4); let z = 0; for (let i = 1; i < x.length; i++) if (x[i - 1] < 0 && x[i] >= 0) z++; return Math.round(z / (x.length / 48000)); };
+  const tones = [await hz(1), await hz(4), await hz(6)]; assert.ok(Math.abs(tones[0] - 300) < 15 && Math.abs(tones[1] - 900) < 15 && Math.abs(tones[2] - 600) < 15, 'join order ' + tones);
+  const ja = buildJoinArgs([clips[1], clips[1]], path.join(tmp, 'ja.wav'), {}); assert.ok(!ja.video && ja.ext === '.wav' && !ja.graph.includes(':v]'));
+  console.log('clip join ok', tones.join('→'), 'Hz');
+}
+console.log('cut join fades ok');
 assert.ok(uniquePath(tmp, 'out', '.mp4').endsWith('out (2).mp4'));
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log('ALL ENGINE TESTS PASSED');

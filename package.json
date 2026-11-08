@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^4.3.1",
+    "@mediabunny/mp3-encoder": "^1.65.2",
     "mediabunny": "^1.62.1"
   },
   "devDependencies": {

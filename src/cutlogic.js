@@ -21,7 +21,8 @@ export function detectSegments(env, hop, duration, p) {
   const n = env ? env.length : 0;
   if (!n || duration <= 0) return [{ s: 0, e: Math.max(duration, 0), keep: true }];
   const mask = new Uint8Array(n);
-  for (let i = 0; i < n; i++) mask[i] = env[i] > p.threshold ? 1 : 0;
+  const sh = p.shift && p.shift.length === n ? p.shift : null; // levelShift(): threshold follows level changes
+  for (let i = 0; i < n; i++) mask[i] = env[i] > p.threshold + (sh ? sh[i] : 0) ? 1 : 0;
   for (const r of getRuns(mask)) if (r.v === 0 && (r.i1 - r.i0) * hop < p.minSilence) mask.fill(1, r.i0, r.i1);
   for (const r of getRuns(mask)) if (r.v === 1 && (r.i1 - r.i0) * hop < p.minKeep) mask.fill(0, r.i0, r.i1);
   const padN = Math.round(p.pad / hop);
@@ -44,16 +45,61 @@ export function detectSegments(env, hop, duration, p) {
   return segs;
 }
 
-export function suggestThreshold(env) {
-  if (!env || env.length < 50) return -40;
+// Threshold for env[i0..i1), or null when that stretch shows no clear speech/pause contrast (all talk, all noise, empty).
+export function stretchThreshold(env, i0 = 0, i1 = env.length) {
   const vals = [];
-  for (let i = 0; i < env.length; i++) if (env[i] > -95) vals.push(env[i]);
-  if (vals.length < 50) return -40;
+  for (let i = i0; i < i1; i++) if (env[i] > -95) vals.push(env[i]);
+  if (vals.length < 50) return null;
   vals.sort((a, b) => a - b);
   const q = f => vals[Math.min(vals.length - 1, Math.floor(f * vals.length))];
   const floor = q(0.10), speech = q(0.90);
-  if (speech - floor < 8) return -40;
-  return Math.round(clamp(floor + 0.35 * (speech - floor), -65, -25));
+  // Very quiet recording (voice memo, call recording) whose pauses are digital silence: everything audible sits far below
+  // -40 dB and the frames above the digital floor are the sound itself, not room noise. Split between digital silence and it.
+  const digital = (i1 - i0 - vals.length) / (i1 - i0);
+  if (digital > 0.2 && speech < -45) return Math.round(clamp(-100 + 0.35 * (speech + 100), -95, -25));
+  if (speech - floor < 8) return null;
+  return Math.round(clamp(floor + 0.35 * (speech - floor), -95, -25));
+}
+export function suggestThreshold(env) {
+  if (!env || env.length < 50) return -40;
+  return stretchThreshold(env) ?? -40;
+}
+// Long recordings whose level changes (mic moved, room got noisy): per-frame offset (dB) to add to the threshold so it
+// follows the local speech/pause levels. Local thresholds every `step` s over a `win` s window; stretches without contrast
+// borrow their neighbours; offsets under `dead` dB are ignored so steady recordings cut exactly as before. null = no change.
+export function levelShift(env, hop, globalThr, { win = 30, step = 5, dead = 4, lo = -25, hi = 15 } = {}) {
+  const n = env ? env.length : 0; const W = Math.round(win / hop), S = Math.max(1, Math.round(step / hop));
+  if (n < W * 2) return null;
+  const pts = [];
+  for (let c = 0; c < n + S; c += S) { const t = stretchThreshold(env, Math.max(0, c - (W >> 1)), Math.min(n, c + (W >> 1))); pts.push(t == null ? null : clamp(t - globalThr, lo, hi)); }
+  let last = null; for (let k = 0; k < pts.length; k++) { if (pts[k] == null) pts[k] = last; else last = pts[k]; }
+  last = null; for (let k = pts.length - 1; k >= 0; k--) { if (pts[k] == null) pts[k] = last; else last = pts[k]; }
+  if (pts[0] == null) return null;
+  const soft = v => Math.sign(v) * Math.max(0, Math.abs(v) - dead);
+  const sp = pts.map(soft); if (sp.every(v => v === 0)) return null;
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const f = i / S, k = Math.min(sp.length - 2, Math.floor(f)), u = f - k; out[i] = sp[k] * (1 - u) + sp[k + 1] * u; }
+  return out;
+}
+
+// Magnet for a dragged cut boundary: the playhead or a caption edge within `tol` seconds wins; otherwise the quietest
+// 20 ms frame within reach, when it is clearly (3 dB) quieter than where the pointer is — cuts land in the gap, not on a word.
+export function snapBoundary(t, tol, env, hop, targets = []) {
+  let best = null;
+  for (const x of targets) if (x != null && Math.abs(x - t) <= tol && (!best || Math.abs(x - t) < Math.abs(best.t - t))) best = { t: x, kind: 'mark' };
+  if (best) return best;
+  if (!env || !env.length) return { t, kind: null };
+  const i0 = Math.max(0, Math.floor((t - tol) / hop)), i1 = Math.min(env.length - 1, Math.ceil((t + tol) / hop)), ic = clamp(Math.floor(t / hop), 0, env.length - 1);
+  let mi = ic; for (let i = i0; i <= i1; i++) if (env[i] < env[mi] - 1e-9 || (env[i] === env[mi] && Math.abs(i - ic) < Math.abs(mi - ic))) mi = i;
+  return env[mi] < env[ic] - 3 ? { t: (mi + 0.5) * hop, kind: 'quiet' } : { t, kind: null };
+}
+
+// Noise level (dB) in the gaps between kept ranges: median of the frames that are not digital silence. null if none.
+export function gapNoiseDb(env, hop, ranges, duration) {
+  if (!env || !env.length) return null; const vals = []; let cur = 0;
+  const take = (a, b) => { for (let i = Math.max(0, Math.ceil(a / hop)); i < Math.min(env.length, Math.floor(b / hop)); i++) if (env[i] > -95) vals.push(env[i]); };
+  for (const r of ranges) { if (r.s > cur) take(cur, r.s); cur = r.e; } take(cur, duration);
+  if (vals.length < 25) return null; vals.sort((a, b) => a - b); return vals[vals.length >> 1];
 }
 
 export function keepRanges(segs) {
@@ -122,12 +168,12 @@ export function tcFromSeconds(sec, fps) {
   return `${pad2(Math.floor(tot / 3600))}:${pad2(Math.floor((tot % 3600) / 60))}:${pad2(tot % 60)}:${pad2(ff)}`;
 }
 
-export function buildEDL(title, ranges, fps, clipName) {
+export function buildEDL(title, ranges, fps, clipName, audioOnly = false) {
   const lines = [`TITLE: ${title}`, 'FCM: NON-DROP FRAME', ''];
   let rec = 0;
   ranges.forEach((r, i) => {
     const dur = r.e - r.s;
-    lines.push(`${pad3(i + 1)}  AX       AA/V  C        ${tcFromSeconds(r.s, fps)} ${tcFromSeconds(r.e, fps)} ${tcFromSeconds(rec, fps)} ${tcFromSeconds(rec + dur, fps)}`);
+    lines.push(`${pad3(i + 1)}  AX       ${audioOnly ? 'AA  ' : 'AA/V'}  C        ${tcFromSeconds(r.s, fps)} ${tcFromSeconds(r.e, fps)} ${tcFromSeconds(rec, fps)} ${tcFromSeconds(rec + dur, fps)}`);
     lines.push(`* FROM CLIP NAME: ${clipName}`);
     lines.push('');
     rec += dur;
@@ -138,7 +184,7 @@ export function buildEDL(title, ranges, fps, clipName) {
 const FCP_FRAMES = [[23.976, 1001, 24000], [24, 100, 2400], [25, 100, 2500], [29.97, 1001, 30000], [30, 100, 3000], [50, 100, 5000], [59.94, 1001, 60000], [60, 100, 6000]];
 export function fcpFrame(fps) { let best = FCP_FRAMES[0]; for (const f of FCP_FRAMES) if (Math.abs(f[0] - fps) < Math.abs(best[0] - fps)) best = f; return best; }
 export function xmlEsc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
-export function buildFCPXML(title, ranges, fps, clipName, width, height, srcDuration, hasAudio) {
+export function buildFCPXML(title, ranges, fps, clipName, width, height, srcDuration, hasAudio, audioOnly = false) {
   const fd = fcpFrame(fps); const [ffps, num, den] = fd; const T = frames => `${frames * num}/${den}s`;
   let offF = 0; const clips = [];
   for (const r of ranges) {
@@ -150,7 +196,7 @@ export function buildFCPXML(title, ranges, fps, clipName, width, height, srcDura
   return [
     '<?xml version="1.0" encoding="UTF-8"?>', '<!DOCTYPE fcpxml>', '<fcpxml version="1.10">', '  <resources>',
     `    <format id="r1" frameDuration="${num}/${den}s" width="${width || 1920}" height="${height || 1080}"/>`,
-    `    <asset id="r2" name="${xmlEsc(clipName)}" uid="${xmlEsc(clipName)}" start="0s" duration="${T(srcF)}" hasVideo="1"${hasAudio ? ' hasAudio="1" audioSources="1" audioChannels="2"' : ''} format="r1">`,
+    `    <asset id="r2" name="${xmlEsc(clipName)}" uid="${xmlEsc(clipName)}" start="0s" duration="${T(srcF)}" hasVideo="${audioOnly ? 0 : 1}"${hasAudio ? ' hasAudio="1" audioSources="1" audioChannels="2"' : ''} format="r1">`,
     `      <media-rep kind="original-media" src="file:///${encodeURIComponent(clipName)}"/>`,
     '    </asset>', '  </resources>', '  <library>', '    <event name="컷다이어트">', `      <project name="${xmlEsc(title)}">`,
     `        <sequence format="r1" duration="${T(offF)}" tcStart="0s" tcFormat="NDF"${hasAudio ? ' audioLayout="stereo" audioRate="48k"' : ''}>`,
@@ -158,15 +204,66 @@ export function buildFCPXML(title, ranges, fps, clipName, width, height, srcDura
 }
 
 // opts: { bgm: {name, volume(0-1), duck, fade, loop} | null, hasVoice, kept }
+// Audio-only output (voice recordings, podcasts): same cut, written as an audio file. Shared by the browser and the local engine.
+export const AUDIO_FORMATS = {
+  mp3: { ext: 'mp3', label: 'MP3', mime: 'audio/mpeg', bitrate: 192000, ff: ['-c:a', 'libmp3lame', '-b:a', '192k'] },
+  m4a: { ext: 'm4a', label: 'M4A (AAC)', mime: 'audio/mp4', bitrate: 192000, ff: ['-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart'] },
+  wav: { ext: 'wav', label: 'WAV (무손실)', mime: 'audio/wav', bitrate: 0, ff: ['-c:a', 'pcm_s16le'] },
+};
+export function audioFormat(id) { return AUDIO_FORMATS[id] || AUDIO_FORMATS.mp3; }
+// estimated bytes of an audio export (WAV: 16-bit PCM at the source rate)
+export function audioOutBytes(id, seconds, sampleRate = 48000, channels = 2) {
+  const f = audioFormat(id); return Math.round(f.bitrate ? f.bitrate * seconds / 8 : sampleRate * Math.min(2, channels || 2) * 2 * seconds + 44);
+}
+
+// Loudness of what is kept, close to how YouTube / podcast apps measure it (gated mean energy, as in EBU R128 / LUFS):
+// frames of digital silence are ignored, then frames more than 10 dB below the mean are dropped and the mean taken again.
+export function keptLoudnessDb(env, hop, segs) {
+  if (!env || !env.length) return null; const vals = [];
+  for (const r of keepRanges(segs)) { const i1 = Math.min(env.length, Math.ceil(r.e / hop)); for (let i = Math.max(0, Math.floor(r.s / hop)); i < i1; i++) if (env[i] > -95) vals.push(env[i]); }
+  if (vals.length < 25) return null;
+  const meanDb = a => { let e = 0; for (const v of a) e += Math.pow(10, v / 10); return 10 * Math.log10(e / a.length); };
+  const m1 = meanDb(vals); const gated = vals.filter(v => v > m1 - 10);
+  // our envelope is plain RMS; LUFS adds an ear (K) weighting that reads voice ~3 dB lower (measured with ffmpeg ebur128)
+  return (gated.length ? meanDb(gated) : m1) - LUFS_OFFSET;
+}
+const LUFS_OFFSET = 3;
+export const LOUDNESS_TARGET = { video: -14, voice: -16 }; // YouTube · podcast (Apple/Spotify) reference levels
+// Gain (dB) that brings the kept sound to the target loudness: up to +45 dB for very quiet memos, down to -12 dB for hot recordings.
+export function loudnessGainDb(env, hop, segs, target = LOUDNESS_TARGET.video, max = 45, min = -12) {
+  const L = keptLoudnessDb(env, hop, segs); if (L == null) return 0;
+  const g = Math.round(clamp(target - L, min, max)); return Math.abs(g) >= 1 ? g : 0;
+}
+// in-place gain with a soft limiter (never above ±0.98) so boosted peaks do not clip harshly
+// Cut joins: a short fade at both sides of every join so the waveform does not jump (an audible tick at each cut).
+// Edges at the very start / end of the output are left alone. Length is unchanged, so picture and sound stay in sync.
+export const JOIN_FADE = 0.008;
+export function fadeJoins(chans, sr, t0, r, isFirst, isLast, F = JOIN_FADE) {
+  const n = chans[0] ? chans[0].length : 0; if (!n) return;
+  const tEnd = t0 + n / sr; if (!((!isFirst && t0 < r.s + F) || (!isLast && tEnd > r.e - F))) return;
+  for (let i = 0; i < n; i++) {
+    const t = t0 + (i + 0.5) / sr; let g = 1;
+    if (!isFirst && t < r.s + F) g = Math.min(g, (t - r.s) / F);
+    if (!isLast && t > r.e - F) g = Math.min(g, (r.e - t) / F);
+    if (g < 1) { g = Math.max(0, g); for (const ch of chans) ch[i] *= g; }
+  }
+}
+export function applyGain(chans, lin) {
+  const K = 0.8, R = 0.18;
+  for (const ch of chans) for (let i = 0; i < ch.length; i++) { const y = ch[i] * lin, a = Math.abs(y); ch[i] = a <= K ? y : Math.sign(y) * (K + R * Math.tanh((a - K) / R)); }
+}
+
+// opts.audio = 'mp3' | 'm4a' | 'wav' → audio-only file (no video filter, no -map of a video stream)
 export function buildFFmpeg(ranges, inName, outName, opts = {}) {
   const expr = ranges.map(r => `between(t,${r.s.toFixed(3)},${r.e.toFixed(3)})`).join('+');
-  const filterV = `select='${expr}',setpts=N/FRAME_RATE/TB`;
+  const audioOnly = !!opts.audio;
+  const filterV = audioOnly ? '' : `select='${expr}',setpts=N/FRAME_RATE/TB`;
   const filterA = `aselect='${expr}',asetpts=N/SR/TB`;
-  const enc = `-c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart`;
+  const enc = audioOnly ? `-vn ${audioFormat(opts.audio).ff.join(' ')}` : `-c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart`;
   const bgm = opts.bgm;
   if (!bgm) {
-    const inline = `ffmpeg -i "${inName}" -vf "${filterV}" -af "${filterA}" ${enc} "${outName}"`;
-    const scriptCmd = `ffmpeg -i "${inName}" -filter_script:v cut_video_filter.txt -filter_script:a cut_audio_filter.txt ${enc} "${outName}"`;
+    const inline = audioOnly ? `ffmpeg -i "${inName}" -af "${filterA}" ${enc} "${outName}"` : `ffmpeg -i "${inName}" -vf "${filterV}" -af "${filterA}" ${enc} "${outName}"`;
+    const scriptCmd = audioOnly ? `ffmpeg -i "${inName}" -filter_script:a cut_audio_filter.txt ${enc} "${outName}"` : `ffmpeg -i "${inName}" -filter_script:v cut_video_filter.txt -filter_script:a cut_audio_filter.txt ${enc} "${outName}"`;
     return { inline, filterV, filterA, scriptCmd, complex: null, useScript: inline.length > 7000 };
   }
   const kept = opts.kept || rangesDuration(ranges); const F = bgm.fade || 0;
@@ -174,12 +271,12 @@ export function buildFFmpeg(ranges, inName, outName, opts = {}) {
   if (F > 0) bg.push(`afade=t=in:st=0:d=${F}`, `afade=t=out:st=${Math.max(0, kept - F).toFixed(3)}:d=${F}`);
   bg.push(`atrim=0:${kept.toFixed(3)}`, 'asetpts=N/SR/TB');
   const mix = 'amix=inputs=2:duration=first:dropout_transition=0:normalize=0';
-  const lines = [`[0:v]${filterV}[v]`];
+  const lines = audioOnly ? [] : [`[0:v]${filterV}[v]`];
   if (opts.hasVoice && bgm.duck) lines.push(`[0:a]${filterA},asplit=2[voiceA][voiceB]`, `[1:a]${bg.join(',')}[bg]`, `[bg][voiceB]sidechaincompress=threshold=0.02:ratio=8:attack=40:release=400[bgd]`, `[voiceA][bgd]${mix}[a]`);
   else if (opts.hasVoice) lines.push(`[0:a]${filterA}[voice]`, `[1:a]${bg.join(',')}[bg]`, `[voice][bg]${mix}[a]`);
   else lines.push(`[1:a]${bg.join(',')}[a]`);
   const complex = lines.join(';\n');
-  const scriptCmd = `ffmpeg -i "${inName}" ${bgm.loop ? '-stream_loop -1 ' : ''}-i "${bgm.name}" -filter_complex_script cut_filter_complex.txt -map "[v]" -map "[a]" ${enc} -shortest "${outName}"`;
+  const scriptCmd = `ffmpeg -i "${inName}" ${bgm.loop ? '-stream_loop -1 ' : ''}-i "${bgm.name}" -filter_complex_script cut_filter_complex.txt ${audioOnly ? '' : '-map "[v]" '}-map "[a]" ${enc} -shortest "${outName}"`;
   return { inline: scriptCmd, filterV, filterA, scriptCmd, complex, useScript: true };
 }
 
