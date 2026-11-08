@@ -140,7 +140,7 @@ function boot() {
   document.addEventListener('keydown', e => {
     if (!$('keysheet').hidden) { if (e.code === 'Escape' || comboFromEvent(e) === keymap.help) { e.preventDefault(); toggleSheet(false); e.cutdietHandled = true; } return; }
     if (listening) return;
-    const xd = $('exportDlg'); if (xd && !xd.hidden) return;
+    const xd = $('exportDlg'), jd = $('joinDlg'); if ((xd && !xd.hidden) || (jd && !jd.hidden)) return;
     const tag = (e.target && e.target.tagName) || ''; const isRange = tag === 'INPUT' && e.target.type === 'range';
     const typing = (tag === 'INPUT' && !/^(checkbox|radio|range|color|button|submit|reset|file|image)$/.test(e.target.type || 'text')) || tag === 'TEXTAREA' || e.target.isContentEditable;
     if (typing) return;

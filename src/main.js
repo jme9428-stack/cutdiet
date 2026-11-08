@@ -142,6 +142,11 @@ document.addEventListener('drop', e => { e.preventDefault(); if (e.target.closes
 els.btnOtherFile.addEventListener('click', () => els.fileInput.click());
 
 // ===================== JOIN CLIPS =====================
+// Joined files live in the browser's private storage only while they are being edited: clear any left from an earlier visit
+// (a long joined video can take gigabytes of the member's disk otherwise).
+// Only files older than 12 h go: another open tab may still be editing a newer one.
+async function clearOldJoined() { try { const root = await navigator.storage.getDirectory(); const names = []; for await (const [n] of root.entries()) { const m = /^cutdiet-joined-(\d+)\./.exec(n); if (m && Date.now() - Number(m[1]) > 12 * 3600e3) names.push(n); } for (const n of names) { try { await root.removeEntry(n); } catch {} } } catch {} }
+clearOldJoined();
 // Several files at once → choose the order → they are joined into one file, which is then opened like any other.
 // The editor works on one source, so joining happens first (browser: re-encode into one MP4/WAV in the browser's private
 // storage; Pro engine: ffmpeg into the output folder).
@@ -189,7 +194,7 @@ async function joinClipsBrowser(files, { onProgress, signal }) {
   const sr = fa ? await fa.a.getSampleRate() : 48000; const nch = Math.min(2, Math.max(1, ...await Promise.all(clips.filter(c => c.a).map(c => c.a.getNumberOfChannels()))));
   // where the result goes: the browser's private storage (no size limit in memory), else memory
   const ext = video ? 'mp4' : 'wav'; let fh = null, writable = null; const parts = []; let written = 0;
-  try { const root = await navigator.storage.getDirectory(); for await (const [n] of root.entries()) if (n.startsWith('cutdiet-joined-')) { try { await root.removeEntry(n); } catch {} } fh = await root.getFileHandle(`cutdiet-joined-${Date.now()}.${ext}`, { create: true }); writable = await fh.createWritable(); } catch { fh = null; writable = null; }
+  try { await clearOldJoined(); const root = await navigator.storage.getDirectory(); fh = await root.getFileHandle(`cutdiet-joined-${Date.now()}.${ext}`, { create: true }); writable = await fh.createWritable(); } catch { fh = null; writable = null; }
   const target = new mb.StreamTarget(new WritableStream({ write: async ch => { if (writable) { await writable.write({ type: 'write', position: ch.position, data: ch.data }); written = Math.max(written, ch.position + ch.data.byteLength); } else parts.push({ pos: ch.position, blob: new Blob([ch.data]) }); } }), { chunked: true });
   const output = new mb.Output({ format: video ? new mb.Mp4OutputFormat() : new mb.WavOutputFormat(), target });
   let vSource = null, W = 0, H = 0, fps = 30;
@@ -231,14 +236,15 @@ async function joinAndOpen(files) {
   if (state.rendering || state.analyzing) { toast('다른 작업이 끝난 뒤에 이어 붙이세요'); return; }
   const abort = new AbortController(); state.joining = abort; const t0 = performance.now();
   const show = p => notice(`클립 ${files.length}개를 이어 붙이는 중… <button class="btn sm ghost" id="btnJoinStop">중단</button>`, '', p);
-  show(0); document.addEventListener('click', function stop(e) { if (e.target && e.target.id === 'btnJoinStop') { abort.abort(); document.removeEventListener('click', stop); } });
+  const stop = e => { if (e.target && e.target.id === 'btnJoinStop') abort.abort(); };
+  show(0); document.addEventListener('click', stop);
   try {
     let lastUi = 0; const file = await joinClipsBrowser(files, { signal: abort.signal, onProgress: p => { const now = performance.now(); if (now - lastUi > 400) { lastUi = now; show(Math.min(0.99, p)); } } });
     notice(null); toast(`이어 붙였습니다 (${fmtClock((performance.now() - t0) / 1000, false)} 걸림) · 분석을 시작합니다`, 2500);
     await openFile(file);
   } catch (e) {
     if (e && e.name === 'AbortError') notice('이어 붙이기를 중단했습니다.', 'warn'); else { console.error(e); notice('이어 붙이지 못했습니다: ' + escapeHtml(String(e && e.message || e)).slice(0, 160) + ' — 파일을 하나씩 열거나, Pro 로컬 엔진으로 이어 붙여 보세요.', 'err'); }
-  } finally { state.joining = null; }
+  } finally { state.joining = null; document.removeEventListener('click', stop); }
 }
 
 async function openFile(file) {
@@ -297,7 +303,7 @@ async function openFile(file) {
   else { state.params.threshold = state.autoThreshold; syncSliders(); state.segments = detect(); }
   state.analyzing = false;
   els.hudState.textContent = state.videoPlayable ? (state.audioOnly ? '미리듣기' : '미리보기') : '미리보기 불가';
-  els.chkBoost.checked = loudnessGainDb(state.env, HOP, state.segments, loudTarget()) >= 4; applyAudioMode(); // quiet recordings: on by default
+  els.chkBoost.checked = loudGain() >= (state.audioOnly ? 4 : 8); applyAudioMode(); // on by default only for clearly quiet recordings (videos: 8 dB or more under YouTube level)
   if (state.width) { els.hudRes.hidden = false; els.hudRes.textContent = `${state.width}×${state.height} · ${state.fps.toFixed(2).replace(/\.?0+$/, '')}fps`; } else els.hudRes.hidden = true;
   els.fpsInput.value = String(Math.round(state.fps * 1000) / 1000);
   if (!state.videoPlayable) { els.audioFace.hidden = true; els.monitorEmpty.hidden = false; els.monitorEmpty.querySelector('.me-title').textContent = state.audioOnly ? '이 브라우저에서 재생할 수 없는 음성 형식입니다' : '이 브라우저에서 재생할 수 없는 영상 형식입니다'; els.monitorEmpty.querySelector('p').textContent = '분석과 내보내기는 그대로 할 수 있습니다. 미리 들어보려면 MP4(H.264)로 변환한 파일을 여세요.'; }
@@ -1164,12 +1170,15 @@ els.selQuality.addEventListener('change', updateRenderAvailability);
 // gain applied to the voice on export (and to the preview) when "소리 크기 자동 맞춤" is on; 0 for video or loud recordings
 // 음량 맞춤: video → YouTube level (-14 LUFS), voice files → podcast level (-16 LUFS); 0 when off or already there
 function loudTarget() { return state.audioOnly ? LOUDNESS_TARGET.voice : LOUDNESS_TARGET.video; }
-function boostDb() { return state.hasMedia && els.chkBoost.checked ? loudnessGainDb(state.env, HOP, state.segments, loudTarget()) : 0; }
-function autoGainLabel() { if (!state.hasMedia || !state.env) return ''; const g = loudnessGainDb(state.env, HOP, state.segments, loudTarget()); return `${loudTarget()} LUFS · ${g ? (g > 0 ? '+' : '') + g + ' dB' : '이미 맞음'}`; }
+// cached: the level meter asks every frame, and the measurement walks every kept 20 ms frame
+let gainMemo = { key: '', g: 0 };
+function loudGain() { const sg = state.segments; const key = `${state.env ? state.env.length : 0}|${sg.length}|${keptDuration(sg)}|${loudTarget()}`; if (key !== gainMemo.key) gainMemo = { key, g: loudnessGainDb(state.env, HOP, sg, loudTarget()) }; return gainMemo.g; }
+function boostDb() { return state.hasMedia && els.chkBoost.checked ? loudGain() : 0; }
+function autoGainLabel() { if (!state.hasMedia || !state.env) return ''; const g = loudGain(); return `${loudTarget()} LUFS · ${g ? (g > 0 ? '+' : '') + g + ' dB' : '이미 맞음'}`; }
 function setAudioFmt(v) { state.audioFmt = audioFormat(v).ext; lsSet('cutdiet:audioFmt', state.audioFmt); els.selAudioFmt.value = state.audioFmt; const x = document.getElementById('xAudioFmt'); if (x) x.value = state.audioFmt; updateRenderAvailability(); }
 setAudioFmt(lsGet('cutdiet:audioFmt') || 'mp3');
 els.selAudioFmt.addEventListener('change', () => setAudioFmt(els.selAudioFmt.value));
-els.chkBoost.addEventListener('change', () => { const x = document.getElementById('xBoost'); if (x) x.checked = els.chkBoost.checked; updateRenderAvailability(); syncPreviewGain(); });
+els.chkBoost.addEventListener('change', () => { const x = document.getElementById('xBoost'); if (x) x.checked = els.chkBoost.checked; updateRenderAvailability(); syncPreviewGain(true); });
 // M4A needs the browser's AAC encoder (Chrome/Edge on Windows·Mac have it, Linux usually not); the local engine always can.
 let aacOk = null;
 async function refreshAudioFormats() {
@@ -1245,8 +1254,10 @@ setDenoise(lsGet('cutdiet:denoise') || 'off');
 
 // Preview of a boosted voice file: route the monitor's sound through Web Audio (gain + limiter) so what you hear matches the export.
 let previewAudio = null;
-function syncPreviewGain() {
-  const db = boostDb(); if (!db && !previewAudio) return;
+// The Web Audio route is made from a click or play (user activation), never during analysis: a context created without one
+// starts suspended and would leave playback silent.
+function syncPreviewGain(fromUser = false) {
+  const db = boostDb(); if (!db && !previewAudio) return; if (!previewAudio && !fromUser) return;
   try {
     if (!previewAudio) {
       const ctx = new AudioContext(); const src = ctx.createMediaElementSource(els.video); const gain = ctx.createGain();
@@ -1257,7 +1268,7 @@ function syncPreviewGain() {
     if (previewAudio.ctx.state === 'suspended' && !els.video.paused) previewAudio.ctx.resume().catch(() => {});
   } catch (e) { console.warn('preview gain unavailable', e); }
 }
-els.video.addEventListener('play', () => { if (previewAudio && previewAudio.ctx.state === 'suspended') previewAudio.ctx.resume().catch(() => {}); });
+els.video.addEventListener('play', () => { syncPreviewGain(true); if (previewAudio && previewAudio.ctx.state === 'suspended') previewAudio.ctx.resume().catch(() => {}); });
 function updateAudioMeter() {
   if (!state.audioOnly || !state.env) return; const i = Math.floor(state.cur / HOP); let m = -100;
   if (!els.video.paused) for (let k = Math.max(0, i - 2); k <= i + 2 && k < state.env.length; k++) m = Math.max(m, state.env[k]);

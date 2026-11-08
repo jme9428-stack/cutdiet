@@ -154,7 +154,7 @@ export function buildJoinArgs(clips, outPath, { encoder = 'libx264', ffVersion }
   clips.forEach((c, i) => {
     inputs.push('-i', c.path); const d = f3(c.info.duration); total += c.info.duration;
     if (video) {
-      if (c.info.hasVideo) lines.push(`[${i}:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${f3(F)},trim=0:${d},setpts=PTS-STARTPTS,format=yuv420p[v${i}]`);
+      if (c.info.hasVideo) lines.push(`[${i}:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${f3(F)},tpad=stop_mode=clone:stop_duration=${d},trim=0:${d},setpts=PTS-STARTPTS,format=yuv420p[v${i}]`); // video shorter than its sound: hold the last frame so later clips stay in sync
       else lines.push(`color=c=black:s=${W}x${H}:r=${f3(F)}:d=${d},format=yuv420p[v${i}]`);
     }
     if (c.info.hasAudio) lines.push(`[${i}:a]${AF},atrim=0:${d},asetpts=PTS-STARTPTS,apad=whole_dur=${d}[a${i}]`);
