@@ -8,7 +8,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { findFfmpeg, probe, detectEncoders, hasLibass, run, ENCODER_LABELS } from './lib/ff.mjs';
 import { analyzeFile, envToArray } from './lib/analyze.mjs';
-import { buildArgs, mapOverlaysAndCaptions, segsFromRanges } from './lib/graph.mjs';
+import { buildArgs, buildJoinArgs, mapOverlaysAndCaptions, segsFromRanges } from './lib/graph.mjs';
 import { buildASS } from './lib/ass.mjs';
 import { writeWav, nativePick, openFolder, openBrowser, defaultOutDir, uniquePath, baseName, loadJSON, saveJSON, randomToken, MEDIA_RE } from './lib/util.mjs';
 import { ensureFonts, BASE_FAMILIES } from './lib/fonts.mjs';
@@ -167,6 +167,25 @@ function watchTick() {
     if (prev.stable >= 2 && Date.now() - st.mtimeMs > 3000 && !isBusy()) { prev.done = true; autoProcess(p).catch(e => log('자동 처리 실패', n, e.message)); }
   }
 }
+// 클립 이어 붙이기: ffmpeg joins the registered files into one in the output folder; the job's result is the new media
+async function startJoin(body) {
+  const ms = (body.tokens || []).map(t => media.get(t)).filter(Boolean); if (ms.length < 2) throw new Error('이어 붙일 파일을 두 개 이상 고르세요');
+  for (const m of ms) await ensureInfo(m);
+  const j = newJob('join', { name: `${ms[0].name} 외 ${ms.length - 1}개`, duration: ms.reduce((a, m) => a + (m.info.duration || 0), 0) });
+  const dir = path.join(TMP, 'job-' + j.id); fs.mkdirSync(dir, { recursive: true }); fs.mkdirSync(settings.outDir, { recursive: true });
+  const probe = buildJoinArgs(ms.map(m => ({ path: m.path, info: m.info })), 'x', {});
+  const outPath = uniquePath(settings.outDir, `${baseName(ms[0].name)} 외 ${ms.length - 1}개`, probe.ext);
+  const plan = buildJoinArgs(ms.map(m => ({ path: m.path, info: m.info })), outPath, { encoder: resolveEncoder(), ffVersion: ff.version });
+  const graphFile = path.join(dir, 'graph.txt'); fs.writeFileSync(graphFile, plan.graph); j.step = '이어 붙이는 중'; j.meta.out = outPath; let errTail = '';
+  run(ff.bin, plan.args.map(a => a === '__GRAPH__' ? graphFile : a), { signal: j.abort.signal, onStdout: d => { const mt = String(d).match(/out_time=(\d+):(\d+):(\d+(?:\.\d+)?)/g); if (mt) { const x = mt.pop().match(/(\d+):(\d+):(\d+(?:\.\d+)?)/); j.progress = Math.min(0.99, (+x[1] * 3600 + +x[2] * 60 + +x[3]) / Math.max(0.1, plan.total)); } }, onStderr: s => { errTail = (errTail + s).slice(-1500); } })
+    .then(async r => {
+      if (j.abort.signal.aborted) { finishJob(j, { status: 'cancel', error: '중단됨' }); try { fs.rmSync(outPath, { force: true }); } catch {} }
+      else if (r.code === 0 && fs.existsSync(outPath)) { const m = registerPath(outPath); await ensureInfo(m); j.progress = 1; finishJob(j, { status: 'done', out: outPath, result: { token: m.token, path: m.path, name: m.name, size: m.size, info: m.info, mediaUrl: `/api/media/${m.token}` } }); log(`이어 붙이기 완료 ${path.basename(outPath)}`); }
+      else finishJob(j, { status: 'err', error: (errTail.trim().split('\n').slice(-3).join(' ') || `ffmpeg 종료 코드 ${r.code}`).slice(0, 400) });
+      cleanupLater(dir);
+    }).catch(e => { finishJob(j, { status: 'err', error: e.message }); cleanupLater(dir); });
+  return j;
+}
 function isBusy() { for (const j of jobs.values()) if (j.status === 'run' && j.kind !== 'transcribe') return true; return false; }
 async function autoProcess(p) {
   const m = registerPath(p); const j = newJob('auto', { name: m.name }); j.step = '분석';
@@ -215,6 +234,7 @@ async function api(req, res, u) {
     case '/pick': { const paths = await nativePick({ kind: body.kind || 'files', title: body.title || (body.kind === 'dir' ? '폴더 선택' : '영상 파일 선택') }); return send(res, 200, { paths }); }
     case '/register': { const out = []; for (const pth of body.paths || []) { try { const m = registerPath(pth); await ensureInfo(m); out.push({ token: m.token, path: m.path, name: m.name, size: m.size, info: m.info, mediaUrl: `/api/media/${m.token}` }); } catch (e) { out.push({ path: pth, error: e.message }); } } return send(res, 200, out); }
     case '/analyze': { const m = media.get(body.token); if (!m) return send(res, 404, { error: 'unknown media' }); try { const a = await analyzeFile(ff.bin, m.path); m.info = a.info; m.env = a.env; return send(res, 200, { token: m.token, info: a.info, duration: a.duration, env: envToArray(a.env) }); } catch (e) { if (/noaudio/.test(e.message)) { m.info = e.info || m.info; return send(res, 200, { token: m.token, info: m.info, duration: m.info ? m.info.duration : 0, env: null, noAudio: true }); } return send(res, 500, { error: e.message }); } }
+    case '/join': { try { const j = await startJoin(body); return send(res, 200, publicJob(j)); } catch (e) { return send(res, 400, { error: e.message }); } }
     case '/render': { try { const j = await startRender(body); return send(res, 200, publicJob(j)); } catch (e) { return send(res, 400, { error: e.message }); } }
     case '/transcribe': { try { const j = await startTranscribe(body); return send(res, 200, publicJob(j)); } catch (e) { return send(res, 400, { error: e.message }); } }
     case '/thumbs': { const m = media.get(body.token); if (!m) return send(res, 404, { error: 'unknown media' }); const dir = path.join(settings.outDir, baseName(m.name) + '_썸네일'); fs.mkdirSync(dir, { recursive: true }); const files = []; for (const t of (body.times || []).slice(0, 40)) { try { const jpg = await grabFrame(m, t, 0); const f = path.join(dir, `${baseName(m.name)}_${String(Math.floor(t / 60)).padStart(2, '0')}-${String(Math.floor(t % 60)).padStart(2, '0')}.jpg`); fs.writeFileSync(f, jpg); files.push(f); } catch {} } return send(res, 200, { dir, files }); }

@@ -131,15 +131,115 @@ function canvasToJpeg(canvas, q = 0.92) { return new Promise((res, rej) => canva
 })();
 
 // ===================== FILE OPEN & ANALYSIS =====================
-els.fileInput.addEventListener('change', () => { const f = els.fileInput.files && els.fileInput.files[0]; if (f) openFile(f); els.fileInput.value = ''; });
+els.fileInput.addEventListener('change', () => { const fs = els.fileInput.files ? [...els.fileInput.files] : []; els.fileInput.value = ''; openFiles(fs); });
 ['dragenter', 'dragover'].forEach(ev => els.drop.addEventListener(ev, e => { e.preventDefault(); els.drop.classList.add('over'); }));
 ['dragleave', 'drop'].forEach(ev => els.drop.addEventListener(ev, e => { e.preventDefault(); els.drop.classList.remove('over'); }));
-els.drop.addEventListener('drop', e => { const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if (f) openFile(f); });
+els.drop.addEventListener('drop', e => { openFiles(e.dataTransfer && e.dataTransfer.files ? [...e.dataTransfer.files] : []); });
 els.drop.addEventListener('click', e => { if (e.target !== els.fileInput) els.fileInput.click(); });
 els.drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); els.fileInput.click(); } });
 document.addEventListener('dragover', e => e.preventDefault());
-document.addEventListener('drop', e => { e.preventDefault(); if (e.target.closest && e.target.closest('#drop')) return; const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if (f && /^(video|audio)\//.test(f.type)) openFile(f); });
+document.addEventListener('drop', e => { e.preventDefault(); if (e.target.closest && e.target.closest('#drop')) return; const fs = e.dataTransfer && e.dataTransfer.files ? [...e.dataTransfer.files].filter(f => /^(video|audio)\//.test(f.type)) : []; if (fs.length) openFiles(fs); });
 els.btnOtherFile.addEventListener('click', () => els.fileInput.click());
+
+// ===================== JOIN CLIPS =====================
+// Several files at once → choose the order → they are joined into one file, which is then opened like any other.
+// The editor works on one source, so joining happens first (browser: re-encode into one MP4/WAV in the browser's private
+// storage; Pro engine: ffmpeg into the output folder).
+const naturalName = (a, b) => a.name.localeCompare(b.name, 'ko', { numeric: true, sensitivity: 'base' });
+async function openFiles(files) {
+  files = (files || []).filter(Boolean); if (!files.length) return;
+  if (files.length === 1) { openFile(files[0]); return; }
+  const order = await chooseJoinOrder(files.slice().sort(naturalName)); if (!order) return;
+  if (order.length === 1) { openFile(order[0]); return; }
+  if (order[0].engine && state.hooks.join) { await state.hooks.join(order); return; }
+  await joinAndOpen(order);
+}
+function chooseJoinOrder(items) {
+  const dlg = $('#joinDlg'), list = $('#joinList'); let cur = items.slice();
+  const draw = () => {
+    list.innerHTML = cur.map((f, i) => `<li><span class="nm" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span><span class="sz">${fmtBytes(f.size || 0)}</span><button class="btn icon sm ghost" data-up="${i}" ${i ? '' : 'disabled'} aria-label="위로">↑</button><button class="btn icon sm ghost" data-down="${i}" ${i < cur.length - 1 ? '' : 'disabled'} aria-label="아래로">↓</button></li>`).join('');
+    $('#joinInfo').textContent = `${cur.length}개 파일 · 합계 ${fmtBytes(cur.reduce((a, f) => a + (f.size || 0), 0))}${cur.some(f => f.engine) ? ' · 로컬 엔진(ffmpeg)으로 이어 붙여 출력 폴더에 저장' : ' · 영상은 다시 인코딩하므로 길이의 10~30% 정도 걸립니다'}`;
+  };
+  draw(); dlg.hidden = false; $('#joinGo').focus();
+  return new Promise(res => {
+    const done = v => { dlg.hidden = true; list.onclick = null; $('#joinGo').onclick = $('#joinFirst').onclick = $('#joinCancel').onclick = null; dlg.onkeydown = null; res(v); };
+    list.onclick = e => { const b = e.target.closest('button'); if (!b) return; const i = Number(b.dataset.up ?? b.dataset.down), j = b.dataset.up != null ? i - 1 : i + 1; [cur[i], cur[j]] = [cur[j], cur[i]]; draw(); };
+    $('#joinGo').onclick = () => done(cur); $('#joinFirst').onclick = () => done([cur[0]]); $('#joinCancel').onclick = () => done(null);
+    dlg.onkeydown = e => { e.stopPropagation(); e.cutdietHandled = true; if (e.key === 'Escape') done(null); };
+  });
+}
+// linear resample of each channel to `sr`, mixed/duplicated to `nch` channels
+function conformAudio(buf, sr, nch) {
+  const inCh = buf.numberOfChannels, len = Math.max(1, Math.round(buf.length * sr / buf.sampleRate)); const out = new AudioBuffer({ length: len, sampleRate: sr, numberOfChannels: nch });
+  const src = []; for (let c = 0; c < inCh; c++) src.push(buf.getChannelData(c));
+  for (let c = 0; c < nch; c++) {
+    const d = out.getChannelData(c); const pick = inCh === 1 ? [src[0]] : nch === 1 ? src : [src[Math.min(c, inCh - 1)]];
+    const ratio = buf.sampleRate / sr;
+    for (let i = 0; i < len; i++) { const p = i * ratio, j = Math.floor(p), f = p - j; let v = 0; for (const s of pick) { const a = s[Math.min(j, s.length - 1)], b = s[Math.min(j + 1, s.length - 1)]; v += a + (b - a) * f; } d[i] = v / pick.length; }
+  }
+  return out;
+}
+async function joinClipsBrowser(files, { onProgress, signal }) {
+  const mb = state.mb; if (!mb) throw new Error('엔진을 아직 불러오지 못했습니다');
+  const clips = [];
+  for (const f of files) { const input = new mb.Input({ source: new mb.BlobSource(f), formats: mb.ALL_FORMATS }); const v = await input.getPrimaryVideoTrack(), a = await input.getPrimaryAudioTrack(); clips.push({ f, input, v: v && (await v.canDecode()) ? v : null, a: a && (await a.canDecode()) ? a : null, dur: await input.computeDuration() }); }
+  if (!clips.some(c => c.a || c.v)) throw new Error('읽을 수 있는 영상·음성이 없습니다');
+  const video = clips.some(c => c.v); const total = clips.reduce((t, c) => t + c.dur, 0);
+  const first = clips.find(c => c.v) || null; const fa = clips.find(c => c.a);
+  const sr = fa ? await fa.a.getSampleRate() : 48000; const nch = Math.min(2, Math.max(1, ...await Promise.all(clips.filter(c => c.a).map(c => c.a.getNumberOfChannels()))));
+  // where the result goes: the browser's private storage (no size limit in memory), else memory
+  const ext = video ? 'mp4' : 'wav'; let fh = null, writable = null; const parts = []; let written = 0;
+  try { const root = await navigator.storage.getDirectory(); for await (const [n] of root.entries()) if (n.startsWith('cutdiet-joined-')) { try { await root.removeEntry(n); } catch {} } fh = await root.getFileHandle(`cutdiet-joined-${Date.now()}.${ext}`, { create: true }); writable = await fh.createWritable(); } catch { fh = null; writable = null; }
+  const target = new mb.StreamTarget(new WritableStream({ write: async ch => { if (writable) { await writable.write({ type: 'write', position: ch.position, data: ch.data }); written = Math.max(written, ch.position + ch.data.byteLength); } else parts.push({ pos: ch.position, blob: new Blob([ch.data]) }); } }), { chunked: true });
+  const output = new mb.Output({ format: video ? new mb.Mp4OutputFormat() : new mb.WavOutputFormat(), target });
+  let vSource = null, W = 0, H = 0, fps = 30;
+  if (video) {
+    W = Math.round((await first.v.getDisplayWidth()) / 2) * 2; H = Math.round((await first.v.getDisplayHeight()) / 2) * 2;
+    try { const m = await first.v.computeFrameRateMetrics({ targetPacketCount: 120 }); fps = m.bestGuessFrameRate || m.averageFrameRate || 30; } catch {}
+    const bitrate = bitrateFor(W, H, 'high'); const codec = await mb.getFirstEncodableVideoCodec(['avc', 'hevc', 'vp9', 'av1'], { width: W, height: H, bitrate }); if (!codec) throw new Error('이 크기로 인코딩할 수 있는 영상 코덱이 없습니다');
+    vSource = new mb.VideoSampleSource({ codec, bitrate, keyFrameInterval: 2, sizeChangeBehavior: 'contain', transform: { width: W, height: H, fit: 'contain', force: true } }); output.addVideoTrack(vSource);
+  }
+  let aSource = null;
+  if (video) { const ac = await mb.getFirstEncodableAudioCodec(['aac', 'opus'], { numberOfChannels: nch, sampleRate: sr, bitrate: 192000 }); if (ac) { aSource = new mb.AudioBufferSource({ codec: ac, bitrate: 192000 }); output.addAudioTrack(aSource); } }
+  else { aSource = new mb.AudioBufferSource({ codec: 'pcm-s16' }); output.addAudioTrack(aSource); }
+  await output.start();
+  const abortErr = () => { const e = new Error('aborted'); e.name = 'AbortError'; return e; };
+  let offset = 0, vDone = 0;
+  try {
+    for (const c of clips) {
+      const videoPump = async () => {
+        if (!vSource) return; let n = 0;
+        if (c.v) { const sink = new mb.VideoSampleSink(c.v); for await (const smp of sink.samples(0, c.dur)) { if (signal.aborted) { smp.close(); throw abortErr(); } const ts = offset + Math.max(0, smp.timestamp); smp.setTimestamp(ts); await vSource.add(smp, n++ ? undefined : { keyFrame: true }); smp.close(); vDone = ts; onProgress(ts / total); } }
+        else { const cv = new OffscreenCanvas(W, H); const cx = cv.getContext('2d'); cx.fillStyle = '#000'; cx.fillRect(0, 0, W, H); for (let t = 0; t < c.dur; t += 1 / fps) { if (signal.aborted) throw abortErr(); const vs = new mb.VideoSample(cv, { timestamp: offset + t, duration: 1 / fps }); await vSource.add(vs, n++ ? undefined : { keyFrame: true }); vs.close(); vDone = offset + t; } }
+      };
+      const audioPump = async () => {
+        if (!aSource) return; let got = 0; const want = Math.round(c.dur * sr);
+        if (c.a) { const sink = new mb.AudioBufferSink(c.a); for await (const wb of sink.buffers(0, c.dur)) { if (signal.aborted) throw abortErr(); let b = conformAudio(wb.buffer, sr, nch); if (got + b.length > want) { if (want - got <= 0) break; const t = new AudioBuffer({ length: want - got, sampleRate: sr, numberOfChannels: nch }); for (let k = 0; k < nch; k++) t.copyToChannel(b.getChannelData(k).subarray(0, want - got), k); b = t; } while (vSource && offset + got / sr > vDone + 4 && !signal.aborted) await sleep(30); await aSource.add(b); got += b.length; if (!vSource) onProgress((offset + got / sr) / total); } }
+        // pad to the clip's length so picture and sound of the next clip start together
+        while (got < want) { const n = Math.min(sr, want - got); await aSource.add(new AudioBuffer({ length: n, sampleRate: sr, numberOfChannels: nch })); got += n; }
+      };
+      await Promise.all([videoPump(), audioPump()]);
+      offset += c.dur;
+    }
+    await output.finalize();
+  } catch (e) { try { await output.cancel(); } catch {} if (writable) { try { await writable.abort(); } catch {} } throw e; }
+  const name = `${baseName(files[0].name)} 외 ${files.length - 1}개.${ext}`, type = video ? 'video/mp4' : 'audio/wav';
+  if (writable) { await writable.close(); const f = await fh.getFile(); return new File([f], name, { type }); }
+  return new File([assembleBlob(parts, type)], name, { type });
+}
+async function joinAndOpen(files) {
+  if (state.rendering || state.analyzing) { toast('다른 작업이 끝난 뒤에 이어 붙이세요'); return; }
+  const abort = new AbortController(); state.joining = abort; const t0 = performance.now();
+  const show = p => notice(`클립 ${files.length}개를 이어 붙이는 중… <button class="btn sm ghost" id="btnJoinStop">중단</button>`, '', p);
+  show(0); document.addEventListener('click', function stop(e) { if (e.target && e.target.id === 'btnJoinStop') { abort.abort(); document.removeEventListener('click', stop); } });
+  try {
+    let lastUi = 0; const file = await joinClipsBrowser(files, { signal: abort.signal, onProgress: p => { const now = performance.now(); if (now - lastUi > 400) { lastUi = now; show(Math.min(0.99, p)); } } });
+    notice(null); toast(`이어 붙였습니다 (${fmtClock((performance.now() - t0) / 1000, false)} 걸림) · 분석을 시작합니다`, 2500);
+    await openFile(file);
+  } catch (e) {
+    if (e && e.name === 'AbortError') notice('이어 붙이기를 중단했습니다.', 'warn'); else { console.error(e); notice('이어 붙이지 못했습니다: ' + escapeHtml(String(e && e.message || e)).slice(0, 160) + ' — 파일을 하나씩 열거나, Pro 로컬 엔진으로 이어 붙여 보세요.', 'err'); }
+  } finally { state.joining = null; }
+}
 
 async function openFile(file) {
   if (state.analyzing) { toast('분석 중입니다. 잠시만 기다려 주세요'); return; }
@@ -1623,7 +1723,7 @@ window.addEventListener('resize', () => decor && decor.previewTick(false));
 
 // Public API used by the Pro layer (src/pro.js)
 window.cutdiet = {
-  state, els, HOP, PRESETS, toast, saveFile, copyText, fmtClock, fmtBytes, baseName, sleep, openFile, applyPreset, startRender, pickThumbs, saveThumbsZip, saveProjectFile, projectData,
+  state, els, HOP, PRESETS, toast, saveFile, copyText, fmtClock, fmtBytes, baseName, sleep, openFile, openFiles, applyPreset, startRender, pickThumbs, saveThumbsZip, saveProjectFile, projectData,
   keptDuration, countRemoveRuns, keepRanges, outTime, chapterLines, buildZip, showTab, seek, refreshAll, renderBlockReason, shortsBlockReason, heavyReason, loadBgm, clearBgm, resetShortsRange,
   notice, escapeHtml, fsAccess, updateRenderAvailability, pickThumbnailTimes: (count = 12) => pickThumbnailTimes(state.env, HOP, state.segments, count), captionsOf: () => captionsOf(),
   undoDepth: () => undo.stack.length,

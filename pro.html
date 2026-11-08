@@ -298,6 +298,10 @@ td.ttl input:focus{border-color:var(--accent);background:var(--surface)}
 .onb-steps li::before{counter-increment:s;content:counter(s);width:28px;height:28px;border-radius:50%;background:var(--accent);color:var(--accent-fg);font-family:var(--font-mono);font-weight:600;display:flex;align-items:center;justify-content:center;font-size:13px}
 .onb-steps b{display:block;font-weight:600}
 .onb .foot{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.joinlist{margin:0;padding:0 0 0 22px;max-height:45vh;overflow:auto;display:flex;flex-direction:column;gap:6px}
+.joinlist li{display:flex;align-items:center;gap:8px;font-size:13px}
+.joinlist li .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.joinlist li .sz{color:var(--muted);font-family:var(--font-mono);font-size:11px}
 
 #toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(20px);background:var(--fg);color:var(--bg);padding:9px 14px;border-radius:8px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;max-width:calc(100vw - 32px);z-index:40;text-align:center}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -808,8 +812,8 @@ details.sect > :not(summary){margin-bottom:8px}
     <section class="stage">
       <div class="drop" id="drop" role="button" tabindex="0" aria-label="영상·음성 파일 선택">
         <div class="big">＋ 영상·음성 가져오기</div>
-        <div class="hint">영상(MP4·MOV…)이나 음성(M4A·MP3·WAV…)을 여기에 놓거나 클릭 · 업로드되지 않고 이 브라우저 안에서만 처리됩니다</div>
-        <input type="file" id="fileInput" accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.m4a,.m4b,.mp3,.wav,.aac,.ogg,.oga,.opus,.flac,.weba">
+        <div class="hint">영상(MP4·MOV…)이나 음성(M4A·MP3·WAV…)을 여기에 놓거나 클릭 · 여러 개를 고르면 이어 붙여서 엽니다 · 업로드되지 않고 이 브라우저 안에서만 처리됩니다</div>
+        <input type="file" id="fileInput" multiple accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.m4a,.m4b,.mp3,.wav,.aac,.ogg,.oga,.opus,.flac,.weba">
       </div>
       <div class="monitor" id="monitor">
         <video id="video" playsinline preload="metadata"></video>
@@ -930,6 +934,18 @@ details.sect > :not(summary){margin-bottom:8px}
     </div>
     <div class="xprog" id="xProgWrap" hidden><div class="progress"><i id="xBar"></i></div><p class="hint" id="xStatus"></p></div>
     <div class="xfoot"><p class="hint" id="xEstimate"></p><span class="xbtns"><button class="btn" id="xCancel">취소</button><button class="btn primary" id="xGo">내보내기</button></span></div>
+  </div>
+</div>
+<div class="onb" id="joinDlg" hidden role="dialog" aria-modal="true" aria-labelledby="joinTitle">
+  <div class="onb-card">
+    <h2 id="joinTitle">클립 이어 붙이기</h2>
+    <p class="hint">고른 파일을 이 순서대로 하나로 이어 붙인 뒤 엽니다. ↑↓로 순서를 바꾸세요. 영상은 첫 클립의 크기·프레임 속도에 맞추고(남는 곳은 검은 여백), 소리 없는 클립은 무음, 화면 없는 음성은 검은 화면으로 채웁니다.</p>
+    <ol class="joinlist" id="joinList"></ol>
+    <p class="hint" id="joinInfo"></p>
+    <div class="foot">
+      <button class="btn primary" id="joinGo">이어 붙여 열기</button>
+      <span><button class="btn ghost" id="joinFirst">첫 파일만 열기</button><button class="btn ghost" id="joinCancel">취소</button></span>
+    </div>
   </div>
 </div>
 <div class="keysheet" id="keysheet" hidden role="dialog" aria-modal="true" aria-label="단축키"><div class="onb-card"><h2>단축키</h2><div class="kgrid" id="sheetGrid"></div><div class="foot"><span class="hint">Esc 또는 / 로 닫기 · 단축키 탭에서 바꿀 수 있습니다</span></div></div></div>

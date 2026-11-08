@@ -142,3 +142,27 @@ export function mapOverlaysAndCaptions(req) {
   images.sort((x, y) => x.layer - y.layer); // bottom layer is composited first
   return { captions, textOverlays, images, sfx, total };
 }
+
+// Join clips end to end (클립 이어 붙이기): every clip scaled/padded to the first video's size and frame rate, sound
+// conformed to 48 kHz stereo and padded to the clip's length; a clip without picture shows black, without sound is silent.
+// clips: [{ path, info: { duration, hasVideo, hasAudio, width, height, fps } }]
+export function buildJoinArgs(clips, outPath, { encoder = 'libx264', ffVersion } = {}) {
+  const video = clips.some(c => c.info.hasVideo); const first = clips.find(c => c.info.hasVideo);
+  const W = first ? Math.round(first.info.width / 2) * 2 : 0, H = first ? Math.round(first.info.height / 2) * 2 : 0, F = first ? (first.info.fps || 30) : 30;
+  const inputs = []; const lines = []; const labels = []; let total = 0;
+  const AF = 'aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo';
+  clips.forEach((c, i) => {
+    inputs.push('-i', c.path); const d = f3(c.info.duration); total += c.info.duration;
+    if (video) {
+      if (c.info.hasVideo) lines.push(`[${i}:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${f3(F)},trim=0:${d},setpts=PTS-STARTPTS,format=yuv420p[v${i}]`);
+      else lines.push(`color=c=black:s=${W}x${H}:r=${f3(F)}:d=${d},format=yuv420p[v${i}]`);
+    }
+    if (c.info.hasAudio) lines.push(`[${i}:a]${AF},atrim=0:${d},asetpts=PTS-STARTPTS,apad=whole_dur=${d}[a${i}]`);
+    else lines.push(`anullsrc=channel_layout=stereo:sample_rate=48000,atrim=0:${d}[a${i}]`);
+    labels.push(video ? `[v${i}][a${i}]` : `[a${i}]`);
+  });
+  lines.push(`${labels.join('')}concat=n=${clips.length}:v=${video ? 1 : 0}:a=1${video ? '[vout]' : ''}[aout]`);
+  const enc = video ? [...encoderArgs(encoder, qualityFor('high', W, H, F)), '-r', f3(F), '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart'] : ['-c:a', 'pcm_s16le'];
+  const args = ['-hide_banner', '-nostdin', '-loglevel', 'error', '-progress', 'pipe:1', '-y', ...inputs, scriptFlag(ffVersion), '__GRAPH__', ...(video ? ['-map', '[vout]'] : []), '-map', '[aout]', ...enc, outPath];
+  return { args, graph: lines.join(';\n') + '\n', total, video, ext: video ? '.mp4' : '.wav' };
+}

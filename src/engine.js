@@ -51,6 +51,15 @@ export async function initEngine(C, { addFiles } = {}) {
     refreshJobs();
     return { out: done.out, size: (done.meta && done.meta.size) || 0, warnings: done.warnings };
   };
+  // 클립 이어 붙이기 through ffmpeg; the joined file lands in the output folder and is opened
+  state.hooks.join = async descs => {
+    try {
+      const job = await api('/join', { tokens: descs.map(d => d.token) });
+      await waitJob(job.id, { onProgress: j => C.notice(`로컬 엔진(ffmpeg)이 클립 ${descs.length}개를 이어 붙이는 중…`, '', j.progress) });
+      const r = await api(`/jobs/${job.id}/result`); C.notice(null); refreshJobs();
+      await C.openFile({ engine: true, token: r.token, path: r.path, name: r.name, size: r.size, mediaUrl: r.mediaUrl, info: r.info });
+    } catch (e) { C.notice('이어 붙이지 못했습니다: ' + C.escapeHtml(String(e.message || e)), 'err'); }
+  };
   state.hooks.transcribe = async ({ model, signal, onProgress }) => {
     const job = await api('/transcribe', { token: state.engineMedia.token, model });
     const done = await waitJob(job.id, { signal, onProgress: j => onProgress(j.progress, `엔진 음성 인식 · ${j.step || ''} ${Math.round(j.progress * 100)}%`) });
@@ -66,7 +75,7 @@ export async function initEngine(C, { addFiles } = {}) {
     const regs = await api('/register', { paths }); const descs = [];
     for (const r of regs) { if (r.error) { toast(`${r.path.split(/[\\/]/).pop()}: ${r.error}`, 4000); continue; } descs.push({ engine: true, token: r.token, path: r.path, name: r.name, size: r.size, mediaUrl: r.mediaUrl, info: r.info }); }
     if (!descs.length) return [];
-    if (queue || descs.length > 1) { if (addFiles) addFiles(descs); } else await C.openFile(descs[0]);
+    if (queue) { if (addFiles) addFiles(descs); } else if (descs.length > 1) await C.openFiles(descs); else await C.openFile(descs[0]); // several from '영상 열기' → join dialog
     renderRecent();
     return descs;
   }

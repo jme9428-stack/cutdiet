@@ -86,6 +86,15 @@ try {
     await page.keyboard.press('KeyR'); const after = await page.evaluate(() => window.cutdiet.state.segments.filter(g => !g.keep).length);
     assert.ok(rv.review && rv.playing && after === before - 1, 'review/revive ' + JSON.stringify({ rv, before, after }));
     console.log('member: cut review (P/R) ok');
+    // join clips: two files picked at once → order dialog → one file opened
+    const j1 = path.join(tmp, 'join1.mp4'), j2 = path.join(tmp, 'join2.mp4');
+    await mk(j1, ['-t', '3']); await run(ff.path, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=25', '-f', 'lavfi', '-i', 'sine=frequency=600:sample_rate=44100', '-t', '2', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', j2]);
+    await page.setInputFiles('#fileInput', [j2, j1]); await page.waitForSelector('#joinDlg:not([hidden])');
+    const order = await page.$$eval('#joinList .nm', n => n.map(x => x.textContent)); assert.deepEqual(order, ['join1.mp4', 'join2.mp4'], 'natural order');
+    const pj = waitAnalyzed(); await page.click('#joinGo'); assert.equal(await pj, true);
+    const js = await page.evaluate(() => { const s = window.cutdiet.state; return { name: s.file.name, dur: s.duration, w: s.width, h: s.height }; });
+    assert.ok(/외 1개\.mp4$/.test(js.name) && Math.abs(js.dur - 5) < 0.2 && js.w === 640 && js.h === 360, 'joined ' + JSON.stringify(js));
+    console.log('member: join clips ok', JSON.stringify(js));
   }
   // ---------- Pro page + engine ----------
   const page2 = await ctx.newPage(); page2.on('pageerror', e => console.log('PRO PAGE ERROR', e.message));

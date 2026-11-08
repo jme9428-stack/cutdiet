@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { parseProbe, findFfmpeg, run, qualityFor } from '../engine/lib/ff.mjs';
-import { buildArgs, scriptFlag, selectExpr, retimeExpr, zoomExprs, segsFromRanges, mapOverlaysAndCaptions } from '../engine/lib/graph.mjs';
+import { buildArgs, buildJoinArgs, scriptFlag, selectExpr, retimeExpr, zoomExprs, segsFromRanges, mapOverlaysAndCaptions } from '../engine/lib/graph.mjs';
 import { buildASS, assTime, assText, styleLine, captionTags, overlayAnchor } from '../engine/lib/ass.mjs';
 import { fontFamilyName, woffToSfnt } from '../engine/lib/fonts.mjs';
 import zlib from 'node:zlib';
@@ -177,6 +177,20 @@ console.log('voice file (mp3/m4a/wav) ok');
   }
   assert.ok(outs.off.pause - outs.high.pause > 10 && Math.abs(outs.off.tone - outs.high.tone) < 1.5, 'engine denoise ' + JSON.stringify(outs));
   console.log('engine denoise ok', JSON.stringify(outs));
+}
+{ // 클립 이어 붙이기: two videos of different size/rate + a voice-only clip → one 640x360 video, parts in order
+  const c1 = path.join(tmp, 'j1.mp4'), c2 = path.join(tmp, 'j2.mp4'), c3 = path.join(tmp, 'j3.m4a');
+  await run(ffbin.path, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=640x360:rate=30', '-f', 'lavfi', '-i', 'sine=frequency=300:sample_rate=48000', '-t', '3', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', c1]);
+  await run(ffbin.path, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=25', '-f', 'lavfi', '-i', 'sine=frequency=600:sample_rate=44100', '-t', '2', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', c2]);
+  await run(ffbin.path, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=900:sample_rate=48000', '-t', '2', '-ac', '1', '-c:a', 'aac', c3]);
+  const clips = []; for (const f of [c1, c3, c2]) clips.push({ path: f, info: parseProbe((await run(ffbin.path, ['-hide_banner', '-i', f])).stderr) });
+  const jo = path.join(tmp, 'joined.mp4'); const pj = buildJoinArgs(clips, jo, { encoder: 'libx264', ffVersion: ffbin.version });
+  fs.writeFileSync(graphFile, pj.graph); r = await run(ffbin.path, pj.args.map(x => x === '__GRAPH__' ? graphFile : x)); assert.equal(r.code, 0, r.stderr + pj.graph);
+  const pjo = parseProbe((await run(ffbin.path, ['-hide_banner', '-i', jo])).stderr); assert.ok(pjo.width === 640 && pjo.height === 360 && Math.abs(pjo.duration - 7) < 0.15 && pjo.hasAudio, JSON.stringify(pjo));
+  const hz = async t => { const raw = (await run(ffbin.path, ['-loglevel', 'error', '-ss', String(t), '-t', '0.4', '-i', jo, '-f', 'f32le', '-ac', '1', '-ar', '48000', 'pipe:1'])).stdout; const x = new Float32Array(raw.buffer, raw.byteOffset, raw.length / 4); let z = 0; for (let i = 1; i < x.length; i++) if (x[i - 1] < 0 && x[i] >= 0) z++; return Math.round(z / (x.length / 48000)); };
+  const tones = [await hz(1), await hz(4), await hz(6)]; assert.ok(Math.abs(tones[0] - 300) < 15 && Math.abs(tones[1] - 900) < 15 && Math.abs(tones[2] - 600) < 15, 'join order ' + tones);
+  const ja = buildJoinArgs([clips[1], clips[1]], path.join(tmp, 'ja.wav'), {}); assert.ok(!ja.video && ja.ext === '.wav' && !ja.graph.includes(':v]'));
+  console.log('clip join ok', tones.join('→'), 'Hz');
 }
 console.log('cut join fades ok');
 assert.ok(uniquePath(tmp, 'out', '.mp4').endsWith('out (2).mp4'));
