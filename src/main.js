@@ -157,7 +157,7 @@ async function openFiles(files) {
 function chooseJoinOrder(items) {
   const dlg = $('#joinDlg'), list = $('#joinList'); let cur = items.slice();
   const draw = () => {
-    list.innerHTML = cur.map((f, i) => `<li><span class="nm" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span><span class="sz">${fmtBytes(f.size || 0)}</span><button class="btn icon sm ghost" data-up="${i}" ${i ? '' : 'disabled'} aria-label="위로">↑</button><button class="btn icon sm ghost" data-down="${i}" ${i < cur.length - 1 ? '' : 'disabled'} aria-label="아래로">↓</button></li>`).join('');
+    list.innerHTML = cur.map((f, i) => `<li><span class="no">${i + 1}</span><span class="nm" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span><span class="sz">${fmtBytes(f.size || 0)}</span><button class="btn icon sm ghost" data-up="${i}" ${i ? '' : 'disabled'} aria-label="위로">↑</button><button class="btn icon sm ghost" data-down="${i}" ${i < cur.length - 1 ? '' : 'disabled'} aria-label="아래로">↓</button></li>`).join('');
     $('#joinInfo').textContent = `${cur.length}개 파일 · 합계 ${fmtBytes(cur.reduce((a, f) => a + (f.size || 0), 0))}${cur.some(f => f.engine) ? ' · 로컬 엔진(ffmpeg)으로 이어 붙여 출력 폴더에 저장' : ' · 영상은 다시 인코딩하므로 길이의 10~30% 정도 걸립니다'}`;
   };
   draw(); dlg.hidden = false; $('#joinGo').focus();
