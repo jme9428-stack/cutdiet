@@ -13,7 +13,7 @@ import { analyzeFile } from '../engine/lib/analyze.mjs';
 import { transcribeAudio } from '../engine/lib/asr.mjs';
 import { uniquePath, writeWav } from '../engine/lib/util.mjs';
 import { SUB_PRESETS } from '../src/fxlogic.js';
-import { detectSegments, keepRanges, HOP, outTime, suggestThreshold, keptDuration } from '../src/cutlogic.js';
+import { detectSegments, keepRanges, HOP, outTime, suggestThreshold, keptDuration, gapNoiseDb } from '../src/cutlogic.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -163,6 +163,20 @@ console.log('voice file (mp3/m4a/wav) ok');
 { // loudness matching reaches video renders too (gain on the voice before mixing, limiter after)
   const pv = buildArgs({ src: 'in.mp4', ranges: [{ s: 0, e: 1 }, { s: 2, e: 3 }], duration: 4, fps: 30, width: 640, height: 360, hasAudio: true, out: { w: 640, h: 360 }, crop: null, quality: 'high', encoder: 'libx264', fx: null, gainDb: 6, outPath: 'o.mp4' }, { images: [], sfx: [] }, { ffVersion: '7' });
   assert.ok(pv.graph.includes('volume=6.000dB') && pv.graph.includes('[vout]') && pv.graph.includes('alimiter'), pv.graph);
+}
+{ // 잡음 제거 in the engine: hiss under a tone drops, the tone stays
+  const noisy = path.join(tmp, 'noisy.wav'); r = await run(ffbin.path, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', "sine=frequency=440:sample_rate=48000,volume='if(lt(mod(t,4),2.5),0.3,0)':eval=frame", '-f', 'lavfi', '-i', 'anoisesrc=color=white:amplitude=0.03:sample_rate=48000', '-filter_complex', '[0:a][1:a]amix=inputs=2:duration=first:normalize=0', '-t', '12', '-ac', '1', noisy]); assert.equal(r.code, 0, r.stderr);
+  const level = async (file, from, to) => { const rr = await run(ffbin.path, ['-hide_banner', '-nostats', '-ss', String(from), '-t', String(to - from), '-i', file, '-af', 'volumedetect', '-f', 'null', '-']); return Number((rr.stderr.match(/mean_volume: (-?[\d.]+)/) || [])[1]); };
+  const an = await analyzeFile(ffbin.path, noisy); const outs = {};
+  for (const dn of [null, 'high']) {
+    const o = path.join(tmp, `dn_${dn || 'off'}.wav`);
+    const pd = buildArgs({ src: noisy, ranges: [{ s: 0, e: 12 }], duration: 12, fps: 30, width: 0, height: 0, hasAudio: true, out: { w: 0, h: 0 }, crop: null, quality: 'high', encoder: 'libx264', fx: null, audioOnly: true, audio: { format: 'wav', channels: 1 }, denoise: dn, noiseDb: gapNoiseDb(an.env, HOP, [{ s: 0, e: 2.5 }, { s: 4, e: 6.5 }, { s: 8, e: 10.5 }], 12), outPath: o }, { images: [], sfx: [] }, { ffVersion: ffbin.version });
+    assert.equal(!!dn, pd.graph.includes('afftdn'));
+    fs.writeFileSync(graphFile, pd.graph); r = await run(ffbin.path, pd.args.map(x => x === '__GRAPH__' ? graphFile : x)); assert.equal(r.code, 0, r.stderr + pd.graph);
+    outs[dn || 'off'] = { pause: await level(o, 2.8, 3.8), tone: await level(o, 4.5, 6) };
+  }
+  assert.ok(outs.off.pause - outs.high.pause > 10 && Math.abs(outs.off.tone - outs.high.tone) < 1.5, 'engine denoise ' + JSON.stringify(outs));
+  console.log('engine denoise ok', JSON.stringify(outs));
 }
 console.log('cut join fades ok');
 assert.ok(uniquePath(tmp, 'out', '.mp4').endsWith('out (2).mp4'));

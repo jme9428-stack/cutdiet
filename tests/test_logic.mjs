@@ -87,6 +87,20 @@ console.log('adaptive threshold ok');
   assert.equal(A.snapBoundary(6, 0.2, env, A.HOP).kind, null); assert.equal(A.snapBoundary(6, 0.2, env, A.HOP).t, 6); // flat: stays put
 }
 console.log('boundary snap ok');
+{ // text-based editing helpers
+  const T = await import('../src/textlogic.js');
+  const ws = [{ text: '안녕하세요', s: 1, e: 1.6 }, { text: '음', s: 1.9, e: 2.1 }, { text: '오늘은', s: 2.4, e: 2.9 }, { text: '컷편집', s: 3.0, e: 3.6 }];
+  const sp = T.wordSpans(ws, 1, 1)[0]; assert.ok(Math.abs(sp.s - 1.82) < 1e-9 && Math.abs(sp.e - 2.18) < 1e-9, JSON.stringify(sp));
+  const sp2 = T.wordSpans(ws, 3, 2)[0]; assert.ok(Math.abs(sp2.s - 2.32) < 1e-9 && Math.abs(sp2.e - 3.68) < 1e-9); // reversed selection, last word gets the margin
+  const tight = [{ text: 'a', s: 0, e: 1 }, { text: 'b', s: 1.02, e: 2 }, { text: 'c', s: 2.01, e: 3 }]; const t2 = T.wordSpans(tight, 1, 1)[0]; assert.ok(t2.s === 1 && t2.e === 2.01, 'never into neighbours ' + JSON.stringify(t2));
+  const segs = [{ s: 0, e: 1.8, keep: true }, { s: 1.8, e: 2.2, keep: false }, { s: 2.2, e: 5, keep: true }];
+  assert.deepEqual(ws.map(w => T.wordIsCut(w, segs)), [false, true, false, false]);
+  const lines = [{ s: 1, e: 2.2, text: '안녕하세요 음' }, { s: 2.4, e: 3.6, text: '오늘은 컷편집' }];
+  const ap = T.editableWords([], true, lines); assert.equal(ap.length, 4); assert.ok(ap[0].approx && ap[0].s === 1 && Math.abs(ap[1].e - 2.2) < 1e-9);
+  const out = T.stripFromLines(lines, T.wordStripCands(lines, [ws[1], ws[3]])); assert.deepEqual(out.map(l => l.text), ['안녕하세요', '오늘은']);
+  assert.deepEqual(T.stripFromLines(lines, T.wordStripCands(lines, [ws[0], ws[1]])).map(l => l.text), ['오늘은 컷편집']); // whole line gone
+}
+console.log('text editing helpers ok');
 
 // text logic
 assert.equal(normKo(' 안녕하세요, 여러분! '), '안녕하세요여러분');

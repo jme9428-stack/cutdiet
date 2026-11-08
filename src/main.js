@@ -1,6 +1,7 @@
 import { initTranscribe } from './transcribe.js';
 import { initDecorate, makeCompositor, preloadFonts } from './decorate.js';
 import { initInspector } from './inspector.js';
+import { Denoiser, noiseProfile, DENOISE } from './denoise.js';
 import { defaultFx, defaultTracks, fxActive, fxToJSON, fxFromJSON, mixSfxInto, liveFx, layerCount } from './fxlogic.js';
 import { HOP, clamp, PRESETS, detectSegments, suggestThreshold, levelShift, keepRanges, intersectRanges, rangesDuration, keptDuration, applySpan, countRemoveRuns, snapBoundary, outTime, sourceTimeAtOutput, segIndexAt, fmtClock, ytStamp, tcFromSeconds, buildEDL, buildFCPXML, buildFFmpeg, chapterLines, validateChapters, pickThumbnailTimes, mixBgmInto, buildZip, assembleBlob, accumulateEnergy, energyToDb, demoEnvelope, audioFormat, audioOutBytes, loudnessGainDb, LOUDNESS_TARGET, applyGain, fadeJoins } from './cutlogic.js';
 const LS_PREFIX = 'cutdiet:v1:';
@@ -17,6 +18,7 @@ const state = {
   input: null, vTrack: null, aTrack: null, canDecodeVideo: false, videoPlayable: false,
   // voice files (no picture): cut and exported as audio (MP3/M4A/WAV); audioSr/audioCh describe the source sound
   audioOnly: false, audioSr: 48000, audioCh: 2, audioFmt: 'mp3',
+  denoise: 'off', // 잡음 제거: off | low | mid | high (remembered per browser)
   duration: 0, fps: 30, width: 0, height: 0, rotation: 0,
   env: null, levelShift: null, params: { threshold: -42, minSilence: 0.6, pad: 0.15, minKeep: 0.25, adaptive: true }, autoThreshold: -42, preset: 'lecture',
   segments: [], chapters: [], dirty: false,
@@ -43,7 +45,7 @@ const ids = ['drop','fileInput','filebar','fileName','fileMeta','btnOtherFile','
   'btnThumbs','btnThumbNow','btnThumbsZip','thumbsInfo','thumbGrid',
   'renderChip','selQuality','renderEstimate','btnRender','btnCancelRender','btnResave','renderProgress','renderStatus','fpsInput','btnZip','btnCopyFfmpeg',
   'btnSaveProject','btnSaveProject2','btnLoadProject','btnLoadProject2','projectInput','btnHelp','onb','onbStart','onbGuide','toast',
-  'audioFace','audioFaceName','audioMeter','fldQuality','fldAudioFmt','selAudioFmt','fldBoost','chkBoost','boostVal','chkAdaptive','adaptiveInfo','btnReview'];
+  'audioFace','audioFaceName','audioMeter','fldQuality','fldAudioFmt','selAudioFmt','fldBoost','chkBoost','boostVal','chkAdaptive','adaptiveInfo','btnReview','selDenoise','btnDnOrig','btnDnClean','dnInfo'];
 const els = {}; for (const id of ids) els[id] = document.getElementById(id);
 
 // ===================== UTIL =====================
@@ -202,7 +204,7 @@ async function openFile(file) {
   notice(null);
   resetShortsRange();
   refreshAll();
-  if (state.duration > HEAVY_LIMIT && !state.engineMedia && state.audioOnly) notice('1시간이 넘는 음성 파일입니다. 무음 삭제와 음성 파일(MP3 등) 내보내기는 그대로 되고, 브라우저 자동 자막만 꺼집니다.', 'warn');
+  if (state.duration > HEAVY_LIMIT && !state.engineMedia && state.audioOnly) notice('1시간이 넘는 음성 파일입니다. 무음 삭제·내보내기·자동 자막(4시간까지, 말소리 부분만 인식)은 그대로 되고, 소리만으로 찾는 추임새 분석만 건너뜁니다.', 'warn');
   else if (state.duration > HEAVY_LIMIT && !state.engineMedia) notice('1시간이 넘는 영상입니다. 분석·컷 목록·챕터·EDL/FFmpeg 내보내기는 되지만, 브라우저 안에서의 MP4·숏츠 렌더링은 꺼집니다. 컷본 파일이 필요하면 zip 안의 FFmpeg 스크립트를 쓰세요.', 'warn');
   const saved = loadSavedProject();
   if (saved && saved.segments && saved.segments.length) {
@@ -1050,11 +1052,11 @@ function updateRenderAvailability() {
   if (reason) { els.renderEstimate.textContent = reason; return; }
   if (state.audioOnly) {
     const kept = keptDuration(state.segments); const f = audioFormat(state.audioFmt);
-    els.renderEstimate.textContent = `출력 ${f.label} · 예상 용량 ${fmtBytes(audioOutBytes(state.audioFmt, kept, state.audioSr, state.audioCh))} · 길이 ${fmtClock(kept, false)}${boost ? ` · 소리 ${boost > 0 ? '+' : ''}${boost} dB` : ''}${state.bgm.ready ? ' · 배경음악 포함' : ''}${state.engineMedia ? ' · 로컬 엔진(ffmpeg) → 출력 폴더에 저장' : ''}`;
+    els.renderEstimate.textContent = `출력 ${f.label} · 예상 용량 ${fmtBytes(audioOutBytes(state.audioFmt, kept, state.audioSr, state.audioCh))} · 길이 ${fmtClock(kept, false)}${boost ? ` · 소리 ${boost > 0 ? '+' : ''}${boost} dB` : ''}${DENOISE[state.denoise] ? ` · 잡음 제거 ${DENOISE[state.denoise].label}` : ''}${state.bgm.ready ? ' · 배경음악 포함' : ''}${state.engineMedia ? ' · 로컬 엔진(ffmpeg) → 출력 폴더에 저장' : ''}`;
     return;
   }
   const qs = qualitySpec(); const kept = keptDuration(state.segments); const size = (qs.bitrate + 192e3) * kept / 8;
-  els.renderEstimate.textContent = `출력 ${qs.w}×${qs.h} · 약 ${(qs.bitrate / 1e6).toFixed(1)} Mbps · 예상 용량 ${fmtBytes(size)} · 길이 ${fmtClock(kept, false)}${boost ? ` · 소리 ${boost > 0 ? '+' : ''}${boost} dB` : ''}${state.bgm.ready ? ' · 배경음악 포함' : ''}${state.engineMedia ? ' · 로컬 엔진(ffmpeg)으로 렌더 → 출력 폴더에 저장' : state.duration > 1800 ? ' · 30분이 넘어 시간이 오래 걸립니다' : ''}`;
+  els.renderEstimate.textContent = `출력 ${qs.w}×${qs.h} · 약 ${(qs.bitrate / 1e6).toFixed(1)} Mbps · 예상 용량 ${fmtBytes(size)} · 길이 ${fmtClock(kept, false)}${boost ? ` · 소리 ${boost > 0 ? '+' : ''}${boost} dB` : ''}${DENOISE[state.denoise] ? ` · 잡음 제거 ${DENOISE[state.denoise].label}` : ''}${state.bgm.ready ? ' · 배경음악 포함' : ''}${state.engineMedia ? ' · 로컬 엔진(ffmpeg)으로 렌더 → 출력 폴더에 저장' : state.duration > 1800 ? ' · 30분이 넘어 시간이 오래 걸립니다' : ''}`;
 }
 els.selQuality.addEventListener('change', updateRenderAvailability);
 
@@ -1090,6 +1092,57 @@ function applyAudioMode() {
   const cur = document.querySelector('.tab[aria-selected="true"]'); if (a && cur && (cur.dataset.tab === 'shorts' || cur.dataset.tab === 'text')) showTab('segments');
   updateRenderAvailability(); syncPreviewGain();
 }
+// ---- 잡음 제거 ----
+// The noise is learned from the pauses the cut removes (up to 4 s of the longest ones that are not digital silence).
+let noiseCache = null;
+async function noiseSamples(aTrack) {
+  const env = state.env; if (!env) return null;
+  // cut stretches clearly (8 dB) quieter than the kept talk: real pauses, not words cut on purpose (NG, text editing)
+  const kept = []; for (const r of keepRanges(state.segments)) for (let i = Math.floor(r.s / HOP); i < Math.min(env.length, Math.ceil(r.e / HOP)); i++) if (env[i] > -95) kept.push(env[i]);
+  if (!kept.length) return null; kept.sort((a, b) => a - b); const talk = kept[kept.length >> 1];
+  const quietEnough = g => { let n = 0, ok = 0; for (let i = Math.floor(g.s / HOP); i < Math.min(env.length, Math.ceil(g.e / HOP)); i++) { n++; if (env[i] > -95 && env[i] < talk - 8) ok++; } return n && ok / n > 0.8; };
+  const cands = state.segments.filter(g => !g.keep && g.e - g.s > 0.5 && quietEnough(g)).sort((a, b) => (b.e - b.s) - (a.e - a.s));
+  const sink = new state.mb.AudioBufferSink(aTrack); const parts = []; let got = 0, sr = 0;
+  for (const g of cands) {
+    if (got >= 4) break; const s = g.s + 0.1, e = Math.min(g.e - 0.1, s + 4 - got);
+    for await (const wb of sink.buffers(s, e)) { const sl = sliceAudio(wb, s, e); if (!sl) continue; const b = sl.buffer; sr = b.sampleRate; const m = new Float32Array(b.length); for (let c = 0; c < b.numberOfChannels; c++) { const d = b.getChannelData(c); for (let i = 0; i < m.length; i++) m[i] += d[i] / b.numberOfChannels; } parts.push(m); }
+    got += e - s;
+  }
+  if (!parts.length) return null; const all = new Float32Array(parts.reduce((a, p) => a + p.length, 0)); let k = 0; for (const p of parts) { all.set(p, k); k += p.length; }
+  return { samples: all, sr, seconds: got };
+}
+async function denoiseFor(aTrack) {
+  if (!DENOISE[state.denoise] || !aTrack) return null;
+  const key = `${fileKeyOf()}|${state.segments.length}|${keptDuration(state.segments).toFixed(2)}`;
+  if (!noiseCache || noiseCache.key !== key) { const ns = await noiseSamples(aTrack); noiseCache = { key, profile: ns ? noiseProfile(ns.samples, ns.sr) : null, seconds: ns ? ns.seconds : 0 }; }
+  if (!noiseCache.profile) { toast('잡음을 배울 쉬는 구간(무음이 아닌 정적)이 없어 잡음 제거를 건너뜁니다', 3500); return null; }
+  return { profile: noiseCache.profile, strength: state.denoise };
+}
+function setDenoise(v) { state.denoise = DENOISE[v] ? v : 'off'; lsSet('cutdiet:denoise', state.denoise); els.selDenoise.value = state.denoise; const x = document.getElementById('xDenoise'); if (x) x.value = state.denoise; updateRenderAvailability(); }
+// compare 6 s from the playhead with and without noise reduction (same loudness setting as the export)
+let dnPlayer = null;
+async function previewDenoise(clean) {
+  if (!state.hasMedia || !state.mb || !state.aTrack) { toast(state.engineMedia ? '로컬 엔진으로 연 파일은 비교 듣기를 할 수 없습니다 (내보내기에는 적용됩니다)' : '먼저 영상·음성을 불러오세요'); return; }
+  try {
+    if (dnPlayer) { try { dnPlayer.stop(); } catch {} dnPlayer = null; }
+    els.video.pause(); const t0 = state.cur, t1 = Math.min(state.duration, t0 + 6); const sink = new state.mb.AudioBufferSink(state.aTrack); const bufs = [];
+    for await (const wb of sink.buffers(t0, t1)) { const sl = sliceAudio(wb, t0, t1); if (sl) bufs.push(sl.buffer); }
+    if (!bufs.length) return; const sr = bufs[0].sampleRate, nch = bufs[0].numberOfChannels; const len = bufs.reduce((a, b) => a + b.length, 0);
+    let chans = Array.from({ length: nch }, () => new Float32Array(len)); let k = 0; for (const b of bufs) { for (let c = 0; c < nch; c++) chans[c].set(b.getChannelData(Math.min(c, b.numberOfChannels - 1)), k); k += b.length; }
+    if (clean) {
+      const prev = state.denoise; if (!DENOISE[prev]) state.denoise = 'mid'; const dn = await denoiseFor(state.aTrack); state.denoise = prev; if (!dn) return;
+      const d = new Denoiser(sr, nch, dn.profile, DENOISE[prev] ? prev : 'mid'); const a = d.push(chans), b = d.flush(); chans = a.map((x, c) => { const o = new Float32Array(len); o.set(x); o.set(b[c], x.length); return o; });
+    }
+    const g = boostDb(); if (g) applyGain(chans, Math.pow(10, g / 20));
+    const ctx = new AudioContext(); const buf = ctx.createBuffer(nch, len, sr); chans.forEach((c, i) => buf.copyToChannel(c, i));
+    const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination); src.start(); dnPlayer = src; src.onended = () => ctx.close();
+    toast(clean ? `잡음 제거 후 (${DENOISE[state.denoise] ? DENOISE[state.denoise].label : '보통'}) 6초` : '원본 6초', 1800);
+  } catch (e) { console.warn(e); toast('비교 듣기를 하지 못했습니다: ' + (e.message || e)); }
+}
+els.selDenoise.addEventListener('change', () => setDenoise(els.selDenoise.value));
+els.btnDnOrig.addEventListener('click', () => previewDenoise(false)); els.btnDnClean.addEventListener('click', () => previewDenoise(true));
+setDenoise(lsGet('cutdiet:denoise') || 'off');
+
 // Preview of a boosted voice file: route the monitor's sound through Web Audio (gain + limiter) so what you hear matches the export.
 let previewAudio = null;
 function syncPreviewGain() {
@@ -1139,7 +1192,7 @@ async function startRender(kind, rerender) {
   try {
     if (state.engineMedia && state.hooks.render) { // Pro: ffmpeg in the local engine, written straight into the output folder
       const audio = kind === 'main' && state.audioOnly ? { format: state.audioFmt } : null;
-      const r = await state.hooks.render({ kind, ranges, out, crop, quality: els.selQuality.value, fps: state.fps, name, audio, gainDb: boostDb(), signal: abort.signal, onProgress: setProgress });
+      const r = await state.hooks.render({ kind, ranges, out, crop, quality: els.selQuality.value, fps: state.fps, name, audio, gainDb: boostDb(), denoise: state.denoise, signal: abort.signal, onProgress: setProgress });
       ui.progress.firstElementChild.style.width = '100%';
       ui.status.textContent = `완료 · ${fmtBytes(r.size || 0)} · ${fmtClock((performance.now() - t0) / 1000, false)} 걸림 · 저장: ${r.out}${r.warnings && r.warnings.length ? ' · ' + r.warnings.join(' · ') : ''}`;
       state.activity.renders++; document.dispatchEvent(new CustomEvent('cutdiet:rendered', { detail: { kind, name: r.out, size: r.size || 0, seconds: (performance.now() - t0) / 1000, engine: true } }));
@@ -1230,7 +1283,8 @@ async function renderMp4({ ranges, out, crop, forceTransform, signal, onProgress
       cursor += r.e - r.s;
     }
   };
-  const audioPump = async () => { if (aSource) await pumpAudio({ aSource, aTrack, ranges, total, aSr, aCh, bgm, fxR, origMuted, signal, gainDb: boostDb(), gate: async outT => { while (outT > vProgress + 4 && !signal.aborted) await sleep(40); } }); };
+  const denoise = aTrack ? await denoiseFor(aTrack) : null;
+  const audioPump = async () => { if (aSource) await pumpAudio({ aSource, aTrack, ranges, total, aSr, aCh, bgm, fxR, origMuted, signal, gainDb: boostDb(), denoise, gate: async outT => { while (outT > vProgress + 4 && !signal.aborted) await sleep(40); } }); };
   try { await Promise.all([videoPump(), audioPump()]); }
   catch (e) { try { await output.cancel(); } catch {} if (direct) { try { await direct.abort(); } catch {} } throw e; }
   await output.finalize();
@@ -1239,31 +1293,52 @@ async function renderMp4({ ranges, out, crop, forceTransform, signal, onProgress
 }
 // Sound of the kept ranges into an encoder source: original voice (optionally boosted), background music, effects.
 // gate(outT) lets the MP4 render hold the audio a few seconds ahead of the video; onProgress is used by audio-only exports.
-async function pumpAudio({ aSource, aTrack, ranges, total, aSr, aCh, bgm, fxR, origMuted, signal, gate, onProgress, gainDb = 0 }) {
+async function pumpAudio({ aSource, aTrack, ranges, total, aSr, aCh, bgm, fxR, origMuted, signal, gate, onProgress, gainDb = 0, denoise = null }) {
   const abortErr = () => { const e = new Error('aborted'); e.name = 'AbortError'; return e; };
   const mb = state.mb; const duckState = { g: 1 }; const thr = state.params.threshold; const lin = gainDb ? Math.pow(10, gainDb / 20) : 0;
   let cursor = 0, lastUi = 0;
   if (aTrack) {
     const sink = new mb.AudioBufferSink(aTrack);
+    const rOut = []; { let o = 0; for (const r of ranges) { rOut.push(o); o += r.e - r.s; } } // output time where each range starts
+    const rangeAt = t => { let k = 0; while (k + 1 < ranges.length && rOut[k + 1] <= t + 1e-9) k++; return k; };
+    // gain, music and effects at output time outStart (source time srcStart), then to the encoder
+    const send = async (buf, outStart, srcStart) => {
+      if (gate) await gate(outStart);
+      const sr = buf.sampleRate; const chans = []; for (let c = 0; c < buf.numberOfChannels; c++) chans.push(buf.getChannelData(c));
+      if (lin && !origMuted) applyGain(chans, lin);
+      if (bgm) mixBgmInto(chans, sr, outStart, srcStart, bgm, state.env, HOP, thr, total, duckState);
+      if (fxR.sfx.length && decor) mixSfxInto(chans, sr, srcStart, fxR.sfx, s => decor.getSfxBuf(s, sr));
+      await aSource.add(buf);
+      if (onProgress && outStart - lastUi > 1) { lastUi = outStart; onProgress(outStart / total); }
+    };
+    // noise reduction delays its output a little: cut what it hands back at the joins so music/effects keep their times
+    const dnOn = denoise && denoise.profile && !origMuted; let dn = null, emitted = 0;
+    const sendDenoised = async (outs, sr) => {
+      const len = outs[0].length; let pos = 0;
+      while (pos < len) {
+        const t = (emitted + pos) / sr, k = rangeAt(t); const endS = k + 1 < ranges.length ? Math.round(rOut[k + 1] * sr) : Infinity;
+        const n = Math.min(len - pos, Math.max(1, endS - (emitted + pos)));
+        const buf = new AudioBuffer({ length: n, sampleRate: sr, numberOfChannels: outs.length }); outs.forEach((o, c) => buf.copyToChannel(o.subarray(pos, pos + n), c));
+        await send(buf, t, ranges[k].s + (t - rOut[k])); pos += n;
+      }
+      emitted += len;
+    };
+    let lastSr = 0;
     for (let ri = 0; ri < ranges.length; ri++) {
       const r = ranges[ri];
       for await (const wb of sink.buffers(r.s, r.e)) {
         if (signal.aborted) throw abortErr();
         const sliced = sliceAudio(wb, r.s, r.e); if (!sliced) continue;
-        const srcStart = Math.max(wb.timestamp, r.s); const outStart = cursor + (srcStart - r.s);
-        if (gate) await gate(outStart);
-        {
-          const chans = []; for (let c = 0; c < sliced.buffer.numberOfChannels; c++) chans.push(sliced.buffer.getChannelData(c));
-          fadeJoins(chans, sliced.buffer.sampleRate, srcStart, r, ri === 0, ri === ranges.length - 1);
-          if (origMuted) for (const ch of chans) ch.fill(0); else if (lin) applyGain(chans, lin);
-          if (bgm) mixBgmInto(chans, sliced.buffer.sampleRate, outStart, srcStart, bgm, state.env, HOP, thr, total, duckState);
-          if (fxR.sfx.length && decor) mixSfxInto(chans, sliced.buffer.sampleRate, srcStart, fxR.sfx, s => decor.getSfxBuf(s, sliced.buffer.sampleRate));
-        }
-        await aSource.add(sliced.buffer);
-        if (onProgress && outStart - lastUi > 1) { lastUi = outStart; onProgress(outStart / total); }
+        const srcStart = Math.max(wb.timestamp, r.s); const outStart = cursor + (srcStart - r.s); const buf = sliced.buffer; lastSr = buf.sampleRate;
+        const chans = []; for (let c = 0; c < buf.numberOfChannels; c++) chans.push(buf.getChannelData(c));
+        fadeJoins(chans, buf.sampleRate, srcStart, r, ri === 0, ri === ranges.length - 1);
+        if (origMuted) for (const ch of chans) ch.fill(0);
+        if (dnOn) { if (!dn) dn = new Denoiser(buf.sampleRate, buf.numberOfChannels, denoise.profile, denoise.strength); await sendDenoised(dn.push(chans), buf.sampleRate); }
+        else await send(buf, outStart, srcStart);
       }
       cursor += r.e - r.s;
     }
+    if (dn) await sendDenoised(dn.flush(), lastSr);
   } else {
     // no voice track: background music (and effects) only
     for (let outT = 0; outT < total; outT += 1) {
@@ -1302,7 +1377,8 @@ async function renderAudio({ ranges, signal, onProgress, sink }) {
   const tk = state.fx.tracks || {}; const fxR = liveFx(state.fx);
   const bgm = state.bgm.ready && !tk.bgmMuted ? { ...state.bgm, offset: outTime(state.segments, state.bgm.start || 0) } : null;
   await output.start();
-  try { await pumpAudio({ aSource, aTrack, ranges, total, aSr, aCh, bgm, fxR, origMuted: !!tk.origMuted, signal, onProgress, gainDb: boostDb() }); }
+  const denoise = await denoiseFor(aTrack);
+  try { await pumpAudio({ aSource, aTrack, ranges, total, aSr, aCh, bgm, fxR, origMuted: !!tk.origMuted, signal, onProgress, gainDb: boostDb(), denoise }); }
   catch (e) { try { await output.cancel(); } catch {} if (direct) { try { await direct.abort(); } catch {} } throw e; }
   await output.finalize(); onProgress(1);
   if (direct) { await direct.close(); return { size: written, name: sink.name }; }
@@ -1466,7 +1542,7 @@ bootDemo();
 
 // ===================== AI (in-browser transcription) =====================
 function markSpans(spans, keep = false) { if (!spans.length) return 0; pushUndo(); state.activity.aiApplied += spans.length; let segs = state.segments; for (const sp of spans) segs = applySpan(segs, clamp(sp.s, 0, state.duration), clamp(sp.e, 0, state.duration), keep); state.segments = segs; markDirty(); refreshAll(); return spans.length; }
-const tr = initTranscribe({ state, HOP, pushUndo, toast, saveFile, copyText, outTime, keptDuration, fmtClock, baseName, seek, sleep, nextFrame, markSpans, heavyReason, escapeHtml, accumulateEnergy, autosave,
+const tr = initTranscribe({ state, HOP, pushUndo, undo: doUndo, redo: doRedo, togglePlay, toast, saveFile, copyText, outTime, keptDuration, fmtClock, baseName, seek, sleep, nextFrame, markSpans, heavyReason, escapeHtml, accumulateEnergy, autosave,
   play: () => { if (els.video.paused) togglePlay(); }, previewSpan, showTab, candsChanged: () => drawTimeline(), captionsChanged: () => { if (decor) { decor.renderLists(); decor.previewTick(false); } } });
 if (tr && tr.getLines) captionsOf = tr.getLines;
 trApi = tr;
@@ -1481,13 +1557,14 @@ document.getElementById('btnTopExport').addEventListener('click', () => openExpo
 // ===================== EXPORT DIALOG (CapCut style) =====================
 // The top "내보내기" opens this: preview + title, quality, burn-in captions, SRT. It drives the same render as the
 // 내보내기 menu (startRender) and mirrors its progress, so both stay in step.
-const X = Object.fromEntries(['xVideoLabel', 'xRowAudioFmt', 'xAudioFmt', 'xRowBoost', 'xBoost', 'xRowQuality', 'xRowFormat', 'xRowFps', 'xBurnRow', 'exportDlg', 'xClose', 'xThumb', 'xMeta', 'xName', 'xVideo', 'xQuality', 'xFps', 'xBurn', 'xSrt', 'xCapHint', 'xProgWrap', 'xBar', 'xStatus', 'xEstimate', 'xCancel', 'xGo'].map(id => [id, document.getElementById(id)]));
+const X = Object.fromEntries(['xDenoise', 'xVideoLabel', 'xRowAudioFmt', 'xAudioFmt', 'xRowBoost', 'xBoost', 'xRowQuality', 'xRowFormat', 'xRowFps', 'xBurnRow', 'exportDlg', 'xClose', 'xThumb', 'xMeta', 'xName', 'xVideo', 'xQuality', 'xFps', 'xBurn', 'xSrt', 'xCapHint', 'xProgWrap', 'xBar', 'xStatus', 'xEstimate', 'xCancel', 'xGo'].map(id => [id, document.getElementById(id)]));
 const safeName = s => String(s || '').replace(/[\\/:*?"<>|\x00-\x1f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
 const fileKeyOf = () => (state.file ? `${state.file.name}:${state.file.size}` : '');
 function exportDialogRefresh() {
   const reason = renderBlockReason(), caps = (captionsOf() || []).length, video = X.xVideo.checked, a = state.audioOnly;
   // voice files: the "동영상" section becomes "오디오" (format + loudness), picture-only rows go away
   X.xVideoLabel.textContent = a ? '오디오' : '동영상'; X.xRowAudioFmt.hidden = !a; X.xRowBoost.hidden = false; X.xRowQuality.hidden = X.xRowFormat.hidden = X.xRowFps.hidden = X.xBurnRow.hidden = a;
+  X.xDenoise.value = state.denoise; X.xDenoise.disabled = !video;
   X.xAudioFmt.disabled = X.xBoost.disabled = !video; X.xAudioFmt.value = state.audioFmt; X.xBoost.checked = els.chkBoost.checked;
   if (a) X.xBurn.checked = false;
   X.xQuality.disabled = !video; X.xBurn.disabled = !video || !caps; X.xSrt.disabled = !caps; X.xCapHint.hidden = !!caps;
@@ -1520,6 +1597,7 @@ function closeExportDialog() { X.exportDlg.hidden = true; }
 X.xQuality.addEventListener('change', () => { els.selQuality.value = X.xQuality.value; exportDialogRefresh(); });
 X.xBurn.addEventListener('change', () => { const b = document.getElementById('subBurn'); if (b && b.checked !== X.xBurn.checked) { b.checked = X.xBurn.checked; ['input', 'change'].forEach(t => b.dispatchEvent(new Event(t, { bubbles: true }))); } exportDialogRefresh(); });
 X.xVideo.addEventListener('change', exportDialogRefresh);
+X.xDenoise.addEventListener('change', () => { setDenoise(X.xDenoise.value); exportDialogRefresh(); });
 X.xAudioFmt.addEventListener('change', () => { setAudioFmt(X.xAudioFmt.value); exportDialogRefresh(); });
 X.xBoost.addEventListener('change', () => { els.chkBoost.checked = X.xBoost.checked; els.chkBoost.dispatchEvent(new Event('change')); exportDialogRefresh(); }); X.xSrt.addEventListener('change', exportDialogRefresh);
 X.xClose.addEventListener('click', closeExportDialog);

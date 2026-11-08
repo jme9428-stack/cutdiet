@@ -2,6 +2,7 @@
 // Captions can be corrected line by line afterwards (text, timing, split/merge/delete), imported from SRT, and find/replaced.
 import { planWindows, speechSeconds, dedupeWords } from './asrplan.js';
 import { resplitLines, splitLineAt, CAPTION_CHARS } from './textlogic.js';
+import { editableWords, wordSpans, wordIsCut, wordStripCands } from './textlogic.js';
 import { wordsFromChunks, dropSilentWords, buildCaptionLines, buildSRT, findFillers, findStutters, findMumbles, findRepeats, findShortBursts, stripFromLines, parseSRT, mergeSpans, resampleInto } from './textlogic.js';
 
 const TARGET_SR = 16000;
@@ -47,6 +48,30 @@ export function initTranscribe(api) {
       filled = resampleInto(target, TARGET_SR, chans, buf.sampleRate, 0);
     }
     return target.subarray(0, Math.max(1, filled));
+  }
+
+  // Long voice files: decode only the speech windows (what Whisper reads) instead of the whole file at 16 kHz,
+  // so a 3-hour recording with an hour of talk needs ~230 MB, not ~700 MB. Returns an object with the same slice(a, b)
+  // the recognizer uses on a full Float32Array (sample indices in whole-file time).
+  async function extractWindows(windows, onProgress, alive = () => ai.running) {
+    const SR = TARGET_SR; const segs = []; const total = speechSeconds(windows) || 1; let doneSec = 0;
+    const sink = new state.mb.AudioBufferSink(state.aTrack);
+    for (const win of windows) {
+      const S = win.parts[0].s, E = win.parts[win.parts.length - 1].e; const a = Math.round(S * SR); const data = new Float32Array(Math.round(E * SR) - a + 1);
+      for await (const wb of sink.buffers(Math.max(0, S - 0.05), E + 0.05)) {
+        if (!alive()) throw new Error('canceled');
+        const b = wb.buffer; const chans = []; for (let c = 0; c < b.numberOfChannels; c++) chans.push(b.getChannelData(c));
+        resampleInto(data, SR, chans, b.sampleRate, wb.timestamp - a / SR);
+      }
+      segs.push({ a, data }); doneSec += E - S; onProgress(Math.min(1, doneSec / total)); await new Promise(r => setTimeout(r, 0));
+    }
+    return { sparse: true, slice(x, y) { const g = segs.find(q => x >= q.a && x < q.a + q.data.length) || segs.find(q => Math.abs(q.a - x) <= 2); return g ? g.data.slice(Math.max(0, x - g.a), Math.max(0, y - g.a)) : new Float32Array(Math.max(0, y - x)); } };
+  }
+  // voice files can go far longer than videos: only speech is decoded and recognized (see extractWindows)
+  const VOICE_ASR_LIMIT = 4 * 3600;
+  function asrBlockReason() {
+    if (state.audioOnly) return state.duration > VOICE_ASR_LIMIT ? '4시간이 넘는 음성 파일은 자막 생성을 지원하지 않습니다. 나눠서 올려 주세요' : (state.duration > 1800 && !(state.mb && state.aTrack) && !(state.engineMedia && state.hooks.transcribe) ? '이 음성 형식은 긴 파일의 자막을 만들 수 없습니다. MP3·M4A로 변환해 보세요' : null);
+    return heavyReason() ? '1시간이 넘는 영상은 자막 생성을 지원하지 않습니다. 30분 이하로 나눠서 올려 주세요' : null;
   }
 
   function stopWorker() { for (const w of ai.workers || []) w.terminate(); ai.workers = []; }
@@ -121,20 +146,21 @@ export function initTranscribe(api) {
   async function run() {
     if (!state.hasMedia) { toast('먼저 영상을 불러오세요'); return; }
     if (ai.running) return;
-    const heavy = heavyReason(); if (heavy) { toast('1시간이 넘는 영상은 자막 생성을 지원하지 않습니다. 30분 이하로 나눠서 올려 주세요', 4500); return; }
+    const blocked = asrBlockReason(); if (blocked) { toast(blocked, 4500); return; }
     if (ai.lines.some(l => l.edited) && !confirm('직접 고친 자막이 있습니다. 새로 만들면 지금 자막을 덮어씁니다. 계속할까요?')) return;
     if (state.duration > 1800 && !confirmLong()) return;
-    ai.running = true; el.run.disabled = true; el.cancel.hidden = false; el.text.value = ''; el.candBody.innerHTML = ''; el.text.closest('details').open = true;
+    ai.running = true; ai.runKey = fileKey(); el.run.disabled = true; el.cancel.hidden = false; el.text.value = ''; el.candBody.innerHTML = ''; el.text.closest('details').open = true;
     setProgress(0, '오디오를 추출하는 중…');
     const t0 = performance.now(); ai.abort = new AbortController();
     try {
       const useEngine = !!(state.engineMedia && state.hooks.transcribe);
-      const cached = snd.audio && snd.audio.key === fileKey() ? snd.audio.data.slice() : null;
-      const audio = useEngine ? null : cached || await extractAudio(p => setProgress(p * 0.1, `오디오 추출 ${Math.round(p * 100)}%`));
-      if (!ai.running) throw new Error('canceled');
-      const device = (el.gpu.checked && gpuOk) ? 'webgpu' : 'wasm'; const model = el.model.value;
       // only the speech, in non-overlapping windows cut at pauses (asrplan.js)
       const windows = planWindows(state.env, api.HOP, state.params.threshold, state.duration);
+      const cached = snd.audio && snd.audio.key === fileKey() ? snd.audio.data.slice() : null;
+      const sparse = !useEngine && !cached && state.audioOnly && state.duration > 1800 && state.mb && state.aTrack;
+      const audio = useEngine ? null : cached || (sparse ? await extractWindows(windows, p => setProgress(p * 0.1, `말소리 부분만 추출 ${Math.round(p * 100)}%`)) : await extractAudio(p => setProgress(p * 0.1, `오디오 추출 ${Math.round(p * 100)}%`)));
+      if (!ai.running) throw new Error('canceled');
+      const device = (el.gpu.checked && gpuOk) ? 'webgpu' : 'wasm'; const model = el.model.value;
       const result = useEngine ? await state.hooks.transcribe({ model, signal: ai.abort.signal, onProgress: (frac, text) => setProgress(frac, text) }) : await transcribePool({ audio, model, device, windows, t0 });
       if (!ai.running) throw new Error('canceled');
       const raw = wordsFromChunks(result.chunks, state.duration); ai.words = dropSilentWords(raw, state.env, api.HOP, state.params.threshold - 6); ai.wordLevel = result.wordLevel !== false; ai.forFile = fileKey();
@@ -152,7 +178,7 @@ export function initTranscribe(api) {
       el.progress.hidden = true;
     } finally { ai.running = false; el.run.disabled = false; el.cancel.hidden = true; stopWorker(); }
   }
-  function confirmLong() { toast('30분이 넘는 영상은 인식에 30분 이상 걸릴 수 있습니다. 진행합니다', 4000); return true; }
+  function confirmLong() { toast(state.audioOnly ? '긴 녹음입니다. 말소리 부분만 인식하므로 말소리 길이만큼 걸립니다' : '30분이 넘는 영상은 인식에 30분 이상 걸릴 수 있습니다. 진행합니다', 4000); return true; }
   function humanError(msg) {
     msg = String(msg || '');
     if (/fetch|network|Failed to|404|load/i.test(msg)) return '모델 파일을 내려받지 못했습니다. 인터넷 연결을 확인하고 다시 시도하세요. (' + msg.slice(0, 80) + ')';
@@ -238,7 +264,7 @@ export function initTranscribe(api) {
     const key = fileKey(); if (!state.hasMedia || state.isDemo || !key || ai.words.length) return;
     if (!force && snd.key === key && (snd.raw || snd.running)) return;
     const token = ++snd.token; snd.key = key; snd.raw = null; snd.error = ''; snd.progress = 0;
-    if (heavyReason()) { snd.raw = []; snd.error = '1시간이 넘는 영상은 소리 분석을 건너뜁니다'; computeCands(); renderCands(); return; }
+    if (state.duration > 3600) { snd.raw = []; snd.error = '1시간이 넘는 파일은 소리만으로 찾는 추임새 분석을 건너뜁니다 (자막을 만들면 자막으로 찾습니다)'; computeCands(); renderCands(); return; }
     snd.running = true; computeCands(); renderCands();
     const alive = () => snd.token === token && fileKey() === key;
     try {
@@ -350,7 +376,8 @@ export function initTranscribe(api) {
 
   // reset when a new file is opened (a restored project brings its captions back through setLines)
   let lastKey = null;
-  setInterval(() => { const key = fileKey(); if (key !== lastKey) { lastKey = key; if (ai.running) { ai.running = false; stopWorker(); el.run.disabled = false; el.cancel.hidden = true; } ai.words = []; ai.lines = []; ai.cands = []; if (!state.analyzing) computeCands(); el.text.value = ''; el.progress.hidden = true; el.status.textContent = state.hasMedia ? '준비됨. "자막 만들기"를 누르세요.' : '영상을 불러온 뒤 실행하세요.'; renderResults(); } }, 500);
+  // a run started on the newly opened file before this check noticed the file change belongs to that file: keep it
+  setInterval(() => { const key = fileKey(); if (key !== lastKey) { lastKey = key; if (ai.running && ai.runKey === key) return; if (ai.running) { ai.running = false; stopWorker(); el.run.disabled = false; el.cancel.hidden = true; } ai.words = []; ai.lines = []; ai.cands = []; if (!state.analyzing) computeCands(); el.text.value = ''; el.progress.hidden = true; el.status.textContent = state.hasMedia ? '준비됨. "자막 만들기"를 누르세요.' : '영상을 불러온 뒤 실행하세요.'; renderResults(); } }, 500);
   function setLines(lines) {
     lastKey = fileKey(); ai.words = []; computeCands(); ai.forFile = lastKey;
     ai.lines = (lines || []).map(l => ({ s: Number(l.s), e: Number(l.e), text: String(l.text || ''), edited: !!l.edited })).filter(l => l.e > l.s && l.text).sort((a, b) => a.s - b.s);
@@ -379,5 +406,56 @@ export function initTranscribe(api) {
     const two = splitLineAt(l, t, ai.words); if (!two) return false;
     ai.lines.splice(ai.lines.indexOf(l), 1, ...two); renderEditor(); changed(); return two;
   }
+  // ---- 텍스트로 편집: the transcript as words; select words and press Delete to cut them from the video ----
+  const tx = { box: $('txEdit'), chip: $('txChip'), del: $('btnTxDel'), keep: $('btnTxKeep'), strip: $('txStrip'), words: [], sig: '', now: -1 };
+  function txSig() { const sg = state.segments; return `${ai.lines.length}|${ai.words.length}|${sg.length}|${sg.reduce((a, g) => a + (g.keep ? g.e - g.s : 0), 0).toFixed(3)}|${ai.lines.map(l => l.text).join('').length}`; }
+  function renderTx(force) {
+    if (!tx.box) return; const sig = txSig(); if (!force && sig === tx.sig) return; tx.sig = sig;
+    tx.words = editableWords(ai.words, ai.wordLevel, ai.lines); const segs = state.segments; tx.now = -1;
+    if (!tx.words.length) { tx.box.innerHTML = ''; tx.chip.textContent = '자막을 만들면 사용'; tx.del.disabled = tx.keep.disabled = true; return; }
+    let html = '<p>', cut = 0;
+    tx.words.forEach((w, i) => { const c = wordIsCut(w, segs); if (c) cut++; if (i && w.s - tx.words[i - 1].e > 1.2) html += '</p><p>'; html += `<span class="w${c ? ' cut' : ''}${w.approx ? ' approx' : ''}" data-i="${i}">${escapeHtml(w.text)}</span> `; });
+    tx.box.innerHTML = html + '</p>';
+    tx.chip.textContent = `${tx.words.length}단어${cut ? ` · 잘린 말 ${cut}` : ''}${tx.words[0].approx ? ' · 시간은 줄 기준 추정' : ''}`;
+    tx.del.disabled = tx.keep.disabled = false;
+  }
+  function txSelection() {
+    const sel = window.getSelection(); if (!sel || !sel.rangeCount || !tx.box.contains(sel.anchorNode)) return null;
+    const idx = n => { const elx = (n && n.nodeType === 3 ? n.parentElement : n); const sp = elx && elx.closest ? elx.closest('.w') : null; return sp && tx.box.contains(sp) ? Number(sp.dataset.i) : null; };
+    let a = idx(sel.anchorNode), b = idx(sel.focusNode);
+    if (a == null || b == null) { const spans = [...tx.box.querySelectorAll('.w')].filter(sp => sel.containsNode(sp, true)).map(sp => Number(sp.dataset.i)); if (!spans.length) return null; a = Math.min(...spans); b = Math.max(...spans); }
+    if (sel.isCollapsed) return null;
+    return a <= b ? [a, b] : [b, a];
+  }
+  function txApply(keep) {
+    const r = txSelection(); if (!r) { toast('지울 말을 드래그해서 고르세요'); return; }
+    const [i, j] = r; const spans = wordSpans(tx.words, i, j); if (!spans.length) return;
+    markSpans(spans, keep);
+    if (!keep && tx.strip.checked && ai.lines.length) { swapLines(stripFromLines(ai.lines, wordStripCands(ai.lines, tx.words.slice(i, j + 1)))); renderEditor(); changed(); } // undo: markSpans took the snapshot
+    window.getSelection().removeAllRanges(); renderTx(true);
+    toast(keep ? `${j - i + 1}단어를 되살렸습니다` : `${j - i + 1}단어를 잘랐습니다 · Ctrl+Z 되돌리기`, 2200);
+  }
+  if (tx.box) {
+    tx.del.addEventListener('mousedown', e => e.preventDefault()); tx.keep.addEventListener('mousedown', e => e.preventDefault()); // keep the text selection
+    tx.del.addEventListener('click', () => txApply(false)); tx.keep.addEventListener('click', () => txApply(true));
+    // read-only editing surface: no typing, pasting or dropping; the keys below are the editing
+    ['beforeinput', 'paste', 'drop', 'cut'].forEach(ev => tx.box.addEventListener(ev, e => e.preventDefault()));
+    tx.box.addEventListener('keydown', e => {
+      e.cutdietHandled = true; const mod = e.ctrlKey || e.metaKey;
+      if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); txApply(false); }
+      else if (mod && e.code === 'KeyZ') { e.preventDefault(); if (e.shiftKey) { if (api.redo) api.redo(); } else if (api.undo) api.undo(); renderTx(true); }
+      else if (e.code === 'Space') { e.preventDefault(); if (api.togglePlay) api.togglePlay(); }
+      else if (e.key === 'Escape') { window.getSelection().removeAllRanges(); tx.box.blur(); }
+      else if (!mod && !/^(Arrow|Shift|Home|End|Page|Tab)/.test(e.key)) e.preventDefault();
+    });
+    tx.box.addEventListener('click', e => { const sp = e.target.closest && e.target.closest('.w'); const sel = window.getSelection(); if (sp && (!sel || sel.isCollapsed)) seek(Math.max(0, tx.words[Number(sp.dataset.i)].s - 0.05)); });
+    // follow playback and keep the view in step with cuts made elsewhere (timeline, NG 정리, undo)
+    setInterval(() => {
+      if (tx.box.closest('[hidden]')) return; renderTx(false);
+      const t = state.cur; let k = -1; for (let i = 0; i < tx.words.length; i++) { if (tx.words[i].s > t) break; if (tx.words[i].e + 0.15 >= t) k = i; }
+      if (k !== tx.now) { const o = tx.box.querySelector('.w.now'); if (o) o.classList.remove('now'); tx.now = k; const n = k >= 0 ? tx.box.querySelector(`.w[data-i="${k}"]`) : null; if (n) { n.classList.add('now'); const bt = tx.box.getBoundingClientRect(), nb = n.getBoundingClientRect(); if (nb.top < bt.top || nb.bottom > bt.bottom) tx.box.scrollTop += nb.top - bt.top - bt.height / 3; } }
+    }, 250);
+  }
+
   return { getLines: () => ai.lines, setLines, splitCaptionAt, replaceLines, refresh: renderEditor, getCands: () => ai.cands, toggleCand, focusCaption };
 }

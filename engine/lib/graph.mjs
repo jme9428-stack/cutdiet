@@ -89,7 +89,10 @@ export function buildArgs(req, assets, { fontsDir, hasLibass, ffVersion } = {}) 
   const gainDb = req.gainDb ?? (req.audio && req.audio.gainDb) ?? 0; // loudness matching: voice lifted/lowered before mixing, the limiter below catches peaks
   if (voiceOn) {
     const n = ranges.length; const labels = ranges.map((_, i) => `[c${i}]`);
-    lines.push(`[0:a]${AF}${gainDb ? `,volume=${f3(gainDb)}dB` : ''},asplit=${n}${ranges.map((_, i) => `[a${i}]`).join('')}`);
+    // 잡음 제거: ffmpeg's FFT denoiser. It needs the real noise level (nf), measured in the cut pauses (noiseDb); its own
+    // tracking (tn) barely reacts. Strength = how many dB of noise it takes out.
+    const nr = { low: 8, mid: 14, high: 22 }[req.denoise]; const nf = Math.round(Math.max(-80, Math.min(-20, req.noiseDb ?? -50)));
+    lines.push(`[0:a]${AF}${nr ? `,afftdn=nr=${nr}:nf=${nf}${req.noiseDb == null ? ':tn=1' : ''}` : ''}${gainDb ? `,volume=${f3(gainDb)}dB` : ''},asplit=${n}${ranges.map((_, i) => `[a${i}]`).join('')}`);
     // short fades at every join (not at the very start/end): without them each cut is an audible tick
     ranges.forEach((r, i) => { const fx = []; const len = r.e - r.s; if (i > 0 && len > 4 * JOIN_FADE) fx.push(`afade=t=in:st=0:d=${f3(JOIN_FADE)}`); if (i < n - 1 && len > 4 * JOIN_FADE) fx.push(`afade=t=out:st=${f3(len - JOIN_FADE)}:d=${f3(JOIN_FADE)}`); lines.push(`[a${i}]atrim=${f3(r.s)}:${f3(r.e)},asetpts=PTS-STARTPTS${fx.length ? ',' + fx.join(',') : ''}[c${i}]`); });
     voice = n === 1 ? '[c0]' : concatChain(labels, 'cc', lines);

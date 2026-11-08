@@ -14,7 +14,7 @@ import { writeWav, nativePick, openFolder, openBrowser, defaultOutDir, uniquePat
 import { ensureFonts, BASE_FAMILIES } from './lib/fonts.mjs';
 import { extractAudio16k, transcribeAudio, ASR_MODELS, resolveModel } from './lib/asr.mjs';
 import { synthSfx } from '../src/fxlogic.js';
-import { HOP, PRESETS, detectSegments, suggestThreshold, levelShift, keepRanges, keptDuration, countRemoveRuns, clamp, audioFormat, loudnessGainDb, LOUDNESS_TARGET } from '../src/cutlogic.js';
+import { HOP, PRESETS, detectSegments, suggestThreshold, levelShift, gapNoiseDb, keepRanges, keptDuration, countRemoveRuns, clamp, audioFormat, loudnessGainDb, LOUDNESS_TARGET } from '../src/cutlogic.js';
 
 export const VERSION = '1.0.0';
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -99,7 +99,7 @@ async function startRender(body) {
     (fxCopy.overlays || []).forEach((o, i) => { if (o.type === 'image') { if (!o.path && o.dataUrl) o.path = dataUrlToFile(o.dataUrl, dir, 'img' + i); delete o.dataUrl; if (o.path && !fs.existsSync(o.path)) o.path = null; } });
     fxCopy.overlays = (fxCopy.overlays || []).filter(o => o.type === 'text' ? !!o.text : !!o.path);
   }
-  const req = { src: m.path, ranges, duration: info.duration, fps: body.fps || info.fps || 30, width: info.width, height: info.height, hasAudio: !!info.hasAudio, out, crop: body.crop || null, quality: body.quality || settings.quality, encoder: resolveEncoder(), fx: fxCopy, captions: body.captions || [], outPath: '', gainDb: clamp(Number(body.gainDb ?? (body.audio && body.audio.gainDb)) || 0, -20, 60) };
+  const req = { src: m.path, ranges, duration: info.duration, fps: body.fps || info.fps || 30, width: info.width, height: info.height, hasAudio: !!info.hasAudio, out, crop: body.crop || null, quality: body.quality || settings.quality, encoder: resolveEncoder(), fx: fxCopy, captions: body.captions || [], outPath: '', denoise: ['low', 'mid', 'high'].includes(body.denoise) ? body.denoise : null, noiseDb: m.env ? gapNoiseDb(m.env, HOP, ranges, info.duration) : null, gainDb: clamp(Number(body.gainDb ?? (body.audio && body.audio.gainDb)) || 0, -20, 60) };
   if (audioOnly) { req.audioOnly = true; req.audio = { format: audioFormat(body.audio && body.audio.format).ext, channels: info.channels === 1 ? 1 : 2 }; req.captions = []; if (req.fx) { req.fx.overlays = []; if (req.fx.subs) req.fx.subs.burn = false; } }
   const mapped = mapOverlaysAndCaptions(req);
   const assets = { ass: null, bgm: null, images: mapped.images, sfx: [] };

@@ -94,6 +94,14 @@ export function snapBoundary(t, tol, env, hop, targets = []) {
   return env[mi] < env[ic] - 3 ? { t: (mi + 0.5) * hop, kind: 'quiet' } : { t, kind: null };
 }
 
+// Noise level (dB) in the gaps between kept ranges: median of the frames that are not digital silence. null if none.
+export function gapNoiseDb(env, hop, ranges, duration) {
+  if (!env || !env.length) return null; const vals = []; let cur = 0;
+  const take = (a, b) => { for (let i = Math.max(0, Math.ceil(a / hop)); i < Math.min(env.length, Math.floor(b / hop)); i++) if (env[i] > -95) vals.push(env[i]); };
+  for (const r of ranges) { if (r.s > cur) take(cur, r.s); cur = r.e; } take(cur, duration);
+  if (vals.length < 25) return null; vals.sort((a, b) => a - b); return vals[vals.length >> 1];
+}
+
 export function keepRanges(segs) {
   const out = [];
   for (const g of segs) {

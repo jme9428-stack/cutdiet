@@ -112,6 +112,15 @@ kbd{font-family:var(--font-mono);font-size:11px;border:1px solid var(--line-stro
 .vol{display:inline-flex;align-items:center;gap:2px}
 .vol input[type=range]{width:70px;accent-color:var(--accent)}
 .tgroup select{font:inherit;font-size:12px;padding:3px 4px;border:1px solid var(--line-strong);border-radius:7px;background:var(--surface);color:var(--fg)}
+.txed{max-height:320px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface);margin-top:8px;padding:10px 12px;font-size:14px;line-height:1.9;caret-color:transparent;outline:none;word-break:keep-all}
+.txed:focus{border-color:var(--accent)}
+.txed:empty::before{content:"자동 자막을 만들거나 SRT를 불러오면 여기에 말이 글자로 나옵니다";color:var(--muted);font-size:12px}
+.txed p{margin:0 0 6px}
+.txed .w{border-radius:3px;cursor:pointer;padding:0 1px}
+.txed .w:hover{background:var(--surface-2)}
+.txed .w.cut{text-decoration:line-through;color:var(--remove);opacity:.7}
+.txed .w.now{background:var(--accent-soft);color:var(--fg)}
+.txed .w.approx{border-bottom:1px dotted var(--line-strong)}
 .caplist{max-height:360px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface);margin-top:8px}
 .caprow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:5px 8px;border-bottom:1px solid var(--line);font-size:12.5px}
 .caprow:last-child{border-bottom:0}
@@ -499,6 +508,10 @@ details.sect > :not(summary){margin-bottom:8px}
       <label class="switch small"><input type="checkbox" id="capFollow" checked>재생 위치 따라가기</label>
     </div>
     <div class="caplist" id="capList"></div>
+    <h3 class="sh">텍스트로 편집 <span class="chip" id="txChip">자막을 만들면 사용</span></h3>
+    <p class="hint">말을 드래그해 고르고 <kbd>Delete</kbd>를 누르면 그 말이 영상에서 잘립니다. 단어를 클릭하면 그 위치로 갑니다. 잘린 말은 줄이 그어지고, 다시 골라 <b>되살리기</b>로 살립니다. <kbd>Ctrl</kbd>+<kbd>Z</kbd> 되돌리기 · <kbd>Space</kbd> 재생.</p>
+    <div class="capbar"><button class="btn sm primary" id="btnTxDel" disabled>선택한 말 지우기</button><button class="btn sm" id="btnTxKeep" disabled>되살리기</button><label class="switch small"><input type="checkbox" id="txStrip" checked>자막 글자에서도 지우기</label></div>
+    <div class="txed" id="txEdit" contenteditable="true" spellcheck="false" role="textbox" aria-multiline="true" aria-label="텍스트로 편집: 말을 골라 Delete로 자르기"></div>
     <details class="sect">
       <summary>찾아 바꾸기 · 텍스트로 한 번에 고치기</summary>
       <div class="capbar"><input type="text" id="capFind" placeholder="찾을 말" aria-label="찾을 말"><input type="text" id="capReplace" placeholder="바꿀 말 (비우면 삭제)" aria-label="바꿀 말"><button class="btn sm" id="btnCapReplace">모두 바꾸기</button></div>
@@ -636,6 +649,8 @@ details.sect > :not(summary){margin-bottom:8px}
       <select id="selAudioFmt"><option value="mp3">MP3 · 어디서나 재생</option><option value="m4a">M4A (AAC)</option><option value="wav">WAV · 무손실 (용량 큼)</option></select>
     </div>
     <label class="switch" id="fldBoost" hidden title="말소리를 유튜브(-14 LUFS)·팟캐스트(-16 LUFS) 기준 음량으로 맞추고, 큰 소리는 리미터로 눌러 줍니다"><input type="checkbox" id="chkBoost">음량 맞춤 <span class="mono muted small" id="boostVal"></span></label>
+    <div class="field" id="fldDenoise"><label for="selDenoise">잡음 제거</label><select id="selDenoise"><option value="off">끄기</option><option value="low">약하게</option><option value="mid">보통</option><option value="high">강하게</option></select><button class="btn sm" id="btnDnOrig" title="재생 위치부터 6초, 원본">▶ 원본</button><button class="btn sm" id="btnDnClean" title="재생 위치부터 6초, 잡음 제거 후">▶ 제거 후</button></div>
+    <p class="hint" id="dnInfo">쉬는 구간의 잡음(웅·쉬익·선풍기 소리)을 배워 목소리에서 빼 줍니다. 재생 위치부터 6초를 비교해 들어 보세요.</p>
     <p class="hint" id="renderEstimate"></p>
     <div class="row">
       <button class="btn primary" id="btnRender">MP4 만들기</button>
@@ -903,6 +918,7 @@ details.sect > :not(summary){margin-bottom:8px}
         <div class="xsec"><label class="switch"><input type="checkbox" id="xVideo" checked><span id="xVideoLabel">동영상</span></label></div>
         <div class="xrow" id="xRowAudioFmt" hidden><label for="xAudioFmt">형식</label><select id="xAudioFmt"><option value="mp3">MP3 · 어디서나 재생</option><option value="m4a">M4A (AAC)</option><option value="wav">WAV · 무손실 (용량 큼)</option></select></div>
         <div class="xrow" id="xRowBoost" hidden><label for="xBoost">음량</label><label class="switch"><input type="checkbox" id="xBoost">음량 맞춤 <span class="mono muted small" id="xBoostVal"></span></label></div>
+        <div class="xrow" id="xRowDenoise"><label for="xDenoise">잡음 제거</label><select id="xDenoise"><option value="off">끄기</option><option value="low">약하게</option><option value="mid">보통</option><option value="high">강하게</option></select></div>
         <div class="xrow" id="xRowQuality"><label for="xQuality">해상도·화질</label><select id="xQuality"><option value="high">고화질 · 원본 해상도</option><option value="std">표준 · 원본 해상도 (용량 절약)</option><option value="1080">1080p</option><option value="720">720p (빠른 확인용)</option></select></div>
         <div class="xrow" id="xRowFormat"><label>형식</label><span class="val">MP4 (H.264 · AAC)</span></div>
         <div class="xrow" id="xRowFps"><label>프레임 속도</label><span class="val" id="xFps">원본</span></div>
